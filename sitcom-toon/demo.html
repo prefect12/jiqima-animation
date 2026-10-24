@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>情景喜剧卡通 · 扫地风波</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 情景喜剧卡通：固定客厅机位、粗黑描边平涂、夸张表情、罐头笑声。
+   时间全部按拍（120 BPM，一拍 0.5 秒）定义，画面和 score() 共用。 */
+const BPM = 120, BEAT = 60 / BPM;
+const T_ROOM = 3 * BEAT, T_ON = 5 * BEAT, T_SPOT = 12 * BEAT, T_PULL = 13 * BEAT, T_WAKE = 14 * BEAT,
+  T_SHOCK = 15 * BEAT, T_BONK = 21 * BEAT, T_LAND = 22 * BEAT, T_MEOW = 24 * BEAT, T_FREEZE = 27 * BEAT;
+const OL = '#1B1612', FONT = '"ZCOOL KuaiLe", "PingFang SC", sans-serif';
+const CAT = [842, 612];                               // 猫睡觉的位置（地毯上）
+const sm = u => u * u * (3 - 2 * u);
+const cl = (v, a, b) => Math.max(a, Math.min(b, v));
+const pr = (t, a, b) => cl((t - a) / (b - a), 0, 1);
+// 扫地机器人路线：前半段走走停停（关键帧），后半段驮着猫满屋乱窜（样条）
+const ROAM = [[0, 300, 628], [T_ON + .15, 300, 628], [3.3, 470, 676], [3.6, 470, 676], [4.3, 392, 574], [4.55, 392, 574], [5.3, 600, 594], [5.5, 600, 594], [T_SPOT, 700, 634]];
+const RIDE = [[700, 634], [890, 664], [1075, 620], [985, 548], [725, 566], [430, 648], [212, 606], [300, 540], [520, 530]];
+function kf(list, t) {
+  let i = list.findIndex(k => k[0] > t); if (i < 0) return list[list.length - 1].slice(1); if (i === 0) return list[0].slice(1);
+  const a = list[i - 1], b = list[i], u = sm(pr(t, a[0], b[0])); return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u];
+}
+function spline(P, u) {
+  const n = P.length - 1, f = Math.min(n - 1e-6, Math.max(0, u) * n), i = Math.floor(f), s = f - i;
+  const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(n, i + 2)];
+  return [0, 1].map(k => .5 * (2 * p1[k] + (-p0[k] + p2[k]) * s + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * s * s + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * s * s * s));
+}
+function robotPos(t) {
+  if (t < T_SHOCK + .1) return kf(ROAM, t);
+  if (t < T_BONK) return spline(RIDE, pr(t, T_SHOCK + .1, T_BONK));
+  const u = pr(t, T_BONK, T_BONK + .35); return [520 + 30 * Math.sin(Math.PI * u) + 20 * u, 530 + 34 * u];   // 撞沙发后弹回来
+}
+// 地上的饼干渣：沿机器人前半段路线撒，机器人经过时被吃掉
+const CRUMBS = [];
+for (let i = 0; i < 16; i++) { const te = 2.75 + i * .2, [x, y] = kf(ROAM, te); CRUMBS.push([x + Math.sin(i * 2.3) * 12, y + 8 + Math.cos(i * 1.7) * 8, te, i]); }
+
+Film({
+  title: '情景喜剧卡通 · 扫地风波', DUR: 15, BPM, poster: 8.25,
+  fonts: [['64px "ZCOOL KuaiLe"', '扫地风波喵完第一集']],
+  draw(c, tRaw, F) {
+    const { W, H, hash, back, easeOut } = F;
+    const t = Math.min(tRaw, T_FREEZE);                    // 结尾定格
+    const P = Math.PI;
+    const fs = (fill, lw = 6) => { c.fillStyle = fill; c.fill(); c.lineWidth = lw; c.strokeStyle = OL; c.lineJoin = 'round'; c.lineCap = 'round'; c.stroke(); };
+    const ell = (x, y, rx, ry, r = 0) => { c.beginPath(); c.ellipse(x, y, Math.max(.5, rx), Math.max(.5, ry), r, 0, P * 2); };
+    const line = (pts, lw = 6, col = OL) => { c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y)); c.lineWidth = lw; c.strokeStyle = col; c.lineCap = 'round'; c.lineJoin = 'round'; c.stroke(); };
+    const txt = (s, x, y, size, fill, lw = 10, rot = 0) => { c.save(); c.translate(x, y); c.rotate(rot); c.font = `${size}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round'; if (lw > 0) { c.lineWidth = lw; c.strokeStyle = OL; c.strokeText(s, 0, 0); } c.fillStyle = fill; c.fillText(s, 0, 0); c.restore(); };
+    const burst = (x, y, r, n, fill, seed) => { c.beginPath(); for (let i = 0; i < n * 2; i++) { const a = i / (n * 2) * P * 2, rr = i % 2 ? r * .62 : r * (.9 + hash(seed + i) * .2); c.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } c.closePath(); fs(fill, 5); };
+
+    /* ---------------- 片头：旋转放射背景 + 大标题 ---------------- */
+    if (tRaw < T_ROOM) {
+      c.save(); c.translate(W / 2, H / 2); c.rotate(tRaw * .5);
+      for (let i = 0; i < 20; i++) { c.beginPath(); c.moveTo(0, 0); c.arc(0, 0, 900, i / 20 * P * 2, (i + 1) / 20 * P * 2); c.fillStyle = i % 2 ? '#FFB627' : '#FFD95A'; c.fill(); }
+      c.restore();
+      const k = back(pr(tRaw, .08, .5));
+      c.save(); c.translate(W / 2, 320); c.scale(k, k); c.rotate(-.05 + .02 * Math.sin(tRaw * 6));
+      ell(0, 0, 380, 150); fs('#E8483B', 10);
+      ell(0, 0, 350, 124); c.lineWidth = 4; c.strokeStyle = '#FFF3D6'; c.setLineDash([18, 14]); c.stroke(); c.setLineDash([]);
+      txt('扫地风波', 0, 6, 132, '#FFF3D6', 18);
+      c.restore();
+      if (tRaw > .55) { const u = back(pr(tRaw, .55, .8)); c.save(); c.translate(W / 2, 520); c.scale(u, u); c.fillStyle = OL; F.rrect(c, -110, -30, 220, 60, 30); c.fill(); c.font = `36px ${FONT}`; c.fillStyle = '#FFD95A'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('第一集', 0, 2); c.restore(); }
+      // 小机器人从标题下面溜过去
+      const rx = -120 + 1500 * pr(tRaw, .75, 1.45);
+      if (tRaw > .75) { c.save(); c.translate(rx, 640); ell(0, 12, 56, 20); fs('#6E7780', 5); ell(0, 0, 56, 20); fs('#EEF0F2', 5); ell(28, 4, 5, 4); c.fillStyle = '#39D353'; c.fill(); c.restore(); line([[rx - 80, 630], [rx - 150, 630]], 5); line([[rx - 90, 648], [rx - 190, 648]], 5); }
+      return;
+    }
+
+    // 两次“撞击”时的镜头抖动（固定机位，只抖不移）
+    const shake = [T_SHOCK, T_BONK].reduce((a, h) => t >= h && t < h + .25 ? 1 - (t - h) / .25 : a, 0);
+    c.save(); c.translate((hash(Math.floor(tRaw * 30)) - .5) * 16 * shake, (hash(Math.floor(tRaw * 30) + 9) - .5) * 12 * shake);
+
+    /* ---------------- 客厅（固定机位） ---------------- */
+    c.fillStyle = '#86CDB9'; c.fillRect(-20, -20, W + 40, 490);
+    c.fillStyle = '#78BFAB'; for (let x = 0; x < W; x += 72) c.fillRect(x, 26, 30, 424);
+    c.fillStyle = '#F6EBD3'; c.fillRect(-20, -20, W + 40, 46); line([[-20, 26], [W + 20, 26]], 5);
+    // 窗
+    c.beginPath(); c.rect(70, 92, 200, 230); fs('#A9DDF5', 7);
+    ell(140, 170, 40, 18); c.fillStyle = '#FFFFFF'; c.fill(); ell(175, 162, 30, 16); c.fill();
+    line([[170, 92], [170, 322]], 6); line([[70, 207], [270, 207]], 6);
+    c.beginPath(); c.moveTo(56, 92); c.lineTo(110, 92); c.lineTo(84, 330); c.lineTo(50, 330); c.closePath(); fs('#E8483B', 5);
+    c.beginPath(); c.moveTo(284, 92); c.lineTo(230, 92); c.lineTo(256, 330); c.lineTo(290, 330); c.closePath(); fs('#E8483B', 5);
+    c.beginPath(); c.rect(40, 80, 260, 16); fs('#8A5A36', 5);
+    // 墙上的画（画的是一条鱼，给猫的伏笔）
+    c.save(); c.translate(640, 118); c.rotate(.03);
+    c.beginPath(); c.rect(-86, -58, 172, 116); fs('#FFD95A', 7); c.beginPath(); c.rect(-68, -42, 136, 84); fs('#FFF7E4', 4);
+    ell(-6, 0, 36, 20); fs('#5AA9E6', 4); c.beginPath(); c.moveTo(26, 0); c.lineTo(52, -18); c.lineTo(52, 18); c.closePath(); fs('#5AA9E6', 4); ell(-24, -4, 4, 4); c.fillStyle = OL; c.fill();
+    c.restore();
+    // 落地灯 + 边桌
+    c.beginPath(); c.moveTo(1100, 150); c.lineTo(1180, 150); c.lineTo(1200, 226); c.lineTo(1080, 226); c.closePath(); fs('#FFD95A', 6);
+    line([[1140, 226], [1140, 452]], 7); ell(1140, 456, 36, 9); fs('#8A5A36', 5);
+    // 踢脚线 + 地板
+    c.fillStyle = '#D9914F'; c.fillRect(-20, 470, W + 40, 270);
+    for (let r = 0; r < 7; r++) { const y = 470 + r * 38 + r * r * 2; line([[-20, y], [W + 20, y]], 3, '#B9713A'); for (let k = 0; k < 7; k++) { const x = ((k * 230 + r * 117) % 1400) - 60; line([[x, y], [x, y + 38 + r * 4]], 3, '#B9713A'); } }
+    c.beginPath(); c.rect(-20, 448, W + 40, 24); fs('#F6EBD3', 5);
+    // 地毯
+    ell(770, 628, 330, 70); fs('#E8483B', 6); ell(770, 628, 280, 52); c.lineWidth = 6; c.strokeStyle = '#FFD95A'; c.stroke();
+
+    /* ---------------- 一家三口（站在沙发后面，排成一排） ---------------- */
+    const rp = robotPos(t);
+    const shock = t >= T_SHOCK && t < T_LAND ? back(pr(t, T_SHOCK, T_SHOCK + .18)) : 0;
+    const relief = t >= T_LAND + .5;
+    const bob = k => -5 * Math.abs(Math.sin(P * (t + k * .13) / BEAT)) * (t > T_ROOM + .2 && t < T_SHOCK ? 1 : .4);
+    const looking = (x, y) => {
+      if (t < T_SPOT) return rp;
+      if (t < T_SHOCK) return [CAT[0] - (t > T_PULL ? 60 : 0), CAT[1]];
+      if (t < T_BONK + .2) return [rp[0], rp[1] - 30];
+      if (t < T_LAND) { const u = pr(t, T_BONK, T_LAND); return [520 - 80 * u, 500 - 360 * u]; }
+      return [450, 90];
+    };
+    function eyes(x, y, gap, cfg) {
+      const { shockK = 0, target, mood = 'smile', cross = 0 } = cfg;
+      const rx = 15 + 8 * shockK, ry = 19 + 12 * shockK, ey = y - 10 * shockK;
+      [-1, 1].forEach(s => {
+        const ex = x + s * gap;
+        if (mood === 'laugh' || mood === 'content') { c.beginPath(); c.arc(ex, ey + 4, 13, P * 1.15, P * 1.85); c.lineWidth = 6; c.strokeStyle = OL; c.stroke(); return; }
+        ell(ex, ey, rx, ry); fs('#FFFFFF', 5);
+        let dx = target[0] - ex, dy = target[1] - ey, d = Math.hypot(dx, dy) || 1; dx = dx / d * (rx - 8); dy = dy / d * (ry - 9);
+        if (cross) { dx = -s * (rx - 7) * cross + dx * (1 - cross); dy = dy * (1 - cross); }
+        ell(ex + dx, ey + dy, 7 - 3 * shockK, 7 - 3 * shockK); c.fillStyle = OL; c.fill();
+      });
+    }
+    function mouth(x, y, cfg) {
+      const { shockK = 0, mood = 'smile', w = 30 } = cfg;
+      if (shockK > .05) {                                  // 下巴掉下来
+        const h = 12 + 44 * shockK; c.beginPath(); c.ellipse(x, y + h * .5, 22 + 6 * shockK, h, 0, 0, P * 2); fs('#7A1E1E', 5);
+        ell(x, y + h * 1.05, 14, 8); c.fillStyle = '#F07A8A'; c.fill(); return;
+      }
+      if (mood === 'laugh') { c.beginPath(); c.moveTo(x - w, y - 4); c.quadraticCurveTo(x, y + 52, x + w, y - 4); c.closePath(); fs('#7A1E1E', 5); c.beginPath(); c.rect(x - w * .6, y - 3, w * 1.2, 8); c.fillStyle = '#FFF'; c.fill(); return; }
+      if (mood === 'curious') { ell(x, y + 6, 9, 11); fs('#7A1E1E', 5); return; }
+      c.beginPath(); c.arc(x, y - 12, w, P * .2, P * .8); c.lineWidth = 6; c.strokeStyle = OL; c.stroke();
+    }
+    const moodAt = who => {
+      if (t < T_SPOT) return 'smile';
+      if (t < T_SHOCK) return 'curious';
+      if (t < T_LAND) return 'shock';
+      if (who === 'dad') return t < T_LAND + .5 ? 'cross' : 'content';
+      return 'laugh';
+    };
+    // 爸爸：方脸、平头、粗眉、大胡子；受惊时头发像锅盖一样弹起来
+    function dad(x, y) {
+      const m = moodAt('dad'), sk = m === 'shock' ? shock : 0, jaw = 40 * sk;
+      c.beginPath(); c.moveTo(x - 92, 455); c.lineTo(x - 82, y + 92); c.quadraticCurveTo(x, y + 70, x + 82, y + 92); c.lineTo(x + 92, 455); c.closePath(); fs('#5FA35A');
+      c.beginPath(); c.moveTo(x - 30, y + 74); c.lineTo(x, y + 104); c.lineTo(x + 30, y + 74); c.closePath(); fs('#F4F1E8', 5);
+      // 遥控器那只手
+      if (t > T_ROOM + .2 && t < T_SPOT) { const up = sm(pr(t, T_ROOM + .3, T_ON - .2)), arm = [[x - 76, y + 110], [x - 124, y + 110 - 70 * up], [x - 136, y + 40 - 60 * up]]; line(arm, 22); line(arm, 12, '#F1C29B'); c.save(); c.translate(x - 138, y + 22 - 60 * up); c.rotate(-.2); c.beginPath(); c.rect(-12, -36, 24, 50); fs('#2F3A45', 4); ell(0, -24, 5, 5); c.fillStyle = t > T_ON && t < T_ON + .3 ? '#39D353' : '#E8483B'; c.fill(); c.restore(); }
+      c.beginPath(); F.rrect(c, x - 60, y - 66, 120, 136 + jaw, 40); fs('#F1C29B');
+      ell(x - 62, y + 6, 12, 18); fs('#F1C29B', 5); ell(x + 62, y + 6, 12, 18); fs('#F1C29B', 5);
+      c.beginPath(); F.rrect(c, x - 60, y - 66, 120, 136 + jaw, 40); c.lineWidth = 6; c.strokeStyle = OL; c.stroke();
+      const lift = 60 * sk;                                 // 头发弹起
+      c.beginPath(); c.moveTo(x - 64, y - 26 - lift); c.lineTo(x - 64, y - 70 - lift); c.quadraticCurveTo(x, y - 96 - lift, x + 64, y - 70 - lift); c.lineTo(x + 64, y - 26 - lift); c.quadraticCurveTo(x + 40, y - 44 - lift, x + 10, y - 38 - lift); c.quadraticCurveTo(x - 30, y - 46 - lift, x - 64, y - 26 - lift); fs('#5A3A22');
+      if (sk > .1) { line([[x - 50, y - 70 - lift + 30], [x - 60, y - 40]], 4); line([[x + 50, y - 70 - lift + 30], [x + 60, y - 40]], 4); }
+      const by = y - 32 - 16 * sk; line([[x - 42, by + 2], [x - 12, by - 4]], 9); line([[x + 12, by - 4], [x + 42, by + 2]], 9);
+      eyes(x, y - 6, 26, { shockK: sk, target: looking(), mood: m === 'content' ? 'content' : 'smile', cross: m === 'cross' ? 1 : 0 });
+      ell(x, y + 22, 13, 11); fs('#E3A57A', 5);
+      mouth(x, y + 58 + jaw * .1, { shockK: sk, mood: m === 'content' ? 'smile' : m === 'cross' ? 'curious' : m, w: 26 });
+      c.beginPath(); c.moveTo(x - 36, y + 44); c.quadraticCurveTo(x, y + 28, x + 36, y + 44); c.quadraticCurveTo(x, y + 52, x - 36, y + 44); fs('#5A3A22', 5);
+    }
+    // 妈妈：圆脸、蓬松短发加一个发髻、大耳环；受惊时双手捂脸
+    function mom(x, y) {
+      const m = moodAt('mom'), sk = m === 'shock' ? shock : 0, jaw = 36 * sk;
+      c.beginPath(); c.moveTo(x - 82, 455); c.lineTo(x - 72, y + 96); c.quadraticCurveTo(x, y + 76, x + 72, y + 96); c.lineTo(x + 82, 455); c.closePath(); fs('#F3C33C');
+      ell(x, y - 88 - 30 * sk, 30, 26); fs('#3A2A22');
+      ell(x, y - 18, 86, 80); fs('#3A2A22');
+      ell(x, y + 8 + jaw * .5, 60, 64 + jaw * .5); fs('#C98A5B');
+      c.beginPath(); c.moveTo(x - 66, y - 16); c.quadraticCurveTo(x - 40, y - 76, x + 10, y - 60); c.quadraticCurveTo(x + 60, y - 70, x + 70, y - 14); c.quadraticCurveTo(x + 30, y - 44, x - 4, y - 36); c.quadraticCurveTo(x - 40, y - 44, x - 66, y - 16); fs('#3A2A22', 5);
+      ell(x - 64, y + 34, 10, 10); c.lineWidth = 5; c.strokeStyle = '#FFD95A'; c.stroke(); ell(x + 64, y + 34, 10, 10); c.stroke();
+      const by = y - 22 - 16 * sk; line([[x - 36, by], [x - 12, by - 6]], 6); line([[x + 12, by - 6], [x + 36, by]], 6);
+      eyes(x, y, 24, { shockK: sk, target: looking(), mood: m === 'laugh' ? 'laugh' : 'smile' });
+      ell(x, y + 26, 7, 6); c.fillStyle = '#A86A42'; c.fill();
+      mouth(x, y + 50, { shockK: sk, mood: m, w: 24 });
+      if (sk > .05) {                                       // 双手捂脸
+        [-1, 1].forEach(s => { line([[x + s * 76, 455], [x + s * 96, y + 120], [x + s * 66, y + 40]], 22); line([[x + s * 76, 455], [x + s * 96, y + 120], [x + s * 66, y + 40]], 12, '#C98A5B'); ell(x + s * 62, y + 34, 20, 26); fs('#C98A5B', 5); });
+      }
+    }
+    // 孩子：反戴棒球帽、雀斑、缺一颗门牙；最后竖大拇指
+    function kid(x, y) {
+      const m = moodAt('kid'), sk = m === 'shock' ? shock : 0, jaw = 30 * sk;
+      c.beginPath(); c.moveTo(x - 62, 455); c.lineTo(x - 54, y + 76); c.quadraticCurveTo(x, y + 62, x + 54, y + 76); c.lineTo(x + 62, 455); c.closePath(); fs('#3F7FD1');
+      for (let k = 0; k < 3; k++) line([[x - 58, y + 100 + k * 26], [x + 58, y + 100 + k * 26]], 7, '#FFFFFF');
+      ell(x, y + jaw * .5, 58, 54 + jaw * .5); fs('#F7D3AE');
+      const cap = 40 * sk;
+      c.beginPath(); c.arc(x, y - 12 - cap, 58, P, P * 2); c.closePath(); fs('#F07A2A');
+      c.beginPath(); c.moveTo(x - 50, y - 18 - cap); c.lineTo(x - 104, y - 8 - cap); c.lineTo(x - 100, y - 26 - cap); c.lineTo(x - 48, y - 34 - cap); fs('#F07A2A', 5);
+      eyes(x, y + 4, 22, { shockK: sk, target: looking(), mood: m === 'laugh' ? 'laugh' : 'smile' });
+      [[-30, 24], [-22, 30], [22, 30], [30, 24]].forEach(([dx, dy]) => { ell(x + dx, y + dy, 2.5, 2.5); c.fillStyle = '#C8674A'; c.fill(); });
+      mouth(x, y + 40, { shockK: sk, mood: m, w: 20 });
+      if (m === 'smile' || m === 'curious') { c.beginPath(); c.rect(x - 5, y + 34, 10, 9); c.fillStyle = '#FFF'; c.fill(); }
+      if (relief) {                                         // 竖大拇指
+        const u = back(pr(t, T_LAND + .5, T_LAND + .8));
+        c.save(); c.translate(x + 84, y + 60 - 30 * u); c.scale(u, u); ell(0, 0, 20, 17); fs('#F7D3AE', 5); c.beginPath(); F.rrect(c, -7, -40, 14, 30, 7); fs('#F7D3AE', 5); c.restore();
+      }
+    }
+    dad(450, 205 + bob(0)); mom(640, 222 + bob(1)); kid(835, 262 + bob(2));
+    // 惊吓线
+    if (shock > 0) [[450, 190], [640, 210], [835, 250]].forEach(([x, y], j) => { for (let k = 0; k < 7; k++) { const a = -P * .95 + k * .3, r0 = 108 + 6 * Math.sin(t * 40 + k); line([[x + Math.cos(a) * r0, y + Math.sin(a) * r0], [x + Math.cos(a) * (r0 + 28), y + Math.sin(a) * (r0 + 28)]], 5); } });
+
+    /* ---------------- 沙发（挡住三个人的下半身） ---------------- */
+    const sq = t >= T_BONK && t < T_BONK + .4 ? Math.sin(P * pr(t, T_BONK, T_BONK + .4) * 3) * (1 - pr(t, T_BONK, T_BONK + .4)) : 0;
+    c.save(); c.translate(640, 480); c.scale(1 + .03 * sq, 1 - .05 * sq); c.translate(-640, -480);
+    c.beginPath(); F.rrect(c, 300, 328, 680, 110, 40); fs('#E0703E');
+    for (let k = 0; k < 3; k++) { c.beginPath(); F.rrect(c, 330 + k * 212, 350, 196, 76, 24); fs('#EC8752', 5); }
+    c.beginPath(); F.rrect(c, 318, 412, 644, 58, 18); fs('#EC8752');
+    [[268, 362], [948, 362]].forEach(([x, y]) => { c.beginPath(); F.rrect(c, x, y, 64, 112, 26); fs('#E0703E'); });
+    [[330, 470], [940, 470]].forEach(([x, y]) => { c.beginPath(); c.rect(x - 8, y, 16, 18); fs('#5A3A22', 4); });
+    c.restore();
+
+    /* ---------------- 饼干渣、机器人、猫 ---------------- */
+    CRUMBS.forEach(([x, y, te, i]) => { if (t < te) { ell(x, y, 6 + (i % 3) * 2, 4 + (i % 2) * 2, i); fs('#9C5B2E', 3); } else if (t < te + .25) { const u = pr(t, te, te + .25), [rx, ry] = robotPos(te); ell(x + (rx - x) * u, y + (ry - y) * u, 5 * (1 - u), 4 * (1 - u)); c.fillStyle = '#9C5B2E'; c.fill(); } });
+    // 飞奔时的尘土团
+    if (t > T_SHOCK && t < T_BONK + .3) for (let k = 1; k <= 5; k++) { const tp = t - k * .07; if (tp < T_SHOCK + .1) continue; const [px, py] = robotPos(tp); ell(px - (hash(k * 3.3 + Math.floor(t * 10)) - .5) * 20, py + 20, 30 - k * 4, 18 - k * 2.5); c.globalAlpha = .75 - k * .12; fs('#F6EBD3', 4); c.globalAlpha = 1; }
+    const [nx, ny] = robotPos(t + .04), vx = nx - rp[0], vy = ny - rp[1], vd = Math.hypot(vx, vy);
+    let dir = vd > .3 ? Math.atan2(vy, vx) : (t < T_SHOCK + .1 && t > T_SPOT - .3 ? 0 : t >= T_BONK ? Math.atan2(1, -.2) + t * 9 : .2);
+    const ledCol = t >= T_SPOT && t < T_BONK + .35 ? (Math.floor(t * 8) % 2 ? '#FF3B30' : '#B01E17') : '#39D353';
+    function robot(x, y) {
+      ell(x, y + 30, 70, 20); c.fillStyle = 'rgba(60,30,10,.25)'; c.fill();
+      c.beginPath(); c.ellipse(x, y, 62, 24, 0, 0, P); c.lineTo(x - 62, y + 16); c.ellipse(x, y + 16, 62, 24, 0, P, 0, true); c.closePath(); fs('#6E7780');
+      ell(x, y, 62, 24); fs('#EEF0F2'); ell(x, y, 40, 14); c.lineWidth = 4; c.strokeStyle = '#B7C0C8'; c.stroke();
+      ell(x, y - 2, 8, 5); fs('#B7C0C8', 3);
+      const lx = x + Math.cos(dir) * 48, ly = y + Math.sin(dir) * 16; ell(lx, ly, 7, 5); c.fillStyle = ledCol; c.fill(); c.lineWidth = 3; c.strokeStyle = OL; c.stroke();
+      if (t > T_ON) for (let s = -1; s <= 1; s += 2) { const bx = x + Math.cos(dir + s * .9) * 60, by = y + 20 + Math.sin(dir + s * .9) * 18; for (let k = 0; k < 3; k++) { const a = t * 30 * s + k * 2.1; line([[bx, by], [bx + Math.cos(a) * 16, by + Math.sin(a) * 6]], 3); } }
+    }
+    // 猫：睡着 / 被吸住 / 骑在机器人上 / 飞 / 坐在爸爸头上
+    const spiky = (x, y, rx, ry, n, seed, fill) => { c.beginPath(); for (let i = 0; i < n * 2; i++) { const a = i / (n * 2) * P * 2, k = i % 2 ? 1 : 1.22 + hash(seed + i) * .15; c.lineTo(x + Math.cos(a) * rx * k, y + Math.sin(a) * ry * k); } c.closePath(); fs(fill, 5); };
+    function catHead(x, y, r, eyesMode, rot = 0) {
+      c.save(); c.translate(x, y); c.rotate(rot);
+      [-1, 1].forEach(s => { c.beginPath(); c.moveTo(s * r * .85, -r * .3); c.lineTo(s * r * .75, -r * 1.25); c.lineTo(s * r * .15, -r * .8); c.closePath(); fs('#F29B38', 5); });
+      ell(0, 0, r, r * .88); fs('#F29B38');
+      line([[-r * .3, -r * .82], [-r * .2, -r * .5]], 4); line([[r * .05, -r * .88], [r * .05, -r * .55]], 4);
+      if (eyesMode === 'sleep' || eyesMode === 'content') [-1, 1].forEach(s => { c.beginPath(); c.arc(s * r * .38, -r * .02, r * .2, eyesMode === 'sleep' ? P * .1 : P * 1.15, eyesMode === 'sleep' ? P * .9 : P * 1.85); c.lineWidth = 4; c.strokeStyle = OL; c.stroke(); });
+      else [-1, 1].forEach(s => { ell(s * r * .38, -r * .08, r * .3, r * .38); fs('#FFFFFF', 4); ell(s * r * .38, -r * .04, r * .08, r * .08); c.fillStyle = OL; c.fill(); });
+      ell(0, r * .28, r * .1, r * .07); c.fillStyle = '#E86A7A'; c.fill();
+      if (eyesMode === 'shock') { ell(0, r * .6, r * .2, r * .22); fs('#7A1E1E', 4); } else { c.beginPath(); c.arc(-r * .12, r * .38, r * .12, 0, P); c.arc(r * .12, r * .38, r * .12, 0, P); c.lineWidth = 3; c.strokeStyle = OL; c.stroke(); }
+      [-1, 1].forEach(s => { line([[s * r * .5, r * .32], [s * r * 1.25, r * .22]], 3); line([[s * r * .5, r * .44], [s * r * 1.25, r * .5]], 3); });
+      c.restore();
+    }
+    function catLying(x, y, pull, wake) {
+      const sx = 1 + .45 * pull;
+      // 尾巴被吸成一条直线伸进机器人
+      if (pull > 0) { line([[x - 60, y + 8], [x - 60 - 80 * pull, y + 14], [rp[0] + 30, rp[1] + 4]], 18); line([[x - 60, y + 8], [x - 60 - 80 * pull, y + 14], [rp[0] + 30, rp[1] + 4]], 8, '#F29B38'); }
+      else { c.beginPath(); c.moveTo(x - 60, y + 10); c.quadraticCurveTo(x - 90, y + 44, x - 10, y + 40); c.lineWidth = 18; c.strokeStyle = OL; c.stroke(); c.lineWidth = 8; c.strokeStyle = '#F29B38'; c.stroke(); }
+      c.save(); c.translate(x - 20 * pull, y); c.scale(sx, 1 - .15 * pull);
+      if (wake) spiky(0, 0, 70, 36, 14, 7, '#F29B38'); else { ell(0, 0, 70, 36); fs('#F29B38'); }
+      for (let k = 0; k < 3; k++) line([[-30 + k * 22, -34], [-24 + k * 22, -14]], 5);
+      c.restore();
+      if (wake) for (let k = 0; k < 4; k++) line([[x + 70 + k * 10, y + 30], [x + 70 + k * 10 + 40 * pull, y + 36]], 4, '#A8322A');   // 爪子在地毯上抓出的痕
+      catHead(x + 62 + 10 * pull, y - 14 - 10 * wake, 34, wake ? 'shock' : 'sleep');
+      if (!wake) for (let k = 0; k < 3; k++) { const ph = (t * .8 + k / 3) % 1; txt('Z', x + 90 + ph * 40 + k * 6, y - 70 - ph * 70, 26 + k * 6, '#FFFFFF', 6); }
+    }
+    function catRide(x, y) {
+      const wob = Math.sin(t * 30) * .12;
+      c.save(); c.translate(x, y - 30); c.rotate(wob);
+      line([[-30, -10], [-40, -90]], 18); line([[-30, -10], [-40, -90]], 8, '#F29B38');
+      for (let k = 0; k < 5; k++) line([[-40 + (k - 2) * 7, -90 + Math.abs(k - 2) * 6], [-40 + (k - 2) * 13, -104 + Math.abs(k - 2) * 8]], 4);
+      spiky(0, 0, 50, 34, 12, 3, '#F29B38');
+      [[-40, 26], [-14, 30], [14, 30], [40, 26]].forEach(([dx, dy]) => { ell(dx, dy, 10, 8); fs('#F29B38', 4); });
+      catHead(34, -30, 32, 'shock', -wob);
+      c.restore();
+    }
+    function catFly(x, y, rot) {
+      c.save(); c.translate(x, y); c.rotate(rot);
+      [[-44, -30], [44, -30], [-44, 30], [44, 30]].forEach(([dx, dy]) => { line([[0, 0], [dx, dy]], 18); line([[0, 0], [dx, dy]], 8, '#F29B38'); });
+      spiky(0, 0, 44, 30, 12, 5, '#F29B38'); catHead(0, -30, 30, 'shock'); c.restore();
+    }
+    function catSit(x, y) {
+      const sw = Math.sin(t * 4) * .5;
+      c.beginPath(); c.moveTo(x + 30, y + 20); c.quadraticCurveTo(x + 80, y + 10 + 20 * sw, x + 60, y - 30 - 10 * sw); c.lineWidth = 18; c.strokeStyle = OL; c.stroke(); c.lineWidth = 8; c.strokeStyle = '#F29B38'; c.stroke();
+      ell(x, y, 46, 34); fs('#F29B38'); [[-24, 26], [24, 26]].forEach(([dx, dy]) => { ell(x + dx, y + dy, 12, 9); fs('#F29B38', 4); });
+      catHead(x, y - 44, 32, 'content');
+    }
+    // 机器人与猫的前后关系：猫在机器人右边睡着时，猫在后；骑乘时猫在上
+    if (t < T_SHOCK) {
+      robot(rp[0], rp[1]);
+      const pull = sm(pr(t, T_PULL, T_SHOCK)), wake = t >= T_WAKE ? 1 : 0;
+      if (pull > 0) for (let k = 0; k < 6; k++) { const ph = (t * 2.2 + k / 6) % 1, sx = CAT[0] - 20, sy = CAT[1] - 40 + (k % 3) * 40, ex = rp[0] + 50, ey = rp[1]; const x0 = sx + (ex - sx) * ph, y0 = sy + (ey - sy) * ph + Math.sin(ph * P * 2 + k) * 10; c.globalAlpha = pull * (1 - ph); line([[x0, y0], [x0 - 34, y0 + 2]], 5, '#FFFFFF'); c.globalAlpha = 1; }
+      catLying(CAT[0] - 60 * pull, CAT[1], pull, wake);
+      if (t >= T_SPOT && t < T_SHOCK) { const u = back(pr(t, T_SPOT, T_SPOT + .2)); c.save(); c.translate(rp[0], rp[1] - 92); c.scale(u, u); burst(0, 0, 44, 9, '#FFD95A', 11); txt('!', 0, 4, 56, '#E8483B', 8); c.restore(); }
+    } else if (t < T_BONK) {
+      robot(rp[0], rp[1]);
+      const u = pr(t, T_SHOCK, T_SHOCK + .15);
+      if (u < 1) catFly(CAT[0] - 60 + (rp[0] - CAT[0] + 60) * u, CAT[1] - 120 * Math.sin(P * u) + (rp[1] - 30 - CAT[1]) * u, u * 4);
+      else catRide(rp[0], rp[1]);
+    } else {
+      robot(rp[0], rp[1]);
+      if (t < T_LAND) {                                     // 撞沙发，把猫弹飞到爸爸头上
+        const u = pr(t, T_BONK, T_LAND), x = 520 + (450 - 520) * u, y = 500 + (96 - 500) * u - 220 * Math.sin(P * u);
+        catFly(x, y, u * P * 2);
+        if (t < T_BONK + .3) { const k = back(pr(t, T_BONK, T_BONK + .12)); c.save(); c.translate(560, 486); c.scale(k, k); burst(0, 0, 60, 10, '#FFFFFF', 21); c.restore(); }
+      }
+    }
+    if (t >= T_LAND) {
+      const u = pr(t, T_LAND, T_LAND + .2);
+      catSit(450, 96 - 20 * Math.sin(P * u) + bob(0));
+      if (t < T_LAND + .5) for (let k = 0; k < 4; k++) { const a = t * 10 + k * P / 2; ell(450 + Math.cos(a) * 80, 160 + Math.sin(a) * 20, 9, 9); fs('#FFD95A', 4); }
+      if (t >= T_MEOW) {                                  // “喵”对话气泡
+        const k = back(pr(t, T_MEOW, T_MEOW + .2));
+        c.save(); c.translate(250, 90); c.scale(k, k);
+        c.beginPath(); c.ellipse(0, 0, 76, 50, 0, 0, P * 2); c.moveTo(56, 30); c.lineTo(126, 44); c.lineTo(34, 44); fs('#FFFFFF', 6);
+        txt('喵～', 0, 2, 50, OL, 0); c.restore();
+      }
+    }
+    c.restore();
+
+    /* ---------------- 定格 + 片名贴纸 ---------------- */
+    if (tRaw >= T_FREEZE) {
+      const u = pr(tRaw, T_FREEZE, T_FREEZE + .1); c.fillStyle = `rgba(255,255,255,${.6 * (1 - u)})`; c.fillRect(0, 0, W, H);
+      const k = back(pr(tRaw, T_FREEZE + .05, T_FREEZE + .35));
+      c.save(); c.translate(1096, 584); c.rotate(-.08); c.scale(k, k);
+      burst(0, 0, 120, 14, '#FFD95A', 31); txt('扫地风波', 0, -14, 36, '#E8483B', 8); txt('完', 0, 32, 40, '#FFFFFF', 8); c.restore();
+    }
+    const fo = pr(tRaw, 14.45, 15); if (fo > 0) { c.fillStyle = `rgba(0,0,0,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S, F) {
+    const { I, beat } = S, hash = F.hash;
+    /* --- 自制音色：罐头笑声、掌声、滑哨、猫叫、呼噜、唱片刮擦 --- */
+    const NB = new WeakMap();
+    const nbuf = ctx => { let b = NB.get(ctx); if (!b) { b = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate); const d = b.getChannelData(0); let s = 12345; for (let i = 0; i < d.length; i++) { s = (s * 16807) % 2147483647; d[i] = s / 1073741823.5 - 1; } NB.set(ctx, b); } return b; };
+    function voice(B, w, f0, f1, d, peak, formant, out) {
+      const ctx = B.sfx.context, o = ctx.createOscillator(), bp = ctx.createBiquadFilter(), bp2 = ctx.createBiquadFilter(), g = ctx.createGain();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(f0, w); o.frequency.exponentialRampToValueAtTime(f1, w + d);
+      bp.type = 'bandpass'; bp.frequency.value = formant; bp.Q.value = 2.2; bp2.type = 'bandpass'; bp2.frequency.value = formant * 1.6; bp2.Q.value = 3;
+      g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(peak, w + .018); g.gain.exponentialRampToValueAtTime(.0001, w + d);
+      o.connect(bp); o.connect(bp2); bp.connect(g); bp2.connect(g); g.connect(out || B.sfx); o.start(w); o.stop(w + d + .02);
+    }
+    function breath(B, w, d, peak, f) {
+      const ctx = B.sfx.context, s = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+      s.buffer = nbuf(ctx); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = 1.2;
+      g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(peak, w + .012); g.gain.exponentialRampToValueAtTime(.0001, w + d);
+      s.connect(bp); bp.connect(g); g.connect(B.sfx); s.start(w, (w * 7.31) % 1.5); s.stop(w + d + .02);
+    }
+    // 一群人“哈哈哈”：每个声部有自己的音高、语速和起笑时间，整体先涌上来再慢慢散掉
+    function laugh(w, B, dur = 2.2, n = 18, v = 1, seed = 1) {
+      for (let i = 0; i < n; i++) {
+        const h = k => hash(seed * 31.7 + i * 7.13 + k), f0 = h(1) < .45 ? 120 + h(2) * 70 : 210 + h(2) * 150, rate = 5.2 + h(3) * 2.6, off = h(4) * .28;
+        const len = dur * (.55 + h(5) * .45), nsyl = Math.floor(len * rate), formant = 700 + h(6) * 500;
+        for (let k = 0; k < nsyl; k++) {
+          const ts = w + off + k / rate * (1 + (h(10 + k) - .5) * .18), fade = Math.pow(1 - k / nsyl, 1.3), f = f0 * (1.18 - .25 * k / nsyl);
+          voice(B, ts, f, f * .82, .11 + h(20 + k) * .05, .05 * v * fade * (.6 + h(30 + k) * .6), formant);
+          breath(B, ts, .1, .018 * v * fade, 1400 + formant);
+        }
+      }
+    }
+    function applause(w, B, dur = 2.5, v = 1, seed = 3) {
+      const n = Math.floor(dur * 70);
+      for (let i = 0; i < n; i++) { const u = i / n, ts = w + u * dur + (hash(seed + i * 3.1) - .5) * .02, env = Math.min(1, u * 6) * Math.pow(1 - u, .8); breath(B, ts, .025 + hash(seed + i) * .02, .17 * v * env * (.5 + hash(seed + i * 1.7)), 1100 + hash(seed + i * 2.3) * 1800); }
+    }
+    const tone = (B, type, pts, peak, d, out) => {                  // 任意音高曲线的单音
+      const ctx = B.sfx.context, o = ctx.createOscillator(), g = ctx.createGain(); o.type = type; const w = pts[0][0];
+      o.frequency.setValueAtTime(pts[0][1], w); pts.slice(1).forEach(([tt, f]) => o.frequency.linearRampToValueAtTime(f, tt));
+      g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(peak, w + .02); g.gain.setValueAtTime(peak, w + d - .06); g.gain.exponentialRampToValueAtTime(.0001, w + d);
+      o.connect(g); g.connect(out || B.sfx); o.start(w); o.stop(w + d + .02);
+    };
+    const slide = (w, B, up) => tone(B, 'sine', up ? [[w, 500], [w + .45, 1700]] : [[w, 1700], [w + .45, 480]], .12, .48);
+    const meow = (w, B, v = 1, yowl = 0) => { const d = .45 + yowl * .4; voice(B, w, 520 + yowl * 200, 380, d, .16 * v, 1300); tone(B, 'triangle', [[w, 600 + yowl * 250], [w + d * .35, 900 + yowl * 350], [w + d, 420]], .05 * v, d); };
+    const beep = (w, B, m) => tone(B, 'square', [[w, 440 * Math.pow(2, (m - 69) / 12)], [w + .08, 440 * Math.pow(2, (m - 69) / 12)]], .05, .09);
+    const scratch = (w, B) => { const ctx = B.sfx.context, s = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain(); s.buffer = nbuf(ctx); bp.type = 'bandpass'; bp.Q.value = 3; bp.frequency.setValueAtTime(3000, w); bp.frequency.exponentialRampToValueAtTime(400, w + .12); bp.frequency.exponentialRampToValueAtTime(2500, w + .25); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.5, w + .01); g.gain.exponentialRampToValueAtTime(.0001, w + .3); s.connect(bp); bp.connect(g); g.connect(B.sfx); s.start(w); s.stop(w + .32); };
+    const hum = (w, B, d) => tone(B, 'sawtooth', [[w, 92], [w + d, 96]], .012, d);
+    const purr = (w, B, d) => { for (let k = 0; k < d * 24; k++) breath(B, w + k / 24, .045, .05, 180); };
+
+    /* --- 配乐：F 调放克，slap 贝斯 + 电钢切分 + 军鼓过门 --- */
+    const B_ = beat, RIFF = [41, 0, 53, 41, 0, 51, 53, 48], RIFF2 = [46, 0, 58, 46, 0, 56, 58, 53];
+    const CH = [[65, 69, 72, 75], [70, 74, 77, 80]];
+    // 片头：铜管三连 + 过门
+    [[.05, [65, 69, 72]], [.3, [67, 70, 74]], [.55, [69, 72, 77]]].forEach(([x, ch]) => ch.forEach(m => S.at(x, I.brass, m, 1.1, x > .5 ? .8 : .2)));
+    for (let k = 0; k < 6; k++) S.at(1.5 - 6 * B_ / 4 + k * B_ / 4, I.snare, .45 + k * .1);
+    S.at(0, I.kick); S.at(.55, I.kick); S.at(1.25, I.tom, 45); S.at(1.375, I.tom, 40);
+    const groove = (b0, b1, alt) => {
+      for (let b = b0; b < b1; b++) {                           // b = 拍序号
+        const tb = b * B_, bar2 = Math.floor(b / 4) % 2, R = bar2 ? RIFF2 : RIFF, e0 = (b % 4) * 2;
+        for (let e = 0; e < 2; e++) { const m = R[e0 + e]; if (m) S.at(tb + e * B_ / 2, e0 + e === 2 || e0 + e === 6 ? I.pizz : I.bass, m + (e0 + e === 2 ? 0 : 0), .22, .9); }
+        S.at(tb, (b % 2) ? I.snare : I.kick, (b % 2) ? .7 : .9); if (b % 4 === 3) S.at(tb + B_ / 2, I.kick, .6);
+        for (let e = 0; e < (alt ? 4 : 2); e++) S.at(tb + e * B_ / (alt ? 4 : 2), I.hat, e % 2 ? .5 : .8);
+        if (b % 2 === 1) S.at(tb + B_ / 2, (w, B) => CH[bar2].forEach(m => I.keys(w, B, m, .7, .18)));
+      }
+    };
+    groove(3, 14); S.at(T_ROOM, applause, 1.6, .9, 5);
+    S.at(T_ON, beep, 84); S.at(T_ON + .12, beep, 91);
+    S.at(T_ON + .15, hum, T_SPOT - T_ON - .1);
+    CRUMBS.forEach(([, , te], i) => S.at(te, I.tick, .6));
+    S.at(T_SPOT, beep, 96); S.at(T_SPOT + .12, beep, 96); S.at(T_SPOT + .24, beep, 96);
+    S.at(T_PULL, I.riser, 1.0); S.at(T_PULL, hum, 1.0);
+    for (let k = 0; k < 4; k++) S.at(T_WAKE + k * B_ / 4, I.snare, .6 + k * .12);
+    S.at(T_WAKE, meow, 1, 1);
+    // 惊吓：音乐刹车 + 全场爆笑
+    S.at(T_SHOCK, scratch); S.at(T_SHOCK, I.impact); S.at(T_SHOCK, (w, B) => [53, 60, 65, 68].forEach(m => I.brass(w, B, m, 1.3, .5)));
+    S.at(T_SHOCK + .05, meow, .9, 1);
+    S.at(T_SHOCK + .15, laugh, 2.6, 20, 1, 7);
+    groove(16, 21, true); S.at(T_SHOCK + .3, hum, T_BONK - T_SHOCK - .3);
+    for (let k = 0; k < 8; k++) S.at(T_BONK - B_ * 2 + k * B_ / 4, I.snare, .4 + k * .07);
+    // 撞沙发 → 猫飞起 → 落在爸爸头上
+    S.at(T_BONK, I.thud, 1.2); S.at(T_BONK, I.boing); S.at(T_BONK + .03, slide, true); S.at(T_BONK + .5, slide, false);
+    S.at(T_LAND, I.pop); S.at(T_LAND, I.thud, .6);
+    S.at(T_LAND + .15, laugh, 2.4, 22, 1.1, 13); S.at(T_LAND + .5, applause, 3.2, 1, 9);
+    groove(23, 27); S.at(T_MEOW, meow, .8, 0); S.at(T_MEOW + .3, purr, 1.2);
+    for (let k = 0; k < 4; k++) S.at(T_FREEZE - B_ + k * B_ / 4, I.snare, .5 + k * .1);
+    S.at(T_FREEZE, I.kick); S.at(T_FREEZE, (w, B) => [53, 65, 69, 72, 75].forEach(m => I.brass(w, B, m, 1, 1.1)));
+    S.at(T_FREEZE, I.bass, 41, 1, 1); S.at(T_FREEZE + .1, applause, 1.3, .8, 17); S.at(T_FREEZE + .05, laugh, .9, 10, .6, 21);
+  }
+});
+</script></body></html>

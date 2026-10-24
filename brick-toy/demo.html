@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>积木玩具 · 拼一辆小车</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=ZCOOL+QingKe+HuangYou&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 时间常量（画面和声音共用），120 BPM，一拍 0.5 秒 */
+const BPM = 120, BEAT = 60 / BPM;
+const T_PLATE = 4 * BEAT, T_WHEEL = [5, 5.5, 6, 6.5].map(b => b * BEAT);
+const T_REAR = 8 * BEAT, T_HOOD = 9 * BEAT, T_SEAT = 10 * BEAT, T_GLASS = 11 * BEAT, T_LAMP = [12, 12.5].map(b => b * BEAT), T_SPOIL = 13 * BEAT;
+const T_IN = 15 * BEAT, T_REV = 16 * BEAT, T_GO = 18 * BEAT;       // 小人跳上车 / 发动 / 出发
+const ACC = 4.6, EDGE = 13, TIP_DX = 10;                              // 加速度（格/秒²）、桌边位置、重心过边
+const T_TIP = T_GO + Math.sqrt(2 * TIP_DX / ACC);                     // 重心越过桌边的时刻
+const T_THUD = 24 * BEAT + .1, T_BACK = 26.5 * BEAT, T_CHEER = 27 * BEAT;
+const FLY = .5;                                                       // 每块积木从积木堆飞过来用 0.5 秒
+/* 木纹桌面纹理（初始化时随机一次） */
+const wood = document.createElement('canvas'); wood.width = wood.height = 512;
+{
+  const w = wood.getContext('2d');
+  const tones = ['#C48A52', '#BD8249', '#C9925B', '#B97E47'];
+  for (let k = 0; k < 4; k++) { w.fillStyle = tones[k]; w.fillRect(0, k * 128, 512, 128); }
+  for (let i = 0; i < 260; i++) {
+    const y0 = Math.random() * 512, a = .04 + Math.random() * .1, ph = Math.random() * 6, amp = 1 + Math.random() * 3;
+    w.strokeStyle = Math.random() > .5 ? `rgba(90,50,20,${a})` : `rgba(255,220,170,${a * .7})`; w.lineWidth = .6 + Math.random() * 1.6; w.beginPath();
+    for (let x = 0; x <= 512; x += 8) { const y = y0 + Math.sin(x / 70 + ph) * amp + Math.sin(x / 23 + ph * 2) * amp * .3; x ? w.lineTo(x, y) : w.moveTo(x, y); }
+    w.stroke();
+  }
+  for (let k = 0; k < 4; k++) { w.fillStyle = 'rgba(60,30,10,.35)'; w.fillRect(0, k * 128, 512, 2); w.fillStyle = 'rgba(255,230,190,.12)'; w.fillRect(0, k * 128 + 2, 512, 2); }
+  for (let i = 0; i < 3; i++) { const x = Math.random() * 512, y = Math.random() * 512; const g = w.createRadialGradient(x, y, 0, x, y, 16); g.addColorStop(0, 'rgba(80,40,15,.45)'); g.addColorStop(1, 'rgba(80,40,15,0)'); w.fillStyle = g; w.beginPath(); w.ellipse(x, y, 22, 8, 0, 0, 7); w.fill(); }
+}
+Film({
+  title: '积木玩具 · 拼一辆小车', DUR: 15, BPM, poster: 8.4,
+  fonts: [['80px "ZCOOL QingKe HuangYou"', '拼一辆小车出发！']],
+  draw(c, tRaw, F) {
+    const { W, H, prog, lerp, clamp, hash, easeOut, easeIn, back } = F;
+    const fr = Math.floor(tRaw * 12), t = fr / 12;                   // 12fps 定格
+    /* ---------- 等距投影：x 向右下，y 向左下，z 向上；视线方向 V = (1,1,1) ---------- */
+    const U = 60, AX = U * .866, AY = U * .5;
+    const quake = t > T_THUD && t < T_THUD + .25 ? 8 : 1.2;                 // 桌下“咚”一声时画面震两格
+    const jx = (hash(fr * 1.3) - .5) * quake, jy = (hash(fr * 2.7) - .5) * quake;   // 手摆的相机微抖
+    // 出发后镜头跟着车往右下平移（也按 12fps 走）
+    const pan = F.ease(prog(t, T_GO - .2, T_TIP + .4));
+    const OX = 560 - 330 * pan + jx, OY = 236 - 190 * pan + jy;
+    const P = p => [OX + (p[0] - p[1]) * AX, OY + (p[0] + p[1]) * AY - p[2] * U];
+    const L = (() => { const v = [.25, .55, 1], n = Math.hypot(...v); return v.map(a => a / n); })();
+    const flick = 1 + (hash(fr * 5.1) - .5) * .035;                  // 定格灯光的微小闪烁
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const hex = s => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
+    const shade = (rgb, k, a = 1) => `rgba(${Math.min(255, rgb[0] * k * flick) | 0},${Math.min(255, rgb[1] * k * flick) | 0},${Math.min(255, rgb[2] * k * flick) | 0},${a})`;
+    const poly = (pts, fill) => { c.beginPath(); pts.forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath(); if (fill) { c.fillStyle = fill; c.fill(); } };
+    /* ---------- 背景：桌子外面是昏暗的地板 ---------- */
+    const bg = c.createLinearGradient(0, 300, 300, 900); bg.addColorStop(0, '#3A2B20'); bg.addColorStop(1, '#16100C');
+    c.fillStyle = bg; c.fillRect(0, 0, W, H);
+    // 桌面（木纹纹理用仿射变换贴成等距菱形）
+    c.save(); poly([P([-40, -40, 0]), P([EDGE, -40, 0]), P([EDGE, 40, 0]), P([-40, 40, 0])]); c.clip();
+    c.transform(AX, AY, -AX, AY, OX, OY); c.scale(1 / 16, 1 / 16);
+    c.fillStyle = c.createPattern(wood, 'repeat'); c.fillRect(-40 * 16, -40 * 16, 90 * 16, 80 * 16); c.restore();
+    // 桌面光斑：左上亮、右下暗
+    const lg = c.createRadialGradient(420, 260, 60, 520, 360, 900); lg.addColorStop(0, 'rgba(255,236,200,.18)'); lg.addColorStop(1, 'rgba(40,20,5,.35)');
+    c.save(); poly([P([-40, -40, 0]), P([EDGE, -40, 0]), P([EDGE, 40, 0]), P([-40, 40, 0])]); c.clip(); c.fillStyle = lg; c.fillRect(0, 0, W, H); c.restore();
+    // 桌子前沿的厚度面 + 圆角高光
+    poly([P([EDGE, -40, 0]), P([EDGE, 40, 0]), P([EDGE, 40, -1.4]), P([EDGE, -40, -1.4])], '#7A4B26');
+    const eg = c.createLinearGradient(0, 0, 0, 0);
+    c.strokeStyle = 'rgba(255,225,180,.55)'; c.lineWidth = 2; c.beginPath(); c.moveTo(...P([EDGE, -40, 0])); c.lineTo(...P([EDGE, 40, 0])); c.stroke();
+    /* ---------- 通用几何：盒子（拆成 1×1 格子）、圆柱（凸点 / 轮子 / 圆片） ---------- */
+    const items = [];                      // { k: 深度, d: 绘制函数 }
+    const occ = new Map();                 // 静态格子占用：用来判断凸点是否露出
+    const I3 = { f: p => p, r: n => n };   // 变换：点 f、法向 r
+    const faceDraw = (pts, n, rgb, alpha, edges) => {
+      const k = .5 + .55 * Math.max(0, dot(n, L));
+      const sp = poly(pts.map(P), shade(rgb, k, alpha));
+      // 塑料光泽：沿面对角一道淡淡的亮渐变
+      const a = P(pts[0]), b = P(pts[2]), gr = c.createLinearGradient(a[0], a[1], b[0], b[1]);
+      gr.addColorStop(0, `rgba(255,255,255,${n[2] > .7 ? .16 : .1})`); gr.addColorStop(.55, 'rgba(255,255,255,0)'); c.fillStyle = gr; c.fill();
+      c.lineWidth = 1; c.strokeStyle = 'rgba(20,10,5,.32)';
+      edges.forEach(([i, j, hi]) => { const p = P(pts[i]), q = P(pts[j]); c.beginPath(); c.moveTo(p[0], p[1]); c.lineTo(q[0], q[1]); c.strokeStyle = hi ? 'rgba(255,255,255,.5)' : 'rgba(25,12,5,.35)'; c.lineWidth = hi ? 1.4 : 1; c.stroke(); });
+    };
+    const cyl = (base, ax, r, h, rgb, T = I3, opt = {}) => {       // 圆柱：底面中心、轴向、半径、高
+      const A = T.r(ax), up = Math.abs(ax[2]) > .9 ? [1, 0, 0] : [0, 0, 1];
+      const u = [ax[1] * up[2] - ax[2] * up[1], ax[2] * up[0] - ax[0] * up[2], ax[0] * up[1] - ax[1] * up[0]], un = Math.hypot(...u); u.forEach((_, i) => u[i] /= un);
+      const v = [ax[1] * u[2] - ax[2] * u[1], ax[2] * u[0] - ax[0] * u[2], ax[0] * u[1] - ax[1] * u[0]];
+      const N = opt.n || 18, B = [], Tp = [], nr = [];
+      for (let i = 0; i < N; i++) { const a = i / N * Math.PI * 2 + (opt.rot || 0), cs = Math.cos(a), sn = Math.sin(a); const off = [0, 1, 2].map(k => (u[k] * cs + v[k] * sn) * r); B.push(T.f(base.map((b, k) => b + off[k]))); Tp.push(T.f(base.map((b, k) => b + off[k] + ax[k] * h))); nr.push(T.r(off.map(o => o / r))); }
+      const V = [1, 1, 1];
+      for (let i = 0; i < N; i++) { const j = (i + 1) % N, n = nr[i].map((x, k) => (x + nr[j][k]) / 2); if (dot(n, V) <= 0) continue; const k = .42 + .5 * Math.max(0, dot(n, L)) + (dot(n, L) > .75 ? .25 : 0); poly([B[i], B[j], Tp[j], Tp[i]].map(P), shade(rgb, k)); c.strokeStyle = shade(rgb, k); c.lineWidth = .8; c.stroke(); }
+      const capUp = dot(A, V) > 0, cap = capUp ? Tp : B;
+      poly(cap.map(P), shade(opt.cap || rgb, capUp ? .5 + .55 * Math.max(0, dot(A, L)) : .4));
+      c.strokeStyle = 'rgba(20,10,5,.3)'; c.lineWidth = .8; c.stroke();
+      if (capUp && !opt.noHi) { c.beginPath(); cap.slice(Math.floor(N * .3), Math.floor(N * .62)).map(P).forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 1.6; c.stroke(); }
+      return { cap: cap.map(P), capUp, A, u, v };
+    };
+    const stud = (x, y, z, rgb, T) => cyl([x, y, z], [0, 0, 1], .3, .19, rgb, T, { n: 14 });
+    // 一块积木：拆成 1×1 格子入队。s = {x,y,z,w,d,h,col,alpha,studs,T,key}
+    const brick = (s) => {
+      const rgb = hex(s.col), T = s.T || I3;
+      const nw = Math.ceil(s.w), nd = Math.ceil(s.d);
+      for (let i = 0; i < nw; i++) for (let j = 0; j < nd; j++) {
+        const x0 = s.x + i, y0 = s.y + j, z0 = s.z, z1 = s.z + s.h, cw = Math.min(1, s.w - i), cd = Math.min(1, s.d - j);   // 允许小于 1 格的零件（手臂）
+        if (!s.T && !s.moving) { const key = `${x0},${y0}`; if (!occ.has(key)) occ.set(key, []); occ.get(key).push(z0); }
+        const ctr = T.f([x0 + cw / 2, y0 + cd / 2, (z0 + z1) / 2]);
+        items.push({
+          k: ctr[0] + ctr[1] + ctr[2] + (s.bias || 0), d: () => {
+            const X1 = x0 + cw, Y1 = y0 + cd, C = [[x0, y0, z0], [X1, y0, z0], [X1, Y1, z0], [x0, Y1, z0], [x0, y0, z1], [X1, y0, z1], [X1, Y1, z1], [x0, Y1, z1]].map(T.f);
+            const faces = [
+              { v: [4, 5, 6, 7], n: [0, 0, 1], on: true, e: [[0, 1, j === 0], [1, 2, i === nw - 1], [2, 3, j === nd - 1], [3, 0, i === 0]] },
+              { v: [1, 2, 6, 5], n: [1, 0, 0], on: i === nw - 1, e: [[0, 1, 1], [1, 2, j === nd - 1], [3, 0, j === 0]] },
+              { v: [3, 2, 6, 7], n: [0, 1, 0], on: j === nd - 1, e: [[0, 1, 1], [1, 2, i === nw - 1], [3, 0, i === 0]] },
+              { v: [0, 1, 5, 4], n: [0, -1, 0], on: j === 0, e: [[0, 1, 1], [1, 2, 1], [3, 0, 1]] },
+              { v: [0, 3, 7, 4], n: [-1, 0, 0], on: i === 0, e: [[0, 1, 1], [1, 2, 1], [3, 0, 1]] },
+              { v: [0, 1, 2, 3], n: [0, 0, -1], on: true, e: [] }];
+            faces.forEach(fc => {
+              const n = T.r(fc.n); if (!fc.on || dot(n, [1, 1, 1]) <= .01) return;
+              const top = fc.n[2] === 1;
+              // 顶面：外沿画亮边（倒角高光），其余外沿画暗缝
+              const e = fc.e.filter(x => x[2]).map(([a, b]) => [a, b, top && (a + b === 1 || a + b === 3)]);
+              faceDraw(fc.v.map(q => C[q]), n, rgb, s.alpha ?? 1, e);
+            });
+            const up = T.r([0, 0, 1]);
+            if (s.studs !== false && dot(up, [1, 1, 1]) > 0 && (s.T || s.moving || !isCovered(x0, y0, z1))) stud(x0 + .5, y0 + .5, z1, rgb, T);
+            if (s.face && i === nw - 1) s.face(T);
+          }
+        });
+      }
+    };
+    const isCovered = (x, y, z) => (occ.get(`${x},${y}`) || []).some(z0 => Math.abs(z0 - z) < .02);
+    // 软阴影：在桌面上画一块偏移的暗色四边形（三层叠出柔边）
+    const shadow = (x0, y0, x1, y1, h, a = .28) => {
+      const ox = .35 + h * .25, oy = -.1 - h * .05, al = a / (1 + h * .35);
+      for (let k = 0; k < 3; k++) { const g = k * .18; poly([P([x0 + ox - g, y0 + oy - g, 0]), P([x1 + ox + g, y0 + oy - g, 0]), P([x1 + ox + g, y1 + oy + g, 0]), P([x0 + ox - g, y1 + oy + g, 0])], `rgba(45,22,6,${al / 2})`); }
+    };
+    /* ---------- 积木堆（左边，静止） ---------- */
+    [[-4, 4, 0, 2, 4, 1.2, '#F3C623'], [-2, 5, 0, 2, 2, 1.2, '#3A7BD5'], [-4, 8, 0, 4, 2, 1.2, '#43A047'], [-3, 6, 1.2, 2, 2, 1.2, '#F5F1E6'], [0, 7, 0, 1, 2, .4, '#E53935'], [-1, 10, 0, 2, 2, .4, '#F3C623'], [-5, 6, 0, 1, 1, 1.2, '#FB8C00'], [-6, 3, 0, 1, 3, 1.2, '#8E44AD']]
+      .forEach(([x, y, z, w, d, h, col]) => { shadow(x, y, x + w, y + d, 0, .22); brick({ x, y, z, w, d, h, col }); });
+    /* ---------- 车：各零件在“车坐标”里定义，落地时刻 land ---------- */
+    const drive = t < T_GO ? 0 : .5 * ACC * (t - T_GO) ** 2;
+    // 翻出桌边：重心过边后绕桌沿转，再往下掉
+    const tipT = Math.max(0, t - T_TIP), ang = Math.min(1.25, tipT * tipT * 9 + tipT * 1.2), drop = tipT > .12 ? 26 * (tipT - .12) ** 2 : 0;
+    const rev = t > T_REV && t < T_GO ? (fr % 2 ? .06 : 0) : 0;      // 发动时车身一抖一抖
+    const carT = {
+      f: p => { let x = p[0] + drive, z = p[2] + rev; if (ang > 0) { const dx = x - EDGE, dz = z; x = EDGE + dx * Math.cos(ang) + dz * Math.sin(ang); z = -dx * Math.sin(ang) + dz * Math.cos(ang) - drop; } return [x, p[1], z]; },
+      r: n => ang > 0 ? [n[0] * Math.cos(ang) + n[2] * Math.sin(ang), n[1], -n[0] * Math.sin(ang) + n[2] * Math.cos(ang)] : n
+    };
+    const PILE = [-2, 6, 2.6];
+    // 飞行：从积木堆起跳，抛物线落到目标，落定前停在目标上方一格（吸附感）
+    const flyT = (land, tgt) => {
+      const u = prog(t, land - FLY, land);
+      if (u >= 1) return null;
+      const e = easeOut(u), p = [lerp(PILE[0], tgt[0], e), lerp(PILE[1], tgt[1], e), lerp(PILE[2], tgt[2], e) + Math.sin(Math.PI * u) * 5 + (u > .8 ? .5 : 0)];
+      return { f: q => [q[0] - tgt[0] + p[0], q[1] - tgt[1] + p[1], q[2] - tgt[2] + p[2]], r: n => n, p };
+    };
+    const part = (land, s, extra) => {                                  // s 用车坐标；落地后跟着车走
+      if (t < land - FLY) return;
+      const fl = flyT(land, [s.x, s.y, s.z]);
+      if (fl) { shadow(fl.p[0], fl.p[1], fl.p[0] + s.w, fl.p[1] + s.d, fl.p[2], .2); (extra || brick)({ ...s, T: fl, moving: true, bias: 60 }); return; }
+      (extra || brick)({ ...s, T: carT });
+    };
+    const flash = [];                                                    // 落定瞬间的“咔”闪光
+    const allLand = [T_PLATE, ...T_WHEEL, T_REAR, T_HOOD, T_SEAT, T_GLASS, ...T_LAMP, T_SPOIL];
+    // 车底阴影
+    if (t >= T_PLATE && ang < .2) shadow(-.2 + drive, -.8, 6.2 + drive, 4.8, 0, .34);
+    part(T_PLATE, { x: 0, y: 0, z: .45, w: 6, d: 4, h: .4, col: '#5B6168' });
+    // 轮子：轴向 y 的黑色圆柱 + 灰色轮毂 + 会转的辐条
+    const roll = -drive / .62;
+    const wheel = (land, cx, cy) => {
+      const s = { x: cx, y: cy, z: .62, w: 1, d: 1 };
+      const draw = (sp) => {
+        const T = sp.T, side = cy > 2 ? 1 : -1, base = [cx, cy - .35 * side, .62];
+        const ctr = T.f([cx, cy, .62]);
+        items.push({
+          k: ctr[0] + ctr[1] + ctr[2] + (sp.bias || 0) + (side > 0 ? .8 : -.8), d: () => {
+            const cp = cyl(base, [0, side, 0], .62, .7, hex('#26272B'), T, { n: 22, noHi: true, cap: '#2E2F33' });
+            if (!cp.capUp) return;
+            const hub = [cx, cy + .36 * side, .62];
+            cyl(hub, [0, side, 0], .34, .04, hex('#C9CDD2'), T, { n: 16, noHi: true });
+            for (let k = 0; k < 3; k++) { const a = roll + k * 2.094, p0 = P(T.f([cx, hub[1] + .04 * side, .62])), p1 = P(T.f([cx + Math.cos(a) * .3, hub[1] + .04 * side, .62 + Math.sin(a) * .3])); c.strokeStyle = '#7C8288'; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(p0[0], p0[1]); c.lineTo(p1[0], p1[1]); c.stroke(); }
+            const hc = P(T.f([cx, hub[1] + .05 * side, .62])); c.fillStyle = '#EEF0F2'; c.beginPath(); c.arc(hc[0], hc[1], 3, 0, 7); c.fill();
+          }
+        });
+      };
+      if (t < land - FLY) return;
+      const fl = flyT(land, [cx, cy, .62]);
+      if (fl) { shadow(fl.p[0] - .6, fl.p[1] - .4, fl.p[0] + .6, fl.p[1] + .4, fl.p[2], .2); draw({ T: fl, bias: 60 }); return; }
+      draw({ T: carT });
+    };
+    wheel(T_WHEEL[0], 1, -.02); wheel(T_WHEEL[1], 5, -.02); wheel(T_WHEEL[2], 1, 4.02); wheel(T_WHEEL[3], 5, 4.02);
+    part(T_REAR, { x: 0, y: 0, z: .85, w: 2, d: 4, h: 1.2, col: '#D8342B' });
+    part(T_HOOD, { x: 4, y: 0, z: .85, w: 2, d: 4, h: 1.2, col: '#D8342B' });
+    part(T_SEAT, { x: 2, y: 1, z: .85, w: 1, d: 2, h: 1.2, col: '#2A2D33' });
+    part(T_GLASS, { x: 4, y: 0, z: 2.05, w: 1, d: 4, h: 1.2, col: '#9ED8F2', alpha: .55, studs: false });
+    const lamp = s => { const T = s.T, ctr = T.f([s.x, s.y, s.z]); items.push({ k: ctr[0] + ctr[1] + ctr[2] + .5 + (s.bias || 0), d: () => { cyl([s.x, s.y, s.z], [0, 0, 1], .45, .4, hex('#FFD23F'), T, { n: 18 }); cyl([s.x, s.y, s.z + .4], [0, 0, 1], .3, .19, hex('#FFD23F'), T, { n: 14 }); } }); };
+    part(T_LAMP[0], { x: 5.5, y: .5, z: 2.05, w: 1, d: 1 }, lamp);
+    part(T_LAMP[1], { x: 5.5, y: 3.5, z: 2.05, w: 1, d: 1 }, lamp);
+    part(T_SPOIL, { x: 0, y: 0, z: 2.05, w: 1, d: 4, h: .4, col: '#2A2D33' });
+    allLand.forEach(l => { if (t >= l && t < l + 2 / 12) flash.push(l); });
+    /* ---------- 积木小人：方块头、方块身体、圆片帽子（不是官方人仔造型） ---------- */
+    // 位置：桌上 → 跳上车 → 跟车掉下去 → 跳回桌边
+    let figT, figOnCar = false, wave = 0, hopZ = 0;
+    const hopsAt = allLand.filter(l => t >= l && t < l + .25);
+    if (hopsAt.length) hopZ = .6 * Math.sin(Math.PI * prog(t, hopsAt[0], hopsAt[0] + .25));
+    if (t < 1.5 && t > .9) hopZ = .6 * Math.sin(Math.PI * prog(t, 1, 1.25)) + .6 * Math.sin(Math.PI * prog(t, 1.25, 1.5));
+    const FIG0 = [1.2, 5.6, 0], FIGC = [3, 1.5, .85], FIGB = [EDGE - 2, 1.5, 0];
+    if (t < T_IN - .5) figT = { f: p => [p[0] + FIG0[0], p[1] + FIG0[1], p[2] + FIG0[2] + hopZ], r: n => n };
+    else if (t < T_IN) { const u = prog(t, T_IN - .5, T_IN), p = [lerp(FIG0[0], FIGC[0], u), lerp(FIG0[1], FIGC[1], u), lerp(FIG0[2], FIGC[2], u) + Math.sin(Math.PI * u) * 2.2]; figT = { f: q => [q[0] + p[0], q[1] + p[1], q[2] + p[2]], r: n => n }; }
+    else if (t < T_BACK - .6) { figOnCar = true; figT = { f: q => carT.f([q[0] + FIGC[0], q[1] + FIGC[1], q[2] + FIGC[2]]), r: carT.r }; }
+    else if (t < T_BACK) { const u = prog(t, T_BACK - .6, T_BACK), p = [lerp(EDGE + 1.5, FIGB[0], u), FIGB[1], lerp(-5, 0, u) + Math.sin(Math.PI * u) * 5]; figT = { f: q => [q[0] + p[0], q[1] + p[1], q[2] + p[2]], r: n => n }; }
+    else { const s = t < T_BACK + .17 ? .25 : 0; figT = { f: q => [q[0] + FIGB[0], q[1] + FIGB[1], q[2] + FIGB[2] - s * (q[2] > .1 ? 1 : 0)], r: n => n }; }
+    if (t > T_REV && t < T_GO) wave = 1;
+    if (t > T_CHEER) wave = 2;
+    const tipped = (t > T_TIP && t < T_BACK - .6);
+    const figBias = figOnCar ? .9 : 0;
+    const drawFig = () => {
+      if (tipped && drop > 8) return;
+      const T = figT, head = { x: 0, y: 0, z: 2.4, w: 1, d: 1, h: 1.05, col: '#F4C58E', T, studs: false, bias: figBias };
+      if (!figOnCar && t < T_BACK - .6 || t >= T_BACK) { const b = T.f([0, 0, 0]); if (b[2] < 1) shadow(b[0], b[1], b[0] + 1, b[1] + 1, Math.max(0, b[2]), .3); }
+      brick({ x: 0, y: 0, z: 0, w: 1, d: 1, h: 1.2, col: '#34495E', T, studs: false, bias: figBias });               // 腿
+      brick({ x: 0, y: 0, z: 1.2, w: 1, d: 1, h: 1.2, col: '#2F80ED', T, studs: false, bias: figBias });             // 身体
+      const armZ = wave === 1 ? (fr % 4 < 2 ? 2.3 : 1.9) : wave === 2 ? 2.35 : 1.35;
+      brick({ x: .3, y: 1, z: armZ, w: .4, d: .3, h: .9, col: '#2F80ED', T, studs: false, bias: figBias + .1 });   // 近侧手臂（会挥）
+      brick({ x: .3, y: -.3, z: wave === 2 ? 2.35 : 1.35, w: .4, d: .3, h: .9, col: '#2F80ED', T, studs: false, bias: figBias - .1 });
+      head.face = T2 => {                                                 // 脸画在朝 +x 的那一面
+        const e1 = P(T2.f([1.001, .3, 3.05])), e2 = P(T2.f([1.001, .7, 3.05]));
+        c.fillStyle = '#1E1E22'; [e1, e2].forEach(e => { c.beginPath(); c.ellipse(e[0], e[1], 2.6, 3.6, 0, 0, 7); c.fill(); });
+        const m0 = P(T2.f([1.001, .3, 2.72])), m1 = P(T2.f([1.001, .5, 2.62])), m2 = P(T2.f([1.001, .7, 2.72]));
+        c.strokeStyle = '#1E1E22'; c.lineWidth = 2; c.beginPath(); c.moveTo(m0[0], m0[1]); c.quadraticCurveTo(m1[0], m1[1] + 3, m2[0], m2[1]); c.stroke();
+      };
+      brick(head);
+      const hz = 3.45 + 1.2 * Math.sin(Math.PI * prog(t, T_CHEER, T_CHEER + .5));   // 欢呼时帽子蹦起来再落回头顶
+      const hc = T.f([.5, .5, hz]); items.push({ k: hc[0] + hc[1] + hc[2] + figBias, d: () => { cyl([.5, .5, hz], [0, 0, 1], .5, .35, hex('#E53935'), T, { n: 18 }); cyl([.5, .5, hz + .35], [0, 0, 1], .3, .19, hex('#E53935'), T, { n: 14 }); } });
+    };
+    drawFig();
+    /* ---------- 排序 + 绘制 ---------- */
+    items.sort((a, b) => a.k - b.k).forEach(it => it.d());
+    // 落定闪光：四道短白线
+    flash.forEach(l => { const k = allLand.indexOf(l); const tg = [[3, 2, .85], [1, 0, .62], [5, 0, .62], [1, 4, .62], [5, 4, .62], [1, 2, 2.05], [5, 2, 2.05], [2.5, 2, 2.05], [4.5, 2, 3.25], [5.5, .5, 2.45], [5.5, 3.5, 2.45], [.5, 2, 2.45]][k]; const p = P(carT.f(tg)); c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 3; c.lineCap = 'round'; for (let i = 0; i < 4; i++) { const a = -Math.PI / 2 + (i - 1.5) * .55; c.beginPath(); c.moveTo(p[0] + Math.cos(a) * 26, p[1] - 14 + Math.sin(a) * 26); c.lineTo(p[0] + Math.cos(a) * 40, p[1] - 14 + Math.sin(a) * 40); c.stroke(); } });
+    // 车掉下去之后：桌下传来“咚”，画面轻震
+    /* ---------- 文字：开场标题 + “出发！” 气泡 ---------- */
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    const title = (s, x, y, size, a) => { c.globalAlpha = a; c.font = `${size}px "ZCOOL QingKe HuangYou", sans-serif`; c.lineJoin = 'round'; c.lineWidth = 12; c.strokeStyle = '#2B1A0E'; c.strokeText(s, x, y); c.fillStyle = '#FFD23F'; c.fillText(s, x, y); c.globalAlpha = 1; };
+    if (t < 1.9) { const u = t < .4 ? back(prog(t, 0, .4)) : 1; title('拼一辆小车', 640, 100 - (1 - u) * 60, 88, clamp(u, 0, 1) * (1 - prog(t, 1.6, 1.9))); }
+    if (t > T_REV && t < T_GO + .9) {
+      const hp = P(figT.f([.5, .5, 4.3])), bx = hp[0] + 150, by = hp[1] + 4, sc = back(prog(t, T_REV, T_REV + .25));
+      c.save(); c.translate(bx, by); c.scale(sc, sc);
+      c.fillStyle = '#FFFFFF'; c.strokeStyle = '#2B1A0E'; c.lineWidth = 4; F.rrect(c, -78, -36, 156, 72, 22); c.fill(); c.stroke();
+      c.beginPath(); c.moveTo(-70, -6); c.lineTo(-112, -14); c.lineTo(-70, 14); c.closePath(); c.fill(); c.stroke(); c.fillRect(-76, -8, 10, 24);
+      c.font = '52px "ZCOOL QingKe HuangYou", sans-serif'; c.fillStyle = '#E53935'; c.fillText('出发！', 0, 3); c.restore();
+    }
+    F.vignette(c, .42, '30,15,5');
+    const fo = prog(tRaw, 14.45, 15); if (fo > 0) { c.fillStyle = `rgba(22,14,9,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    // 积木“咔哒”：两下很短的高频噪声 + 方波
+    const snap = (w, B, v = 1) => { const ctx = B.sfx.context; [0, .028].forEach((d, i) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'square'; o.frequency.value = i ? 2600 : 1900; g.gain.setValueAtTime(.08 * v, w + d); g.gain.exponentialRampToValueAtTime(.0001, w + d + .025); o.connect(g); g.connect(B.sfx); o.start(w + d); o.stop(w + d + .04); }); I.rim(w, B, .9 * v); I.tick(w + .028, B, v); };
+    const engine = (w, B, d, f0, f1, v = 1) => { const ctx = B.sfx.context, o = ctx.createOscillator(), lf = ctx.createOscillator(), lg = ctx.createGain(), g = ctx.createGain(), lp = ctx.createBiquadFilter(); o.type = 'sawtooth'; o.frequency.setValueAtTime(f0, w); o.frequency.exponentialRampToValueAtTime(f1, w + d); lf.frequency.value = 18; lg.gain.value = .05 * v; lf.connect(lg); lg.connect(g.gain); lp.type = 'lowpass'; lp.frequency.value = 900; g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.08 * v, w + .08); g.gain.setValueAtTime(.08 * v, w + d - .1); g.gain.exponentialRampToValueAtTime(.0001, w + d); o.connect(lp); lp.connect(g); g.connect(B.sfx); [o, lf].forEach(x => { x.start(w); x.stop(w + d + .05); }); };
+    // 轻快马林巴：C - Am - F - G，八分音符
+    const PR = [[60, 64, 67, 72], [57, 60, 64, 69], [53, 57, 60, 65], [55, 59, 62, 67]], RT = [48, 45, 41, 43];
+    const PAT = [0, 2, 1, 3, 2, 1, 3, 2];
+    for (let b = 0; b < 7; b++) {
+      const ch = PR[b % 4], t0 = b * bar;
+      PAT.forEach((k, e) => { if (b === 0 && e < 2) return; S.at(t0 + e * beat / 2, I.marimba, ch[k] + 12, .55 * (e % 2 ? .7 : 1)); });
+      S.at(t0, I.pizz, RT[b % 4], 1.2); S.at(t0 + 2 * beat, I.pizz, RT[b % 4] + 7, 1); S.at(t0 + 3 * beat, I.pizz, RT[b % 4] + 12, .8);
+      if (b >= 1) for (let k = 0; k < 4; k++) { S.at(t0 + k * beat, I.shaker, 1); if (k % 2) S.at(t0 + k * beat, I.rim, .5); }
+      if (b >= 1) { S.at(t0, I.kick, .45); S.at(t0 + 2 * beat, I.kick, .35); }
+    }
+    // 画面同步：每块积木 whip（起飞）+ 咔哒（落定）+ 一个木琴音
+    const LANDS = [T_PLATE, ...T_WHEEL, T_REAR, T_HOOD, T_SEAT, T_GLASS, ...T_LAMP, T_SPOIL], NOTE = [72, 74, 76, 77, 79, 81, 83, 84, 86, 88, 89, 91];
+    LANDS.forEach((l, i) => { S.at(l - FLY, I.whip); S.at(l, snap, 1); S.at(l, I.marimba, NOTE[i], .9); });
+    S.at(1.0, I.boop, 1.2); S.at(1.25, I.boop, 1.4);                                    // 开场小人蹦两下
+    S.at(T_IN - .5, I.boing); S.at(T_IN, snap, 1.2); S.at(T_IN, I.thud, .5);             // 跳上车
+    S.at(T_REV, engine, T_GO - T_REV, 55, 70, .8); S.at(T_REV + .02, I.pop, 1.3);        // 发动 + 气泡弹出
+    S.at(T_GO, engine, T_TIP - T_GO + .2, 70, 190, 1);                                   // 出发加速
+    S.at(T_TIP, (w, B) => { const ctx = B.sfx.context, o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.setValueAtTime(1400, w); o.frequency.exponentialRampToValueAtTime(260, w + .8); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.09, w + .05); g.gain.exponentialRampToValueAtTime(.0001, w + .85); o.connect(g); g.connect(B.sfx); o.start(w); o.stop(w + .9); });
+    S.at(T_THUD, I.thud, 1); for (let i = 0; i < 7; i++) S.at(T_THUD + .04 + i * .055 + (i % 2) * .02, snap, .7 - i * .07);   // 桌下“咚”+ 积木散落
+    S.at(T_BACK - .6, I.boing); S.at(T_BACK, snap, 1.2);                                 // 小人跳回桌边
+    [72, 76, 79, 84].forEach((m, i) => S.at(T_CHEER + i * .09, I.marimba, m + 12, 1));  // 举手欢呼
+    S.at(T_CHEER + .4, I.chime); S.at(T_CHEER, I.jump); S.at(T_CHEER + .5, snap, 1); S.at(14, I.pizz, 36, 1.2); [60, 64, 67, 72].forEach(m => S.at(14, I.marimba, m + 12, .7));
+  }
+});
+</script></body></html>

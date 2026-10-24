@@ -1,0 +1,17 @@
+node_modules/
+.DS_Store
+.env
+.env.*
+!.env.example
+*.mp4
+*.wav
+*.mp3
+**/poster.jpg
+**/stills/
+outputs/
+work/
+.auth/
+*-events.jsonl
+.venv/
+__pycache__/
+*.pyc

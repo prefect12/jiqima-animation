@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>1920s 默片 · 追帽记</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=ZCOOL+XiaoWei&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 1920s 默片：场景全部用灰阶画，最后整体乘一层棕褐色；
+   角色动作按 16 帧/秒取整（手摇欠速的“快动作”感），胶片瑕疵按 24 帧/秒逐帧变化（全部用 hash，可复现）。
+   时间按拍（100 BPM，一拍 0.6 秒），画面和钢琴伴奏共用。 */
+const BPM = 100, BEAT = 60 / BPM;
+const T_IRIS_IN = 3 * BEAT, T_GUST = 7 * BEAT, T_CARD2 = 8 * BEAT, T_CHASE = 10 * BEAT, T_DIVE = 13 * BEAT,
+  T_LIFT = 16 * BEAT, T_LAND = 19 * BEAT, T_BOW = 21 * BEAT, T_IRIS_OUT = 22 * BEAT, T_END = 23 * BEAT;
+const SERIF = '"ZCOOL XiaoWei", "Songti SC", serif', GROUND = 600;
+const cl = (v, a, b) => Math.max(a, Math.min(b, v)), pr = (t, a, b) => cl((t - a) / (b - a), 0, 1);
+const sm = u => u * u * (3 - 2 * u);
+const kf = (list, t) => { let i = list.findIndex(k => k[0] > t); if (i < 0) return list[list.length - 1][1]; if (i === 0) return list[0][1]; const a = list[i - 1], b = list[i]; return a[1] + (b[1] - a[1]) * pr(t, a[0], b[0]); };
+// 追逐段的世界坐标（像素），镜头跟着绅士走
+const GENT_X = [[T_CHASE, 440], [7.6, 1500], [T_DIVE, 1700], [8.4, 1725], [8.7, 1745], [10.8, 2880], [11.7, 3000]];
+const HAT_X = [[T_CHASE, 880], [7.6, 1740], [T_DIVE, 1790], [8.25, 2060], [T_LIFT, 2600], [T_LAND, 3280]];
+const DOG_X = 3280, LAMP_X = [900, 1800, 2700, 3440], BENCH_X = [1300, 2300];
+
+Film({
+  title: '1920s 默片 · 追帽记', DUR: 15, BPM, poster: 12.3,
+  fonts: [['80px "ZCOOL XiaoWei"', '追帽记我的帽子！剧终']],
+  draw(c, t, F) {
+    const { W, H, hash } = F;
+    const P = Math.PI, ta = Math.floor(t * 16) / 16, f24 = Math.floor(t * 24);
+    const ell = (x, y, rx, ry, r = 0) => { c.beginPath(); c.ellipse(x, y, Math.max(.5, rx), Math.max(.5, ry), r, 0, P * 2); };
+    const seg = (x1, y1, x2, y2, w, col) => { c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.lineWidth = w; c.strokeStyle = col; c.lineCap = 'round'; c.stroke(); };
+
+    /* ---------------- 字幕卡：黑底、双线花边、四角卷草 ---------------- */
+    function card(lines) {
+      c.fillStyle = '#0E0E0E'; c.fillRect(0, 0, W, H);
+      c.strokeStyle = '#D8D2C4'; c.lineWidth = 4; c.strokeRect(150, 90, 980, 540); c.lineWidth = 2; c.strokeRect(168, 108, 944, 504);
+      [[168, 108, 1, 1], [1112, 108, -1, 1], [168, 612, 1, -1], [1112, 612, -1, -1]].forEach(([x, y, sx, sy]) => {
+        c.save(); c.translate(x, y); c.scale(sx, sy); c.beginPath(); c.moveTo(0, 60); c.bezierCurveTo(0, 20, 20, 0, 60, 0); c.moveTo(14, 70); c.bezierCurveTo(14, 30, 30, 14, 70, 14);
+        c.moveTo(30, 30); c.bezierCurveTo(60, 20, 70, 50, 48, 56); c.bezierCurveTo(34, 60, 30, 46, 40, 42); c.lineWidth = 2.5; c.strokeStyle = '#D8D2C4'; c.stroke();
+        ell(30, 30, 5, 5); c.fillStyle = '#D8D2C4'; c.fill(); c.restore();
+      });
+      [[640, 108], [640, 612]].forEach(([x, y]) => { c.save(); c.translate(x, y); c.beginPath(); c.moveTo(-70, 0); c.lineTo(-14, 0); c.moveTo(14, 0); c.lineTo(70, 0); c.lineWidth = 2; c.stroke(); c.beginPath(); c.moveTo(0, -12); c.lineTo(12, 0); c.lineTo(0, 12); c.lineTo(-12, 0); c.closePath(); c.fillStyle = '#0E0E0E'; c.fill(); c.lineWidth = 2.5; c.stroke(); c.restore(); });
+      c.fillStyle = '#E8E2D2'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      lines.forEach(([s, y, size, sp]) => { c.font = `${size}px ${SERIF}`; c.letterSpacing = (sp || 0) + 'px'; c.fillText(s, 640 + (sp || 0) / 2, y); });
+      c.letterSpacing = '0px';
+    }
+
+    /* ---------------- 人物 ---------------- */
+    // 绅士：高瘦、礼帽、圆眼镜、翘胡子、长燕尾服、条纹裤、夹一把长柄伞（原创造型）
+    function gent(x, y, p) {
+      c.save(); c.translate(x, y); if (p.rot) c.rotate(p.rot);
+      const hipY = -124, shY = hipY - 118 - (p.bow ? 0 : 0);
+      const leg = (a1, a2, col) => { const kx = Math.sin(a1) * 64, ky = hipY + Math.cos(a1) * 64, fx = kx + Math.sin(a2) * 62, fy = ky + Math.cos(a2) * 62; seg(0, hipY, kx, ky, 17, col); seg(kx, ky, fx, fy, 15, col); c.beginPath(); c.ellipse(fx + 10, fy + 2, 17, 7, 0, 0, P * 2); c.fillStyle = '#0C0C0C'; c.fill(); };
+      const ph = p.phase || 0, amp = p.amp ?? 0;
+      leg(-Math.sin(ph) * amp - .09, -Math.sin(ph) * amp + Math.max(0, Math.cos(ph)) * amp * 1.1 - .05, '#5C5C5C');   // 站着时两腿也微微分开
+      // 裤子条纹用第二条细线表示
+      leg(Math.sin(ph) * amp + .09, Math.sin(ph) * amp + Math.max(0, -Math.cos(ph)) * amp * 1.1 + .05, '#6E6E6E');
+      c.save(); c.translate(0, hipY); c.rotate(p.lean || 0);
+      if (p.bow) c.rotate(p.bow * .95);
+      const L = hipY - shY;
+      // 燕尾（跑起来往后飘）
+      c.beginPath(); c.moveTo(-18, -10); c.lineTo(-30 - 30 * (p.flap || 0), 60 - 20 * (p.flap || 0)); c.lineTo(-8, 44); c.closePath(); c.fillStyle = '#141414'; c.fill();
+      c.beginPath(); c.moveTo(-26, -L); c.lineTo(26, -L); c.lineTo(22, 0); c.lineTo(-22, 0); c.closePath(); c.fillStyle = '#161616'; c.fill();
+      c.beginPath(); c.moveTo(-6, -L); c.lineTo(10, -L); c.lineTo(2, -L + 60); c.closePath(); c.fillStyle = '#E4E4E4'; c.fill();
+      seg(0, -L + 8, 0, -L + 16, 8, '#0A0A0A');
+      // 手臂
+      const arm = (a1, a2, far) => { const sx = far ? -14 : 14, ex = sx + Math.sin(a1) * 52, ey = -L + 10 + Math.cos(a1) * 52, hx = ex + Math.sin(a2) * 48, hy = ey + Math.cos(a2) * 48; seg(sx, -L + 10, ex, ey, 14, far ? '#262626' : '#1E1E1E'); seg(ex, ey, hx, hy, 12, far ? '#262626' : '#1E1E1E'); ell(hx, hy, 8, 8); c.fillStyle = '#EDEDED'; c.fill(); return [hx, hy]; };
+      arm(p.armB?.[0] ?? .15, p.armB?.[1] ?? .1, true);
+      const [hx, hy] = arm(p.armA?.[0] ?? -.15, p.armA?.[1] ?? -.05, false);
+      if (p.umbrella !== false) { c.save(); c.translate(hx, hy); c.rotate(p.umbAng ?? .25); seg(0, -30, 0, 70, 7, '#0E0E0E'); c.beginPath(); c.arc(-9, -30, 9, 0, P, true); c.lineWidth = 6; c.stroke(); c.beginPath(); c.moveTo(-9, 10); c.lineTo(9, 10); c.lineTo(0, 70); c.closePath(); c.fillStyle = '#1A1A1A'; c.fill(); c.restore(); }
+      // 头
+      c.translate(0, -L - 30);
+      ell(0, 0, 24, 28); c.fillStyle = '#E2E2E2'; c.fill();
+      ell(22, 4, 7, 6); c.fillStyle = '#D0D0D0'; c.fill();
+      const sp = p.surprise || 0;
+      [[8, -4], [-8, -4]].forEach(([ex, ey], i) => { ell(ex + 8, ey, 8 + 3 * sp, 8 + 3 * sp); c.lineWidth = 2.5; c.strokeStyle = '#111'; c.stroke(); ell(ex + 9, ey, 2 + sp, 2 + sp); c.fillStyle = '#111'; c.fill(); });
+      c.beginPath(); c.moveTo(22, 13); c.bezierCurveTo(10, 8, 4, 22, -6, 12); c.moveTo(22, 13); c.bezierCurveTo(30, 18, 36, 8, 30, 4); c.lineWidth = 4; c.strokeStyle = '#111'; c.stroke();
+      if (sp > .3) { ell(18, 22, 5, 7); c.fillStyle = '#111'; c.fill(); }
+      c.fillStyle = '#9A9A9A'; c.fillRect(-26, -8, 8, 16);
+      if (p.hat) drawHat(0, -24, 0, 1);
+      else if (p.hair) { c.beginPath(); c.moveTo(-22, -16); c.quadraticCurveTo(0, -36, 22, -18); c.lineWidth = 5; c.strokeStyle = '#2A2A2A'; c.stroke(); seg(2, -30, 8, -48, 3, '#2A2A2A'); }
+      c.restore();
+      c.restore();
+    }
+    function drawHat(x, y, rot, k) {
+      c.save(); c.translate(x, y); c.rotate(rot); c.scale(k, k);
+      c.fillStyle = '#101010'; c.fillRect(-20, -54, 40, 54); ell(0, -54, 20, 5); c.fill();
+      c.fillStyle = '#6A6A6A'; c.fillRect(-20, -12, 40, 8);
+      ell(0, 0, 36, 7); c.fillStyle = '#101010'; c.fill(); c.restore();
+    }
+    // 小狗：白底黑斑的梗犬，坐着，尾巴摇
+    function dog(x, y, look, wag, nod) {
+      c.save(); c.translate(x, y);
+      c.save(); c.translate(-44, -20); c.rotate(-.6 + .5 * Math.sin(wag)); seg(0, 0, -6, -40, 9, '#E6E6E6'); c.restore();
+      ell(-10, -40, 46, 40); c.fillStyle = '#E6E6E6'; c.fill(); ell(-24, -50, 18, 16); c.fillStyle = '#2A2A2A'; c.fill();
+      seg(10, -20, 14, 0, 14, '#E6E6E6'); seg(-30, -12, -24, 0, 14, '#E6E6E6'); ell(18, 0, 13, 6); c.fillStyle = '#E6E6E6'; c.fill();
+      c.save(); c.translate(20, -84); c.rotate(look * .3 + nod * .35);
+      ell(0, 0, 32, 28); c.fillStyle = '#EAEAEA'; c.fill();
+      ell(-12, -4, 12, 14); c.fillStyle = '#2A2A2A'; c.fill();
+      c.beginPath(); c.moveTo(-26, -14); c.lineTo(-40, 6); c.lineTo(-18, 0); c.closePath(); c.fillStyle = '#2A2A2A'; c.fill();
+      ell(30, 6, 14, 10); c.fillStyle = '#DADADA'; c.fill(); ell(42, 2, 6, 5); c.fillStyle = '#111'; c.fill();
+      ell(10, -6, 4, 5); c.fillStyle = '#111'; c.fill();
+      if (nod > .5) { seg(4, -8, 16, -8, 3, '#111'); }
+      c.restore(); c.restore();
+    }
+
+    /* ---------------- 片头字幕卡 ---------------- */
+    let sceneOn = true;
+    if (t < T_IRIS_IN) { card([['追帽记', 330, 120, 30]]); sceneOn = false; }
+    else if (t >= T_CARD2 && t < T_CHASE) { card([['我的帽子！', 360, 100, 12]]); sceneOn = false; }
+    else if (t >= T_END) { card([['剧终', 360, 120, 40]]); sceneOn = false; }
+
+    const weave = [(hash(f24 * 1.13) - .5) * 3 + (hash(f24 * .7) < .03 ? 8 : 0), (hash(f24 * 2.31) - .5) * 4 + (hash(f24 * .9) < .03 ? -10 : 0)];
+    if (sceneOn) {
+      c.save(); c.translate(weave[0], weave[1]);
+      const gx = ta < T_CHASE ? 0 : kf(GENT_X, ta), cx = ta < T_CHASE ? 0 : cl(gx - 470, 0, 2400);
+      /* 公园：天空、远树（视差 0.5）、铁栅栏、小路、路灯、长椅 */
+      const sky = c.createLinearGradient(0, 0, 0, 480); sky.addColorStop(0, '#C8C8C8'); sky.addColorStop(1, '#F0F0F0'); c.fillStyle = sky; c.fillRect(-20, -20, W + 40, 520);
+      for (let i = 0; i < 14; i++) { const x = i * 330 - cx * .5 - 100; if (x < -300 || x > W + 300) continue; c.fillStyle = i % 2 ? '#646464' : '#565656'; ell(x, 330 - (i % 3) * 30, 150, 130); c.fill(); ell(x + 90, 370, 110, 100); c.fill(); c.fillStyle = '#4E4E4E'; c.fillRect(x - 12, 400, 24, 90); }
+      c.fillStyle = '#A8A8A8'; c.fillRect(-20, 480, W + 40, 60);
+      for (let x = -((cx * .9) % 36) - 36; x < W + 40; x += 36) { seg(x, 440, x, 520, 4, '#2E2E2E'); c.beginPath(); c.moveTo(x - 6, 446); c.lineTo(x, 434); c.lineTo(x + 6, 446); c.fillStyle = '#2E2E2E'; c.fill(); }
+      seg(-20, 460, W + 20, 460, 4, '#2E2E2E'); seg(-20, 505, W + 20, 505, 4, '#2E2E2E');
+      c.fillStyle = '#C9C9C9'; c.fillRect(-20, 530, W + 40, 200);
+      for (let k = 0; k < 30; k++) { const x = ((k * 173 - cx) % 1600 + 1600) % 1600 - 160; ell(x, 560 + (k % 5) * 30, 26, 4); c.fillStyle = '#B4B4B4'; c.fill(); }
+      BENCH_X.forEach(bx => { const x = bx - cx; if (x < -200 || x > W + 200) return; c.fillStyle = '#3A3A3A'; c.fillRect(x - 90, 520, 180, 12); c.fillRect(x - 90, 486, 180, 10); c.fillRect(x - 90, 500, 180, 8); c.fillRect(x - 80, 532, 8, 44); c.fillRect(x + 72, 532, 8, 44); });
+      LAMP_X.forEach(lx => { const x = lx - cx; if (x < -100 || x > W + 100) return; c.fillStyle = '#1E1E1E'; c.fillRect(x - 6, 250, 12, 360); c.fillRect(x - 20, 596, 40, 14); c.beginPath(); c.moveTo(x - 26, 250); c.lineTo(x + 26, 250); c.lineTo(x + 16, 210); c.lineTo(x - 16, 210); c.closePath(); c.fill(); ell(x, 234, 12, 14); c.fillStyle = '#F2F2F2'; c.fill(); });
+
+      /* 角色调度 */
+      let g = { x: 0, y: GROUND, p: {} }, hat = null;
+      if (ta < T_CARD2) {
+        const walkEnd = T_GUST - .1, u = pr(ta, T_IRIS_IN - .3, walkEnd);
+        const x = -80 + 520 * u, walking = ta < walkEnd;
+        const sur = ta >= T_GUST ? Math.min(1, (ta - T_GUST) * 6) : 0;
+        g = { x, y: GROUND - (sur > 0 && ta < T_GUST + .35 ? 40 * Math.sin(P * pr(ta, T_GUST, T_GUST + .35)) : 0), p: { phase: ta * 11, amp: walking ? .42 : 0, hat: ta < T_GUST, hair: true, surprise: sur, armA: sur ? [-2.6, -2.9] : [-.3 + .25 * Math.sin(ta * 11), -.2], armB: sur ? [2.4, 2.9] : [.3 - .25 * Math.sin(ta * 11), .15], umbAng: sur ? 2.6 : .3 + .2 * Math.sin(ta * 11), lean: sur ? -.12 : .04 } };
+        if (ta >= T_GUST) { const u2 = pr(ta, T_GUST, T_CARD2); hat = { x: x + 10 + 640 * u2, y: GROUND - 290 - 200 * Math.sin(P * u2 * .8), r: u2 * 9, k: 1 }; }
+        // 风：一阵斜线卷着落叶
+        if (ta > T_GUST - .25 && ta < T_CARD2) { const u3 = pr(ta, T_GUST - .25, T_CARD2); for (let k = 0; k < 12; k++) { const y = 200 + k * 30 + 20 * Math.sin(k), x0 = -200 + u3 * 1700 - k * 40; seg(x0, y, x0 + 140, y - 18, 2, 'rgba(40,40,40,.55)'); c.save(); c.translate(x0 + 60 + k * 17, y + 40 * Math.sin(u3 * 9 + k)); c.rotate(u3 * 12 + k); ell(0, 0, 9, 5); c.fillStyle = '#3A3A3A'; c.fill(); c.restore(); } }
+      } else {
+        const x = gx - cx;
+        const diving = ta >= T_DIVE - .12 && ta < 8.4, down = ta >= 8.05 && ta < 8.7, arrived = ta >= 11.7, running = !arrived && !diving && !down;
+        g = { x, y: GROUND, p: { phase: ta * 26, amp: running ? .95 : 0, hat: false, hair: true, flap: running ? .5 + .5 * Math.sin(ta * 26) : 0, lean: running ? .28 : 0, armA: running ? [-1.5 + .8 * Math.sin(ta * 26), -1.6] : [-.1, 0], armB: running ? [1.2 - .8 * Math.sin(ta * 26), 1.2] : [.1, 0], umbAng: running ? 1.5 : .2 } };
+        if (diving) { const u = pr(ta, T_DIVE - .12, 8.05); g.p.rot = 1.4 * sm(u); g.y = GROUND - 70 * Math.sin(P * u); g.p.armA = [-3.0, -3.1]; g.p.armB = [-2.9, -3.0]; g.p.amp = 0; g.p.umbrella = false; }
+        if (down) { g.p.rot = 1.5 - 1.5 * sm(pr(ta, 8.4, 8.7)); g.y = GROUND; g.p.armA = [-3.0, -3.1]; g.p.armB = [-2.9, -3.0]; g.p.umbrella = ta > 8.55; g.p.surprise = .6; }
+        if (arrived) {
+          const pant = ta < 12.2, reach = ta >= 12.2 && ta < T_BOW, bow = sm(pr(ta, T_BOW, T_BOW + .3)) * (1 - sm(pr(ta, T_BOW + .6, T_IRIS_OUT + .3)));
+          if (pant) { g.p.bow = .45 + .05 * Math.sin(ta * 30); g.p.armA = [.2, .1]; g.p.armB = [.3, .1]; }
+          if (reach) { g.p.armB = [1.5, 1.45]; g.p.armA = [.15, .05]; g.p.lean = .1; g.p.surprise = .4; }
+          if (bow > 0) { g.p.bow = bow * .8; g.p.armA = [.2, .1]; g.p.armB = [2.4, 3.3]; }   // 鞠躬时空手在头顶做了个“脱帽”动作
+        }
+        // 帽子
+        const hx = kf(HAT_X, ta) - cx;
+        if (ta < T_LIFT) { const hop = Math.abs(Math.sin(P * (ta - T_CHASE) * 2.6)), near = ta > 7.6 && ta < 8.3 ? 1.6 : 1; hat = { x: hx, y: GROUND - 6 - 110 * hop * near, r: (ta - T_CHASE) * 8, k: 1 }; }
+        else if (ta < T_LAND) { const u = pr(ta, T_LIFT, T_LAND); hat = { x: hx, y: GROUND - 6 + (486 - GROUND) * u - 380 * Math.sin(P * u), r: (1 - u) * 14, k: 1 }; }
+        else { const u = pr(ta, T_LAND, T_LAND + .3), nod = sm(pr(ta, T_BOW + .3, T_BOW + .6)); hat = { x: DOG_X - cx + 20 + 6 * nod, y: 486 - 16 * Math.sin(P * u) + 10 * nod, r: -.1 + .45 * nod, k: .9, over: nod }; }
+        // 小狗 + 灯柱
+        const dx = DOG_X - cx;
+        if (dx < W + 150) { const look = ta > T_LIFT ? -1 * (1 - pr(ta, T_LAND, T_LAND + .2)) : 0; dog(dx, GROUND, look, ta * (ta > T_LAND ? 18 : 6), ta > T_BOW + .3 ? sm(pr(ta, T_BOW + .3, T_BOW + .6)) : 0); }
+      }
+      gent(g.x, g.y, g.p);
+      if (hat) drawHat(hat.x, hat.y, hat.r, hat.k);
+      // 欠速画面里的“速度线”：追逐时身后几道尘土
+      if (ta >= T_CHASE && ta < 10.9 && !(ta >= T_DIVE - .12 && ta < 8.7)) for (let k = 0; k < 3; k++) { const s = ((ta * 3 + k / 3) % 1); ell(g.x - 60 - s * 120, GROUND - 6 - k * 10, 16 + s * 30, 8 + s * 10); c.fillStyle = `rgba(150,150,150,${.6 * (1 - s)})`; c.fill(); }
+      if (ta >= 8.05 && ta < 8.4) { for (let k = 0; k < 6; k++) { const a = -P + k * P / 5; seg(g.x + 120 + Math.cos(a) * 40, GROUND - 20 + Math.sin(a) * 30, g.x + 120 + Math.cos(a) * 70, GROUND - 20 + Math.sin(a) * 60, 3, '#333'); } }
+      c.restore();
+      /* 圆形光圈转场（在“镜头里”，所以在滤镜之前） */
+      const iris = (cxp, cyp, r) => { c.save(); c.beginPath(); c.rect(-20, -20, W + 40, H + 40); c.arc(cxp, cyp, Math.max(0, r), 0, P * 2, true); c.fillStyle = '#050505'; c.fill('evenodd'); c.restore(); };
+      if (t < T_IRIS_IN + .6) iris(400, 420, 820 * sm(pr(t, T_IRIS_IN, T_IRIS_IN + .6)));
+      if (t >= T_IRIS_OUT) { const r = 900 * (1 - sm(pr(t, T_IRIS_OUT, T_END - .05))); iris(DOG_X - 2400 + 20 + weave[0], 470, r < 150 ? Math.max(0, r) : r); }
+    }
+
+    /* ---------------- 胶片质感：棕褐色、闪烁、划痕、尘点、暗角、颗粒 ---------------- */
+    c.save(); c.globalCompositeOperation = 'multiply'; c.fillStyle = '#F2D8AE'; c.fillRect(0, 0, W, H); c.restore();
+    c.save(); c.globalCompositeOperation = 'screen'; c.fillStyle = '#17110A'; c.fillRect(0, 0, W, H); c.restore();
+    const fl = hash(f24 * 3.7); c.fillStyle = fl > .5 ? `rgba(255,245,225,${(fl - .5) * .14})` : `rgba(0,0,0,${(.5 - fl) * .22})`; c.fillRect(0, 0, W, H);
+    // 竖向划痕：每条持续几帧，位置缓慢漂移
+    for (let k = 0; k < 3; k++) { const seed = Math.floor(t * (2 + k)) * 7 + k * 31; if (hash(seed) < .35) continue; const x = hash(seed * 1.3) * W + Math.sin(t * 9 + k) * 3, light = hash(seed * 2.1) > .5; c.fillStyle = light ? 'rgba(255,248,230,.5)' : 'rgba(20,14,8,.45)'; const y0 = hash(seed * 4.1) * 200 - 100; c.fillRect(x, y0, 1.5 + hash(seed) * 1.5, H - y0 - hash(seed * 5) * 200); }
+    // 尘点和毛发：逐帧随机
+    for (let k = 0; k < 14; k++) { const s = f24 * 13 + k * 7.7; if (hash(s) < .45) continue; const x = hash(s * 1.7) * W, y = hash(s * 2.9) * H, r = .8 + hash(s * 3.3) * 3.5; ell(x, y, r, r * (.6 + hash(s) * .6)); c.fillStyle = hash(s * 4.4) > .3 ? 'rgba(15,10,5,.75)' : 'rgba(255,250,235,.7)'; c.fill(); }
+    if (hash(f24 * 5.3) > .82) { const x = hash(f24 * 6.1) * W, y = hash(f24 * 7.3) * H; c.beginPath(); c.moveTo(x, y); c.bezierCurveTo(x + 20, y - 30, x + 40, y + 20, x + 60, y - 10); c.lineWidth = 1.5; c.strokeStyle = 'rgba(15,10,5,.7)'; c.stroke(); }
+    F.vignette(c, .75, '25,15,5');
+    // 片门圆角
+    c.save(); c.fillStyle = '#0A0704'; c.beginPath(); c.rect(0, 0, W, H); c.roundRect(10 + weave[0] * .5, 8 + weave[1] * .5, W - 20, H - 16, 46); c.fill('evenodd');   // 注意：F.rrect 会先 beginPath，这里要用 roundRect c.restore();
+    F.grain(c, t, .1);
+    const fo = pr(t, 14.45, 15); if (fo > 0) { c.fillStyle = `rgba(0,0,0,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S, F) {
+    const { beat, bar } = S, hash = F.hash;
+    const mt = m => 440 * Math.pow(2, (m - 69) / 12);
+    const NB = new WeakMap();
+    const nbuf = ctx => { let b = NB.get(ctx); if (!b) { b = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate); const d = b.getChannelData(0); let s = 99; for (let i = 0; i < d.length; i++) { s = (s * 16807) % 2147483647; d[i] = s / 1073741823.5 - 1; } NB.set(ctx, b); } return b; };
+    // 酒吧立式钢琴：两根略失谐的弦 + 泛音，击弦后自然衰减
+    const piano = (w, B, m, v = 1, d) => {
+      const ctx = B.sfx.context, f = mt(m), dur = d ?? (m < 55 ? 1.1 : .7), lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; lp.connect(B.keys);
+      [[.9965, 'triangle', .07], [1.0035, 'triangle', .07], [2, 'sine', .03], [3, 'sine', .012]].forEach(([k, ty, p]) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = ty; o.frequency.value = f * k; g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(p * v, w + .004); g.gain.exponentialRampToValueAtTime(p * v * .35, w + .08); g.gain.exponentialRampToValueAtTime(.0001, w + dur / (k > 1.5 ? k * .7 : 1)); o.connect(g); g.connect(lp); o.start(w); o.stop(w + dur + .05); });
+    };
+    const chord = (w, B, ms, v = 1, d) => ms.forEach(m => piano(w, B, m, v, d));
+    // 放映机：每秒 24 下机械嗒嗒 + 低频嗡声 + 偶尔的爆豆
+    const projector = (w, B, d) => {
+      const ctx = B.sfx.context, s = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain(); s.buffer = nbuf(ctx); s.loop = true; bp.type = 'bandpass'; bp.frequency.value = 2600; bp.Q.value = 2;
+      const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.type = 'square'; lfo.frequency.value = 24; lg.gain.value = .022; lfo.connect(lg); lg.connect(g.gain); g.gain.value = .024;
+      s.connect(bp); bp.connect(g); g.connect(B.out); s.start(w); lfo.start(w); s.stop(w + d); lfo.stop(w + d);
+      const o = ctx.createOscillator(), og = ctx.createGain(); o.type = 'sawtooth'; o.frequency.value = 48; const olp = ctx.createBiquadFilter(); olp.type = 'lowpass'; olp.frequency.value = 160; og.gain.value = .02; o.connect(olp); olp.connect(og); og.connect(B.out); o.start(w); o.stop(w + d);
+    };
+    S.at(0, projector, 15.2);
+    for (let k = 0; k < 60; k++) { const x = hash(k * 3.3) * 15; S.at(x, S.I.crackle); }
+    // ——— ragtime：左手“嗵-嚓”（低音 + 和弦交替），右手切分旋律 ———
+    const PROG = [['C', 36, [52, 55, 60]], ['C', 43, [52, 55, 60]], ['F', 41, [53, 57, 60]], ['C', 36, [52, 55, 60]], ['G7', 43, [53, 55, 59]], ['C', 36, [52, 55, 60]], ['A7', 45, [55, 57, 61]], ['D7', 38, [54, 57, 60]], ['G7', 43, [53, 55, 59]], ['C', 36, [52, 55, 60]]];
+    const half = bar / 2;                                      // 每半小节一个和弦
+    // 右手旋律（十六分音符网格，0 = 休止），切分落在反拍上
+    const MEL = [
+      [76, 0, 79, 76, 0, 72, 0, 74], [76, 0, 72, 0, 79, 0, 0, 0],
+      [77, 0, 81, 77, 0, 74, 0, 72], [76, 79, 0, 76, 0, 72, 0, 0],
+      [74, 0, 77, 74, 0, 71, 0, 67], [72, 76, 79, 84, 0, 0, 0, 0],
+      [73, 0, 76, 79, 0, 76, 0, 73], [74, 0, 78, 81, 0, 78, 0, 74],
+      [79, 0, 77, 74, 71, 0, 67, 0], [72, 0, 0, 0, 84, 0, 0, 0]
+    ];
+    // 片头卡：只弹一个引子
+    [[0, [60, 64, 67, 72]], [.6, [55, 59, 62, 65, 67]], [1.2, [60, 64, 67, 72]]].forEach(([x, ch]) => S.at(x + .05, chord, ch, .9, .8));
+    [84, 83, 81, 79, 77, 76, 74, 72].forEach((m, i) => S.at(.3 + i * .06, piano, m, .6));
+    // 主体：从光圈打开开始循环和弦，4.8–6 秒字幕卡期间继续弹（默片钢琴不停）
+    const start = T_IRIS_IN, n = Math.floor((T_END + 1.1 - start) / half);
+    for (let k = 0; k < n; k++) {
+      const [, root, ch] = PROG[k % PROG.length], t0 = start + k * half;
+      S.at(t0, piano, root, 1.1); S.at(t0 + beat, chord, ch, .7, .35);            // 嗵……嚓
+      if (k === 4 || k === 10) continue;                                        // 让事件的钢琴“拟音”露出来
+      MEL[k % MEL.length].forEach((m, i) => { if (m) S.at(t0 + i * beat / 4, piano, m, .75 + (i % 2 ? .1 : 0)); });
+    }
+    // 钢琴拟音：一阵风（上行刮奏）→ 帽子一路蹦（高音断奏）→ 扑空（低音砸键）→ 帽子飞起（颤音）→ 落到狗头（琶音和弦）→ 鞠躬（慢收束）
+    for (let i = 0; i < 14; i++) S.at(T_GUST - .25 + i * .035, piano, 60 + [0, 2, 4, 5, 7, 9, 11][i % 7] + 12 * Math.floor(i / 7), .7);
+    for (let k = 0; k < 9; k++) { const x = T_CHASE + (k + .5) / 2.6; if (x < T_LIFT) S.at(x, piano, 91 - (k % 2) * 3, .55, .2); }
+    S.at(T_DIVE + .25, chord, [31, 32, 34, 35, 37], 1.2, 1.0);
+    for (let i = 0; i < 16; i++) S.at(T_LIFT + i * .07, piano, i % 2 ? 86 : 88, .45, .15);
+    S.at(T_LAND, chord, [60, 64, 67, 72, 76], 1.1, 1.2); [72, 76, 79, 84].forEach((m, i) => S.at(T_LAND + .05 + i * .06, piano, m, .7));
+    S.at(T_BOW, chord, [53, 57, 60, 65], .8, 1); S.at(T_BOW + .6, chord, [55, 59, 62, 65], .8, .8);
+    S.at(T_END, chord, [36, 48, 60, 64, 67, 72], 1.1, 1.8); [79, 76, 72].forEach((m, i) => S.at(T_END + .3 + i * .12, piano, m, .6));
+  }
+});
+</script></body></html>

@@ -1,0 +1,2 @@
+const fs=require('fs'),path=require('path'),r=path.resolve(__dirname,'..');const c=JSON.parse(fs.readFileSync(path.join(r,'_engine/catalog.json'))),selected=JSON.parse(fs.readFileSync(path.join(r,'compilation/selected30.json')));
+const out=c.styles.map(s=>({...s,selectedNumber:selected.find(x=>x.id===s.id)?.n||null,style:fs.readFileSync(path.join(r,s.id,'STYLE.md'),'utf8')}));fs.writeFileSync(path.join(r,'catalog.js'),'window.ANIMATION_STYLES='+JSON.stringify(out)+';\n');console.log(out.length+' runnable styles');

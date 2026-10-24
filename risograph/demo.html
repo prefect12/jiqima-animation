@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Risograph 孔版印刷 · 周末早市</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=ZCOOL+QingKe+HuangYou&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+// three Riso inks, multiplied onto off-white paper
+const INK = { y: '#FFE800', p: '#FF48B0', b: '#0078BF' };
+const ORDER = ['y', 'p', 'b'];
+const PAPER = '#F4EFE4', TRAY = '#C9C1B1';
+const CN = '"ZCOOL QingKe HuangYou", "PingFang SC", sans-serif';
+const BEAT = 60 / 80, SHEET = 4 * BEAT;          // 80 BPM: one sheet = one bar = 3 s
+// sheet k: slides in on [3k-.4, 3k], inks on beats 0/1/2 (yellow, pink, blue), label stamp on beat 3
+const passT = (k, i) => k === 4 ? 12 + i * BEAT / 2 : k * SHEET + i * BEAT;
+const stampT = k => k === 4 ? 12 + 1.5 * BEAT : k * SHEET + 3 * BEAT;
+const WIPE = .42, OUT = 2.6, JIG = [13.5, 14.25];
+
+/* ---------- textures (random only here, at init) ---------- */
+const mk = (w, h) => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; return cv; };
+const SPECK = mk(256, 256);   // pinholes where the ink did not take (2×2 px clusters)
+{ const g = SPECK.getContext('2d'), im = g.createImageData(256, 256);
+  for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) { const r = Math.random(), a = r < .05 ? 255 : r < .14 ? 120 : 0; for (let k = 0; k < 4; k++) im.data[((y * 2 + (k >> 1)) * 256 + x * 2 + (k & 1)) * 4 + 3] = a; }
+  g.putImageData(im, 0, 0); }
+const BLOT = mk(64, 36);      // low-frequency density wobble, stretched over the sheet
+{ const g = BLOT.getContext('2d'), im = g.createImageData(64, 36); for (let i = 0; i < im.data.length; i += 4) im.data[i + 3] = Math.pow(Math.random(), 2) * 150; g.putImageData(im, 0, 0); }
+const FIBRE = mk(320, 320);
+{ const g = FIBRE.getContext('2d'); for (let i = 0; i < 520; i++) { const x = Math.random() * 320, y = Math.random() * 320, a = Math.random() * Math.PI, l = 3 + Math.random() * 9; g.strokeStyle = `rgba(${Math.random() < .5 ? '120,105,80' : '255,255,255'},${.05 + Math.random() * .08})`; g.lineWidth = .7; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); } }
+
+/* ---------- ink layers ---------- */
+let SC = 1, DW = 1280, DH = 720;
+const LAY = {}, PAT = {};
+function layer(name) {
+  const cv = LAY[name] || (LAY[name] = mk(DW, DH));
+  if (cv.width !== DW || cv.height !== DH) { cv.width = DW; cv.height = DH; }
+  const g = cv.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.clearRect(0, 0, DW, DH);
+  g.setTransform(SC, 0, 0, SC, 0, 0); g.fillStyle = g.strokeStyle = '#000'; g.lineCap = g.lineJoin = 'round'; return g;
+}
+// 45° halftone screen as a device-pixel-crisp pattern; level = ink coverage 0..0.78
+function dots(g, level, cell = 7) {
+  const key = level + '|' + cell + '|' + SC;
+  if (!PAT[key]) {
+    const T = Math.max(2, Math.round(cell * 2 * SC)), tile = mk(T, T), x = tile.getContext('2d'), r = T / 2 * Math.sqrt(2 * level / Math.PI);
+    x.fillStyle = '#000';
+    for (const [cx, cy] of [[T / 4, T / 4], [3 * T / 4, 3 * T / 4]]) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { x.beginPath(); x.arc(cx + i * T, cy + j * T, r, 0, 7); x.fill(); }
+    const p = g.createPattern(tile, 'repeat'), k = cell * 2 / T; p.setTransform(new DOMMatrix([k, 0, 0, k, 0, 0])); PAT[key] = p;
+  }
+  return PAT[key];
+}
+// hand-placed dots whose size follows a tone function (for gradients)
+function hdots(g, x0, y0, x1, y1, cell, tone) {
+  g.beginPath();
+  for (let j = 0, y = y0; y <= y1; j++, y += cell / 2) for (let x = x0 + (j % 2) * cell / 2; x <= x1; x += cell) {
+    const v = tone(x, y); if (v <= .02) continue; const r = Math.sqrt(Math.min(.8, v) * cell * cell / 2 / Math.PI); g.moveTo(x + r, y); g.arc(x, y, r, 0, 7);
+  }
+  g.fill();
+}
+// finish a layer: knock out pinholes + uneven density, colour it, multiply it onto the page
+function inkDown(c, name, col, dx, dy, seed) {
+  const g = LAY[name].getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'destination-out';
+  const ox = Math.floor(hash(seed) * 256), oy = Math.floor(hash(seed + 9) * 256);
+  g.save(); g.translate(-ox, -oy); g.fillStyle = g.createPattern(SPECK, 'repeat'); g.fillRect(0, 0, DW + 256, DH + 256); g.restore();
+  g.globalAlpha = .55; g.imageSmoothingEnabled = true; g.drawImage(BLOT, (hash(seed + 3) - .5) * 20 * SC, (hash(seed + 5) - .5) * 12 * SC, DW * 1.1, DH * 1.1); g.globalAlpha = 1;
+  g.globalCompositeOperation = 'source-in'; g.fillStyle = col; g.fillRect(0, 0, DW, DH);
+  c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'multiply'; c.drawImage(LAY[name], Math.round(dx * SC), Math.round(dy * SC)); c.restore();
+}
+function hash(n) { n = Math.sin(n * 127.1 + 311.7) * 43758.5453; return n - Math.floor(n); }
+const circle = (g, x, y, r) => { g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); };
+const poly = (g, pts) => { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); };
+const star = (g, x, y, ro, ri, n, rot = -Math.PI / 2) => { g.beginPath(); for (let i = 0; i < n * 2; i++) { const a = rot + i * Math.PI / n, r = i % 2 ? ri : ro; i ? g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r) : g.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } g.closePath(); };
+function reg(g) { // registration crosshairs, printed in every ink
+  [[36, 36], [1244, 36], [36, 684], [1244, 684]].forEach(([x, y]) => { g.lineWidth = 2; circle(g, x, y, 10); g.stroke(); g.beginPath(); g.moveTo(x - 17, y); g.lineTo(x + 17, y); g.moveTo(x, y - 17); g.lineTo(x, y + 17); g.stroke(); });
+}
+function text(g, s, x, y, size, font = CN, align = 'center') { g.font = `${size}px ${font}`; g.textAlign = align; g.textBaseline = 'middle'; g.fillText(s, x, y); }
+
+/* ---------- the four prints ---------- */
+function titleSheet(g, L) {
+  if (L === 'y') {
+    g.fillRect(0, 0, 1280, 96); for (let x = 0; x < 1280; x += 80) { circle(g, x + 40, 96, 40); g.fill(); }
+    circle(g, 640, 386, 180); g.fill();
+    for (let i = 0; i < 16; i++) { const a = (i + .5) / 16 * Math.PI * 2, a0 = a - .1, a1 = a + .1; poly(g, [[640 + Math.cos(a0) * 204, 386 + Math.sin(a0) * 204], [640 + Math.cos(a) * 252, 386 + Math.sin(a) * 252], [640 + Math.cos(a1) * 204, 386 + Math.sin(a1) * 204]]); g.fillStyle = dots(g, .5); g.fill(); }
+  }
+  if (L === 'p') {
+    g.fillStyle = '#000'; for (let x = 0; x < 1280; x += 160) { g.fillRect(x, 0, 80, 96); circle(g, x + 40, 96, 40); g.fill(); }
+    text(g, '周末早市', 640, 384, 184);
+  }
+  if (L === 'b') {
+    g.beginPath(); g.rect(0, 96, 1280, 44); for (let x = 0; x < 1280; x += 80) { g.moveTo(x + 80, 96); g.arc(x + 40, 96, 40, 0, Math.PI); }
+    g.fillStyle = dots(g, .28); g.fill('evenodd');
+    g.fillStyle = '#000'; g.fillRect(0, 654, 1280, 66);
+  }
+}
+const TOM = [[520, 400, 188], [852, 486, 118]];
+function tomato(g, L) {
+  const calyx = (x, y, r) => star(g, x, y - r * .86, r * .44, r * .15, 6, -Math.PI / 2 + .3);
+  if (L === 'b') {
+    for (let y = 578, r = 0; y < 720; y += 36, r++) for (let x = 0, q = 0; x < 1280; x += 36, q++) { g.fillStyle = dots(g, [.1, .34, .7][(r % 2) + (q % 2)]); g.fillRect(x, y, 36, 36); }
+    TOM.forEach(([x, y, r]) => { g.beginPath(); g.ellipse(x + r * .25, y + r * .95, r * 1.05, r * .2, 0, 0, 7); g.fillStyle = dots(g, .75); g.fill(); });
+    g.globalCompositeOperation = 'destination-out'; TOM.forEach(([x, y, r]) => { circle(g, x, y, r + 3); g.fill(); }); g.globalCompositeOperation = 'source-over';
+  }
+  TOM.forEach(([x, y, r]) => {
+    if (L === 'y') { circle(g, x, y, r); g.fill(); calyx(x, y, r); g.fill(); }
+    if (L === 'p') {
+      g.beginPath(); g.arc(x, y, r, 0, 7); g.ellipse(x - r * .4, y - r * .4, r * .2, r * .09, -.7, 0, 7); g.fillStyle = '#000'; g.fill('evenodd');
+      g.globalCompositeOperation = 'destination-out'; calyx(x, y, r); g.fill(); g.globalCompositeOperation = 'source-over';
+    }
+    if (L === 'b') {
+      g.save(); circle(g, x, y, r); g.clip();
+      g.beginPath(); g.rect(x - r, y - r, r * 2, r * 2); g.arc(x - r * .22, y - r * .26, r * 1.02, 0, 7); g.fillStyle = dots(g, .42); g.fill('evenodd'); g.restore();
+      g.fillStyle = '#000'; calyx(x, y, r); g.fill();
+      g.lineWidth = r * .07; g.beginPath(); g.moveTo(x, y - r * .86); g.quadraticCurveTo(x + r * .05, y - r * 1.1, x + r * .16, y - r * 1.16); g.stroke();
+    }
+  });
+}
+function fishBody(g) { g.beginPath(); g.moveTo(900, 388); g.bezierCurveTo(780, 244, 470, 250, 330, 386); g.bezierCurveTo(470, 518, 780, 526, 900, 388); g.closePath(); }
+function fishTail(g) { poly(g, [[346, 386], [212, 284], [252, 386], [212, 490]]); }
+function fish(g, L) {
+  if (L === 'y') {
+    circle(g, 818, 360, 21); g.fill();
+    [[1010, 575, 84, 0], [150, 560, 66, 1]].forEach(([x, y, r, s]) => {
+      circle(g, x, y, r); g.fill(); g.globalCompositeOperation = 'destination-out';
+      circle(g, x, y, r * .86); g.lineWidth = 5; g.stroke();
+      for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2 + s; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * r * .82, y + Math.sin(a) * r * .82); g.lineWidth = 4; g.stroke(); }
+      g.globalCompositeOperation = 'source-over';
+    });
+  }
+  if (L === 'b') {
+    [[250, 560, 150, 60], [470, 590, 180, 64], [700, 575, 170, 58], [390, 660, 150, 50], [620, 665, 160, 50], [860, 650, 120, 52]].forEach(([x, y, w, h], i) => {
+      g.save(); g.translate(x, y); g.rotate((hash(i + 3) - .5) * .3); rrectP(g, -w / 2, -h / 2, w, h, 12); g.lineWidth = 3; g.stroke(); g.fillStyle = dots(g, .12); g.fill(); g.restore();
+    });
+    g.globalCompositeOperation = 'destination-out'; fishBody(g); g.fill(); fishTail(g); g.fill(); g.globalCompositeOperation = 'source-over';
+    g.save(); fishBody(g); g.clip(); hdots(g, 320, 240, 910, 530, 9, (x, y) => .92 - .75 * Math.min(1, Math.max(0, (y - 262) / 250))); g.restore();
+    g.save(); fishTail(g); g.clip(); hdots(g, 200, 280, 350, 495, 9, () => .5); g.restore();
+    g.globalCompositeOperation = 'destination-out'; circle(g, 818, 360, 22); g.fill(); g.globalCompositeOperation = 'source-over';
+    circle(g, 822, 360, 9); g.fill();
+    g.lineWidth = 4; g.beginPath(); g.moveTo(900, 390); g.quadraticCurveTo(880, 402, 862, 398); g.stroke();
+  }
+  if (L === 'p') {
+    poly(g, [[500, 312], [590, 196], [700, 206], [762, 300]]); g.fill();
+    poly(g, [[548, 470], [606, 566], [672, 470]]); g.fill();
+    poly(g, [[700, 410], [632, 456], [712, 448]]); g.fill();
+    fishTail(g); g.fillStyle = dots(g, .55); g.fill(); g.fillStyle = '#000';
+    g.save(); fishBody(g); g.clip();
+    g.lineWidth = 3.2; for (let j = 0; j < 7; j++) for (let x = 400 + (j % 2) * 18; x < 760; x += 36) { g.beginPath(); g.arc(x, 300 + j * 30, 17, -Math.PI / 2, Math.PI / 2); g.stroke(); }
+    g.fillStyle = dots(g, .3); g.fillRect(320, 430, 600, 120); g.restore();
+    g.lineWidth = 5; g.beginPath(); g.arc(840, 388, 84, 2.35, 3.95); g.stroke();
+  }
+}
+const FLW = [[520, 256, 64, 1], [650, 188, 72, 1], [782, 262, 62, 1], [592, 334, 50, 0], [716, 326, 54, 0]];
+function cone(g) { poly(g, [[430, 384], [850, 384], [666, 706], [614, 706]]); }
+function flowers(g, L) {
+  if (L === 'y') {
+    cone(g); g.fillStyle = dots(g, .42); g.fill();
+    g.fillStyle = '#000'; poly(g, [[430, 384], [850, 384], [836, 408], [444, 408]]); g.fill();
+    poly(g, [[430, 384], [540, 384], [630, 706], [614, 706]]); g.fillStyle = dots(g, .72); g.fill(); g.fillStyle = '#000';
+    FLW.forEach(([x, y, r]) => { circle(g, x, y, r * .3); g.fill(); });
+  }
+  if (L === 'b') {
+    g.lineWidth = 7; FLW.forEach(([x, y]) => { g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo((x + 640) / 2, y + 80, 640 + (x - 640) * .3, 396); g.stroke(); });
+    [[498, 382, -.5], [786, 378, .5], [586, 372, -1.1], [700, 366, 1.0], [640, 388, 0]].forEach(([x, y, a]) => { g.beginPath(); g.ellipse(x, y, 66, 22, a, 0, 7); g.fill(); });
+    g.save(); g.translate(640, 548); g.beginPath(); g.ellipse(-34, 0, 34, 16, -.3, 0, 7); g.ellipse(34, 0, 34, 16, .3, 0, 7); g.lineWidth = 8; g.stroke();
+    poly(g, [[-8, 4], [-40, 70], [-24, 66], [-16, 80], [0, 10]]); g.fill(); poly(g, [[8, 4], [40, 70], [24, 66], [16, 80], [0, 10]]); g.fill(); circle(g, 0, 0, 11); g.fill(); g.restore();
+    g.globalCompositeOperation = 'destination-out'; FLW.forEach(([x, y, r]) => { circle(g, x, y, r * .95); g.fill(); }); g.globalCompositeOperation = 'source-over';
+    FLW.forEach(([x, y, r]) => { for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; circle(g, x + Math.cos(a) * r * .15, y + Math.sin(a) * r * .15, 2.6); g.fill(); } });
+  }
+  if (L === 'p') {
+    FLW.forEach(([x, y, r, solid], k) => {
+      g.beginPath(); for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2 + k; g.moveTo(x + Math.cos(a) * r * 1.02, y + Math.sin(a) * r * 1.02); g.ellipse(x + Math.cos(a) * r * .55, y + Math.sin(a) * r * .55, r * .47, r * .33, a, 0, 7); }
+      g.fillStyle = solid ? '#000' : dots(g, .6); g.fill();
+      g.globalCompositeOperation = 'destination-out'; circle(g, x, y, r * .26); g.fill(); g.globalCompositeOperation = 'source-over';
+    });
+  }
+}
+function rrectP(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+const MINI = [[tomato, 250, 640, 430], [fish, 640, 600, 400], [flowers, 1030, 640, 430]];
+function finale(g, L) {
+  MINI.forEach(([fn, cx, ox, oy], i) => {
+    g.save(); rrectP(g, cx - 180, 212, 360, 356, 18); g.clip(); g.translate(cx, 392); g.scale(.46, .46); g.translate(-ox, -oy); fn(g, L); g.restore();
+    if (L === 'b') { rrectP(g, cx - 180, 212, 360, 356, 18); g.lineWidth = 4; g.stroke(); }
+  });
+  if (L === 'y') { g.fillRect(372, 78, 536, 70); }
+  if (L === 'p') { text(g, '周末早市', 640, 116, 112); }
+}
+const SHEETS = [titleSheet, tomato, fish, flowers, finale];
+function tag(g, s, x, y, u) { // label stamp: little tag outline + name, stamped down with a squash
+  const k = 1 + .5 * Math.pow(1 - u, 3);
+  g.save(); g.translate(x, y); g.rotate(-.06); g.scale(k, k);
+  rrectP(g, -96, -46, 192, 92, 14); g.lineWidth = 5; g.stroke(); circle(g, -70, 0, 9); g.lineWidth = 4; g.stroke();
+  text(g, s, 16, 4, 58); g.restore();
+}
+const STAMP = [[g => { g.globalCompositeOperation = 'destination-out'; text(g, '星期六 · 早上七点半', 640, 688, 40); g.globalCompositeOperation = 'source-over'; }], [g => 0, '番茄', 1052, 180], [g => 0, '鱼', 1052, 160], [g => 0, '花', 1052, 180], [g => text(g, '番茄 · 鱼 · 花', 640, 640, 44)]];
+
+Film({
+  title: 'Risograph 孔版印刷 · 周末早市', DUR: 15, BPM: 80, poster: 13.2,
+  fonts: [['100px "ZCOOL QingKe HuangYou"', '周末早市星期六早上七点半番茄鱼花·']],
+  draw(c, t, F) {
+    const { W, H, prog, ease, easeOut, back } = F;
+    SC = c.getTransform().a; DW = c.canvas.width; DH = c.canvas.height;
+    c.fillStyle = TRAY; c.fillRect(0, 0, W, H);
+    c.fillStyle = 'rgba(0,0,0,.06)'; for (let y = 0; y < H; y += 6) c.fillRect(0, y, W, 2);
+    const k0 = Math.min(4, Math.floor(t / SHEET)), list = [k0];
+    if (k0 < 4 && t > k0 * SHEET + OUT) list.push(k0 + 1);
+    for (const k of list) {
+      const u = k === 0 ? 1 : ease(prog(t, k * SHEET - .4, k * SHEET)), v = k < 4 ? ease(prog(t, k * SHEET + OUT, (k + 1) * SHEET)) : 0;
+      const ox = (1 - u) * (W + 40) - v * (W + 40);
+      c.save();
+      c.shadowColor = 'rgba(40,30,20,.35)'; c.shadowBlur = 18; c.shadowOffsetY = 6; c.fillStyle = PAPER; c.fillRect(ox, 0, W, H); c.shadowColor = 'transparent';
+      c.beginPath(); c.rect(ox, 0, W, H); c.clip();
+      c.globalAlpha = .9; c.fillStyle = c.createPattern(FIBRE, 'repeat'); c.translate(ox, 0); c.fillRect(0, 0, W, H); c.translate(-ox, 0); c.globalAlpha = 1;
+      ORDER.forEach((L, i) => {
+        const tp = passT(k, i); if (t < tp) return;
+        const g = layer((k % 2) + L), rx = W * easeOut(prog(t, tp, tp + WIPE)) + 2;
+        reg(g); SHEETS[k](g, L);
+        if (rx < W) { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(rx * SC, 0, DW, DH); g.restore(); }
+        if (L === 'b' && t >= stampT(k)) {
+          const su = back(prog(t, stampT(k), stampT(k) + .16)), st = STAMP[k];
+          g.fillStyle = '#000'; if (st.length > 1) tag(g, st[1], st[2], st[3], su); else { g.save(); g.globalAlpha = Math.min(1, su * 1.5); st[0](g); g.restore(); }
+        }
+        let dx = (hash(k * 7 + i * 3 + 1) - .5) * 8, dy = (hash(k * 11 + i * 5 + 2) - .5) * 6;
+        if (i === 0) dx = dy = 0;
+        JIG.forEach(j => { if (t > j && t < j + .45) { const e = Math.exp(-(t - j) * 9) * Math.sin((t - j) * 38 + i * 2); dx += e * [7, -9, 11][i]; dy += e * [-4, 6, 3][i]; } });
+        inkDown(c, (k % 2) + L, INK[L], ox + dx, dy, k * 17 + i * 5 + 1);
+        if (rx < W) { // the drum's squeegee sweeping across, trailing wet ink
+          c.save(); c.translate(ox, 0);
+          const gr = c.createLinearGradient(rx - 90, 0, rx, 0); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(1, INK[L]);
+          c.globalAlpha = .35; c.globalCompositeOperation = 'multiply'; c.fillStyle = gr; c.fillRect(rx - 90, 0, 90, H);
+          c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+          c.fillStyle = '#2E2C2A'; c.fillRect(rx, 0, 16, H); c.fillStyle = INK[L]; c.fillRect(rx + 2, 0, 5, H); c.fillStyle = 'rgba(255,255,255,.35)'; c.fillRect(rx + 10, 0, 2, H);
+          c.restore();
+        }
+      });
+      c.restore();
+    }
+    F.grain(c, t, .05);
+    const fo = prog(t, 14.45, 15); if (fo > 0) { c.fillStyle = `rgba(244,239,228,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S, sw = beat * .16;
+    const nz = (w, B, d, peak, type, f, q = 1, f2) => { // private noise burst (Math.random is fine for audio)
+      const ctx = B.sfx.context, n = Math.ceil(ctx.sampleRate * (d + .05)), buf = ctx.createBuffer(1, n, ctx.sampleRate), a = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) a[i] = Math.random() * 2 - 1;
+      const s = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain(); s.buffer = buf; fl.type = type; fl.frequency.setValueAtTime(f, w); fl.Q.value = q;
+      if (f2) fl.frequency.exponentialRampToValueAtTime(f2, w + d); g.gain.setValueAtTime(peak, w); g.gain.exponentialRampToValueAtTime(.0001, w + d);
+      s.connect(fl); fl.connect(g); g.connect(B.sfx); s.start(w); s.stop(w + d + .05);
+    };
+    // the riso drum: roller pass + ka-chunk
+    const pass = (w, B) => { nz(w, B, WIPE, .12, 'bandpass', 500, 1.4, 2400); I.thud(w, B, .45); nz(w + .01, B, .07, .2, 'bandpass', 1300, 2); I.click(w + WIPE - .02, B); };
+    const PR = [[53, 57, 60, 64], [52, 55, 59, 62], [50, 53, 57, 60], [48, 52, 55, 59]], RT = [41, 40, 38, 36];
+    for (let b = 0; b < 5; b++) {
+      const ch = PR[b % 4], t0 = b * bar;
+      S.at(t0, (w, B) => ch.forEach(m => I.keys(w, B, m, .85, 2.4)));
+      S.at(t0 + 2.5 * beat + sw, (w, B) => ch.slice(1).forEach(m => I.keys(w, B, m + 12, .3, .5)));
+      if (b > 0) {
+        S.at(t0, I.kick, .75); S.at(t0 + 1.5 * beat + sw, I.kick, .45); S.at(t0 + 2.75 * beat, I.kick, .35);
+        S.at(t0 + beat, I.snare, .45); S.at(t0 + 3 * beat, I.snare, .45);
+        for (let e = 0; e < 8; e++) S.at(t0 + e * beat / 2 + (e % 2 ? sw : 0), I.hat, e % 2 ? .45 : .8);
+        S.at(t0, I.bass, RT[b % 4], 1.1, .8); S.at(t0 + 2.5 * beat + sw, I.bass, RT[b % 4] + 7, .5, .6); S.at(t0 + 3.5 * beat + sw, I.bass, RT[b % 4] + 12, .3, .5);
+      }
+    }
+    for (let i = 0; i < 110; i++) S.at(hash(i * 3.1) * 15, I.crackle);
+    S.melody([76, 0, 79, 81, 0, 79, 76, 0], bar + beat * .5, beat / 2 * 1.5, 'pluck', .5);
+    S.melody([74, 0, 76, 79, 0, 76, 72, 0], bar * 3 + beat * .5, beat / 2 * 1.5, 'pluck', .5);
+    for (let k = 0; k < 5; k++) {
+      for (let i = 0; i < 3; i++) S.at(passT(k, i), pass);
+      S.at(stampT(k), I.thud, .7); S.at(stampT(k), I.pop, k === 4 ? 1.2 : .8 + k * .1);
+      if (k > 0) { S.at(k * SHEET - .4, I.paper); S.at(k * SHEET - .42, I.whoosh, .35); }
+    }
+    JIG.forEach((j, i) => { S.at(j, I.boing); S.at(j, I.marimba, 72 + i * 7); });
+    S.at(12, I.shimmer);
+    S.at(14.25, (w, B) => { I.bell(w, B, 91, .6); I.bell(w + .12, B, 91, .5); });
+    S.at(14.25, (w, B) => [48, 55, 64, 67, 71].forEach(m => I.keys(w, B, m, .9, 2)));
+  }
+});
+</script></body></html>

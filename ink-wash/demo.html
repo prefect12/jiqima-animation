@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>中国水墨 · 钓月</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 中国水墨：宣纸 + 两张墨层（远景 / 近景，中间夹一层雾），全部 multiply 到纸上。
+   墨分五色 = 同一种墨用 5 档透明度；飞白 = 一笔拆成 7 根“笔毛”，越往笔尾越容易断；
+   烘云托月 = 月亮本身不画，只在它四周染一圈淡墨。 */
+const BPM = 72, BEAT = 60 / BPM;                                   // 0.833 s
+const T = { far: [.1, 1.8], mid: [.8, 2.8], cliff: [1.6, 3.2], pine: [2.3, 3.4], pan: [2.0, 7.2], boat: [2.0, 6.7],
+  cast: [8 * BEAT, 9 * BEAT], tug: 10 * BEAT, pull: 11 * BEAT, sky: 13 * BEAT, cloud: [13 * BEAT, 14 * BEAT + .4], poem: [14 * BEAT, 14 * BEAT + .9], seal: 15 * BEAT, fade: 14.4 };
+const INK = '21,18,15', RED = '#B8322A', PAPER = '#ECE4D1';
+const FIVE = { 焦: .92, 浓: .72, 重: .5, 淡: .28, 清: .12 };      // 墨分五色：同一墨色的五档浓淡
+const CAM_END = 700, REFL = [1400, 622], MOON = [1700, 152], MOON_R = 60;
+const FONT = '"Ma Shan Zheng", "Kaiti SC", "STKaiti", serif';
+
+/* ---------- 初始化（Math.random 只用在纸纹） ---------- */
+const H1 = n => { n = Math.sin(n * 127.1 + 311.7) * 43758.5453; return n - Math.floor(n); };
+const FIB = (() => { const n = 512, cv = document.createElement('canvas'); cv.width = cv.height = n; const x = cv.getContext('2d');
+  const im = x.createImageData(n, n); for (let i = 0; i < im.data.length; i += 4) { const v = Math.random(); im.data[i] = im.data[i + 1] = im.data[i + 2] = v > .5 ? 255 : 120; im.data[i + 3] = Math.random() * 14; } x.putImageData(im, 0, 0);
+  for (let k = 0; k < 260; k++) { const px = Math.random() * n, py = Math.random() * n, a = Math.random() * Math.PI, l = 20 + Math.random() * 70; x.strokeStyle = Math.random() < .6 ? 'rgba(255,255,250,.2)' : 'rgba(150,130,100,.1)'; x.lineWidth = .6 + Math.random() * .8;
+    x.beginPath(); x.moveTo(px, py); x.quadraticCurveTo(px + Math.cos(a) * l * .5 + (Math.random() - .5) * 12, py + Math.sin(a) * l * .5 + (Math.random() - .5) * 12, px + Math.cos(a) * l, py + Math.sin(a) * l); x.stroke(); }
+  return cv; })();
+function resample(pts, step = 5) { const out = [pts[0]]; let carry = 0; for (let i = 1; i < pts.length; i++) { const a = pts[i - 1], b = pts[i], d = Math.hypot(b[0] - a[0], b[1] - a[1]); let s = step - carry; while (s <= d) { out.push([a[0] + (b[0] - a[0]) * s / d, a[1] + (b[1] - a[1]) * s / d]); s += step; } carry = d - (s - step); } out.push(pts[pts.length - 1]); return out; }
+const curve = (p0, p1, p2, n = 24) => Array.from({ length: n + 1 }, (_, i) => { const u = i / n; return [(1 - u) * (1 - u) * p0[0] + 2 * u * (1 - u) * p1[0] + u * u * p2[0], (1 - u) * (1 - u) * p0[1] + 2 * u * (1 - u) * p1[1] + u * u * p2[1]]; });
+
+// 远山：一条连绵的淡墨山脊
+const FAR = (() => { const P = []; for (let x = -100; x <= 2300; x += 16) P.push([x, 300 - 40 * Math.sin(x * .004 + 1) - 26 * Math.sin(x * .011 + 2) - 12 * Math.sin(x * .031) - 8 * H1(x)]); return P; })();
+// 中景：几座圆头的山，每座由 2–3 个“馒头”叠成；带勾线、披麻皴和苔点
+const bell = u => Math.abs(u) >= 1 ? 0 : Math.pow((Math.cos(Math.PI * u) + 1) / 2, .8);
+const PEAKS = [[230, 250, 290, 1, [[0, 1, 1], [-.5, .5, .62], [.55, .45, .5]]], [720, 240, 250, 2, [[-.1, .9, 1], [.5, .45, .7]]], [1150, 270, 320, 3, [[.05, .8, 1], [-.5, .5, .72], [.55, .4, .45]]],
+  [1560, 230, 240, 4, [[0, .9, 1], [-.55, .4, .6]]], [2000, 270, 300, 5, [[0, .85, 1], [.5, .5, .66]]]].map(([cx, w, h, sd, subs]) => {
+  const base = 480, prof = [];
+  for (let dx = -w; dx <= w; dx += 6) { const u = dx / w; let v = 0; subs.forEach(([o, wf, hf]) => v = Math.max(v, hf * bell((u - o) / wf))); prof.push([cx + dx, base - h * v - 5 * Math.sin(dx * .09 + sd) * v - 3 * H1(dx + sd * 9) * v]); }
+  const top = prof.reduce((a, p) => p[1] < a[1] ? p : a);
+  // 找每个小峰的峰顶，从峰顶往两边各勾一笔，勾到半山腰就收（不勾进雾里）
+  const ridges = [];
+  for (let i = 3; i < prof.length - 3; i++) { if ([-3, -2, -1, 1, 2, 3].every(d => prof[i][1] <= prof[i + d][1])) {
+    const y0 = prof[i][1], stop = y0 + Math.max(60, (base - y0) * .5);
+    for (const dir of [-1, 1]) { const P = []; for (let j = i; j >= 0 && j < prof.length && prof[j][1] < stop; j += dir) P.push(prof[j]); if (P.length > 3) ridges.push({ P: resample(P, 5), w: 7 + H1(i + dir) * 3, s: sd * 40 + i * 2 + dir }); } } }
+  const yAt = x => { const i = Math.max(0, Math.min(prof.length - 1, Math.round((x - cx + w) / 6))); return prof[i][1]; };
+  const cun = Array.from({ length: 24 }, (_, k) => { const x0 = cx + (H1(sd * 31 + k * 1.3) - .5) * w * 1.6, y0 = yAt(x0) + 4 + H1(k * 3.3 + sd) * 30, slope = yAt(x0 + 6) - yAt(x0 - 6), len = 40 + H1(sd * 7 + k) * Math.max(30, (base - y0) * .55);
+    return { P: resample(curve([x0, y0], [x0 + slope * 3 + (H1(k + 5) - .5) * 20, y0 + len * .45], [x0 + slope * 4.5 + (H1(k) - .5) * 30, y0 + len * .8]), 4), w: 3 + H1(k + sd) * 4, a: [FIVE.清 * 2, FIVE.淡, FIVE.重][k % 3], s: sd * 50 + k, d: H1(k + 2) * .5 }; });
+  const moss = Array.from({ length: 22 }, (_, k) => { const p = prof[Math.floor(H1(sd * 13 + k * 3.7) * prof.length)]; if (p[1] > base - 40) return null; return [p[0] + (H1(k * 5) - .5) * 10, p[1] + 1 + H1(k * 9) * 12, 2 + H1(k * 3 + sd) * 2.6]; }).filter(Boolean);
+  return { cx, w, h, base, prof, ridges, cun, moss, top, sd };
+});
+// 近景：左边一块崖石和一棵松，右下一块矶石和芦苇
+// 近景左下：一道低矮的石岸（小舟从它后面划出来）
+const BANK = [[-60, 740], [-60, 590], [60, 566], [170, 574], [280, 598], [380, 632], [450, 676], [490, 740]];
+const BANK_STROKES = [resample(BANK.slice(1, 7), 5), resample(curve([40, 600], [120, 612], [200, 640]), 5), resample(curve([220, 626], [300, 650], [360, 690]), 5)];
+const BANK_FACETS = [[[0, 610], [110, 640]], [[150, 604], [260, 640]], [[60, 660], [190, 690]], [[260, 660], [380, 700]]].map(([a, b]) => resample([a, b], 5));
+// 近景左上：一枝松从画外探进来
+const PINE = { trunk: resample(curve([-40, 40], [160, 70], [330, 150]), 5), branches: [resample(curve([120, 66], [180, 120], [230, 190]), 5), resample(curve([240, 108], [300, 84], [380, 96]), 5), resample(curve([60, 52], [80, 110], [70, 160]), 5)],
+  clusters: [[330, 152, 44], [232, 192, 38], [382, 96, 36], [70, 162, 32], [170, 88, 30]] };
+const ROCK = [[1860, 760], [1880, 650], [1940, 600], [2040, 596], [2140, 640], [2240, 760]];
+const REEDS = Array.from({ length: 9 }, (_, k) => { const x = 1900 + k * 24 + H1(k) * 10; return { x, y: 610 + H1(k + 3) * 20, h: 90 + H1(k + 9) * 70, b: (H1(k + 1) - .5) * .5 }; });
+// 小舟（本地坐标）
+const BOAT = { hull: resample([[-78, -6], [-40, 4], [0, 8], [44, 4], [82, -10]]), keel: resample([[-60, 2], [0, 12], [60, 2]]) };
+
+const cvs = {};
+function layer(c, name) { const w = c.canvas.width, h = c.canvas.height; let cv = cvs[name]; if (!cv) cv = cvs[name] = document.createElement('canvas'); if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const l = cv.getContext('2d'); l.setTransform(1, 0, 0, 1, 0, 0); l.globalCompositeOperation = 'source-over'; l.globalAlpha = 1; l.filter = 'none'; l.clearRect(0, 0, w, h); l.setTransform(w / 1280, 0, 0, w / 1280, 0, 0); return l; }
+
+Film({
+  title: '中国水墨 · 钓月', DUR: 15, BPM, poster: 13.2,
+  fonts: [['80px "Ma Shan Zheng"', '钓月墨舟']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, hash, ease, easeOut, easeIn, keyframes } = F;
+    const ink = a => `rgba(${INK},${a})`;
+    // 飞白笔：7 根笔毛，笔头按压、笔尾提起；越到笔尾，笔毛越容易断开
+    function brush(x, P, w, a, seed, u = 1, dry = .5, ox = 0, oy = 0) {
+      if (u <= 0 || P.length < 2) return; const M = P.length, m = Math.max(2, Math.floor(M * clamp(u, 0, 1))), nb = 9;
+      x.lineCap = 'round'; x.lineJoin = 'round';
+      // 笔肚：先铺一道湿墨打底，越干的笔底色越淡
+      x.strokeStyle = ink(a * .45 * (1 - dry * .8)); x.lineWidth = w * .75; x.beginPath(); for (let i = 0; i < m; i++) { const p = P[i]; i ? x.lineTo(p[0] + ox, p[1] + oy) : x.moveTo(p[0] + ox, p[1] + oy); } x.stroke();
+      for (let b = 0; b < nb; b++) {
+        const off0 = (b / (nb - 1) - .5) * w; x.lineWidth = w / nb * (1.8 + hash(seed + b * 5.1) * 1.2); x.strokeStyle = ink(a * (.5 + .5 * hash(seed + b * 3.3)));
+        x.beginPath(); let on = false;
+        for (let i = 0; i < m; i++) {
+          const s = i / (M - 1), p = P[i], q = P[Math.min(M - 1, i + 1)], r = P[Math.max(0, i - 1)], dx = q[0] - r[0], dy = q[1] - r[1], dl = Math.hypot(dx, dy) || 1;
+          const press = Math.min(1, s * 6 + .25) * (1 - Math.pow(s, 3) * .6);
+          const gap = hash(seed * 7.1 + b * 13.7 + Math.floor(i / 4 + hash(b + seed) * 3) * 1.9) < dry * Math.pow(Math.max(0, s - .2), 1.3) * 2 + (b === 0 || b === nb - 1 ? .18 : 0);
+          const off = off0 + Math.sin(i * .21 + b * 1.7 + seed) * w * .05, X = p[0] + ox - dy / dl * off * press, Y = p[1] + oy + dx / dl * off * press;
+          if (gap) { on = false; continue; } if (!on) { x.moveTo(X, Y); on = true; } else x.lineTo(X, Y);
+        }
+        x.stroke();
+      }
+    }
+    const poly = (x, P, ox = 0, oy = 0) => { x.beginPath(); P.forEach(([a, b], i) => i ? x.lineTo(a + ox, b + oy) : x.moveTo(a + ox, b + oy)); };
+    const vgrad = (x, y0, y1, a0, a1) => { const g = x.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, ink(a0)); g.addColorStop(1, ink(a1)); return g; };
+
+    /* ---------- 镜头：一幅手卷从左往右展开 ---------- */
+    const cam = CAM_END * ease(prog(t, ...T.pan));
+    /* ---------- 宣纸 ---------- */
+    c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
+    c.fillStyle = c.createPattern(FIB, 'repeat'); c.save(); c.translate(-cam * .5 % 512, 0); c.fillRect(0, 0, W + 512, H); c.restore();
+    F.vignette(c, .22, '120,95,55');
+
+    /* ---------- 月亮的位置（水里 → 钓起 → 天上） ---------- */
+    const ox1 = -cam, pullU = prog(t, T.pull, T.sky);
+    let mx, my, mr, squash;
+    if (t < T.pull) { mx = REFL[0]; my = REFL[1]; mr = MOON_R * .9; squash = .28; }
+    else { const u = ease(pullU); mx = lerp(REFL[0], MOON[0], u) - Math.sin(Math.PI * u) * 120; my = lerp(REFL[1], MOON[1], easeOut(pullU)); mr = lerp(MOON_R * .9, MOON_R, u); squash = lerp(.28, 1, easeOut(prog(t, T.pull, T.pull + .35))); }
+    // 出水后的月亮是一块“留白”：用纸色盖住后面的山
+    const MOONDISK = x => { if (t < T.pull) return; x.save(); x.fillStyle = '#F1EBDC'; x.globalAlpha = easeOut(prog(t, T.pull, T.pull + .4)); x.beginPath(); x.ellipse(mx + ox1, my, mr, mr * squash, 0, 0, Math.PI * 2); x.fill(); x.restore(); };
+    /* ---------- 远景墨层 ---------- */
+    const B = layer(c, 'back');
+    { const u = easeOut(prog(t, ...T.far)), ox = -cam * .25;
+      B.save(); B.filter = `blur(${lerp(16, 5, u)}px)`; B.globalAlpha = u; poly(B, FAR, ox); B.lineTo(2300 + ox, 560); B.lineTo(-100 + ox, 560); B.closePath(); B.fillStyle = vgrad(B, 220, 470, FIVE.淡, 0); B.fill(); B.restore(); }
+    PEAKS.forEach((pk, i) => {
+      const ox = -cam * .55, t0 = T.mid[0] + i * .3, u = prog(t, t0, t0 + 1.4); if (u <= 0) return;
+      if (pk.cx + ox + pk.w < -40 || pk.cx + ox - pk.w > W + 40) return;
+      // 染：顶上重墨，往下淡进雾里
+      B.save(); B.filter = `blur(${lerp(14, 4, u)}px)`; B.globalAlpha = easeOut(prog(u, .3, 1)); poly(B, pk.prof, ox); B.lineTo(pk.cx + pk.w + ox, 560); B.lineTo(pk.cx - pk.w + ox, 560); B.closePath();
+      B.fillStyle = vgrad(B, pk.top[1], pk.base + 30, FIVE.重, 0); B.fill(); B.restore();
+      // 第二遍染：山顶再压一层淡墨，出层次
+      B.save(); B.filter = 'blur(6px)'; B.globalAlpha = easeOut(prog(u, .5, 1)); poly(B, pk.prof, ox, 8); B.lineTo(pk.cx + pk.w + ox, 560); B.lineTo(pk.cx - pk.w + ox, 560); B.closePath();
+      B.fillStyle = vgrad(B, pk.top[1], pk.top[1] + pk.h * .45, FIVE.淡, 0); B.fill(); B.restore();
+      // 勾：从每个峰顶往两边勾，到半山腰收笔
+      pk.ridges.forEach((r, k) => brush(B, r.P, r.w, FIVE.浓, r.s, easeOut(prog(u, k * .05, .5 + k * .05)), .55, ox));
+      // 皴：披麻皴，顺山势往下的干笔
+      pk.cun.forEach((cn, k) => brush(B, cn.P, cn.w, cn.a, cn.s, prog(u, .35 + cn.d, .6 + cn.d), .7, ox));
+      // 点：苔点
+      if (u > .8) pk.moss.forEach(([mx, my, r], k) => { B.fillStyle = ink(FIVE.焦 * (.6 + hash(k) * .4)); B.beginPath(); B.ellipse(mx + ox, my, r * 1.3, r, hash(k + 1) - .5, 0, Math.PI * 2); B.fill(); });
+    });
+    c.save(); c.globalCompositeOperation = 'multiply'; c.drawImage(B.canvas, 0, 0, W, H); c.restore();
+
+    /* ---------- 雾：纸色的横带，缓缓流动，把山脚“吃”掉 ---------- */
+    const mist = (y0, h, a, sp, ph) => { for (let k = 0; k < 5; k++) { const x = ((k * 360 - t * sp - cam * .4 + ph) % 1800 + 1800) % 1800 - 300, y = y0 + Math.sin(k * 2.1 + ph) * h * .5, g = c.createRadialGradient(x, y, 0, x, y, 420);
+      g.addColorStop(0, `rgba(236,228,209,${a})`); g.addColorStop(1, 'rgba(236,228,209,0)'); c.save(); c.translate(x, y); c.scale(1, h / 420); c.translate(-x, -y); c.fillStyle = g; c.fillRect(x - 420, y - 420, 840, 840); c.restore(); } };
+    mist(470, 70, .95, 14, 0); mist(420, 40, .7, 22, 500); mist(330, 30, .35, 10, 900);
+    c.fillStyle = 'rgba(236,228,209,.75)'; c.fillRect(0, 482, W, 240);                // 水面：大片留白
+    MOONDISK(c);
+
+    /* ---------- 近景墨层 ---------- */
+    const Fr = layer(c, 'front');
+    // 小舟
+    const bx = keyframes([[T.boat[0], -200], [T.boat[1], 1120]], t)[0], by = 588 + Math.sin(t * 1.7) * 2.5;
+    const drawBoat = (x, o) => {
+      x.save(); x.translate(bx + ox1, by); x.scale(1.3, 1.3);
+      brush(x, BOAT.hull, 9, FIVE.焦 * o, 900, 1, .3); brush(x, BOAT.keel, 5, FIVE.浓 * o, 910, 1, .5);
+      // 渔翁：蓑衣几笔竖着的干笔，斗笠一笔横
+      [[-14, -44, -20, -6], [-7, -46, -8, -4], [0, -46, 4, -6], [6, -42, 12, -8]].forEach(([x0, y0, x1, y1], k) => brush(x, resample([[x0, y0], [x1, y1]], 3), 7, FIVE.浓 * o, 920 + k, 1, .6));
+      x.fillStyle = ink(FIVE.焦 * o); x.beginPath(); x.moveTo(-28, -46); x.quadraticCurveTo(-4, -64, 20, -46); x.quadraticCurveTo(-4, -50, -28, -46); x.fill();
+      x.restore();
+    };
+    // 倒影里的月亮 → 被钓起 → 挂上天
+    // 钓竿
+    const hand = [bx + 4 + ox1, by - 34];
+    const tipK = t < T.cast[0] ? [150, -110] : t < T.tug ? keyframes([[T.cast[0], 150, -110], [T.cast[0] + .25, 110, -170], [T.cast[1] - .3, 250, -150]], t)
+      : t < T.pull ? keyframes([[T.tug, 250, -150], [T.tug + .12, 244, -112], [T.tug + .5, 250, -146]], t) : keyframes([[T.pull, 250, -146], [T.pull + .3, 150, -270], [T.sky, 170, -262]], t);
+    const tip = [bx + tipK[0] + ox1, by + tipK[1]];
+    // 月亮：水里的倒影是一圈断续的淡墨；出水后是一个留白的圆
+    const MX = mx + ox1;
+    {
+      Fr.save(); Fr.translate(MX, my); Fr.scale(1, squash);
+      const rimA = t < T.pull ? FIVE.淡 : lerp(FIVE.重, FIVE.淡, prog(t, T.pull, T.sky));
+      for (let k = 0; k < 14; k++) { const a0 = k / 14 * Math.PI * 2, gap = t < T.pull && (Math.floor(t * 3) + k) % 4 === 0; if (gap) continue;
+        Fr.strokeStyle = ink(rimA * (.7 + .3 * hash(k))); Fr.lineWidth = 2.6 / Math.max(squash, .5); Fr.beginPath(); Fr.arc(0, 0, mr, a0, a0 + Math.PI * 2 / 14 * .92); Fr.stroke(); }
+      Fr.restore();
+      if (t < T.pull) for (let k = 0; k < 5; k++) { const yy = my - 12 + k * 7, ww = 40 + hash(k + 40) * 60, sh = Math.sin(t * 1.3 + k) * 10; brush(Fr, resample([[MX - ww + sh, yy], [MX + ww * .6 + sh, yy + 1]], 4), 3, FIVE.淡, 950 + k, 1, .6); }
+    }
+    // 月亮出水时往下滴的水
+    if (t > T.pull && t < T.sky + .6) for (let k = 0; k < 6; k++) { const u = prog(t, T.pull + .15 + k * .18, T.pull + .75 + k * .18); if (u <= 0 || u >= 1) continue;
+      const u0 = ease(prog(T.pull + .15 + k * .18, T.pull, T.sky)), sx = lerp(REFL[0], MOON[0], u0) - Math.sin(Math.PI * u0) * 120 + ox1 + (hash(k) - .5) * 60, sy = lerp(REFL[1], MOON[1], easeOut(prog(T.pull + .15 + k * .18, T.pull, T.sky))) + MOON_R * .7;
+      Fr.fillStyle = ink(FIVE.重 * (1 - u)); Fr.beginPath(); Fr.ellipse(sx, sy + u * u * 380, 2.4, 4.5, 0, 0, Math.PI * 2); Fr.fill(); }
+    // 水面涟漪：抛线入水、月亮出水
+    const ripple = (x, y, t0, n, a) => { for (let k = 0; k < n; k++) { const u = prog(t, t0 + k * .22, t0 + 1.8 + k * .22); if (u <= 0 || u >= 1) continue;
+      Fr.strokeStyle = ink(a * (1 - u)); Fr.lineWidth = 2; for (let s = 0; s < 6; s++) { const a0 = s / 6 * Math.PI * 2 + k; Fr.beginPath(); Fr.ellipse(x, y, 20 + u * 150, 5 + u * 30, 0, a0, a0 + .75); Fr.stroke(); } } };
+    ripple(REFL[0] + ox1, REFL[1], T.cast[1], 2, FIVE.重); ripple(REFL[0] + ox1, REFL[1], T.pull, 4, FIVE.浓);
+    // 水纹：船边几笔
+    [[-150, 16, 120], [60, 22, 150], [-40, 34, 90]].forEach(([dx, dy, l], k) => brush(Fr, resample([[bx + dx + ox1 + Math.sin(t + k) * 6, by + dy], [bx + dx + l + ox1 + Math.sin(t + k) * 6, by + dy + 1]], 4), 3, FIVE.淡, 960 + k, 1, .7));
+    // 钓线
+    Fr.strokeStyle = ink(.7); Fr.lineWidth = 1.1; Fr.beginPath(); Fr.moveTo(...tip);
+    if (t < T.cast[0]) { Fr.quadraticCurveTo(tip[0] + 6, tip[1] + 60, tip[0] + 4, tip[1] + 110); }
+    else if (t < T.cast[1]) { const u = easeOut(prog(t, ...T.cast)); const ex = lerp(tip[0], REFL[0] + ox1, u), ey = lerp(tip[1] + 110, REFL[1], u) - Math.sin(Math.PI * u) * 90; Fr.quadraticCurveTo((tip[0] + ex) / 2, Math.min(tip[1], ey) - 30 * (1 - u), ex, ey); }
+    else if (t < T.pull) { const sag = t > T.tug && t < T.tug + .5 ? 0 : 26; Fr.quadraticCurveTo((tip[0] + REFL[0] + ox1) / 2, (tip[1] + REFL[1]) / 2 + sag, REFL[0] + ox1, REFL[1]); }
+    else if (t < T.sky + .15) { Fr.lineTo(MX, my - mr * squash); }
+    else { const u = prog(t, T.sky + .15, T.sky + .9); Fr.quadraticCurveTo(tip[0] + 10, tip[1] + 60, lerp(MX, tip[0] + 6, u), lerp(my - mr, tip[1] + 100, u)); }
+    Fr.stroke();
+    brush(Fr, resample([hand, tip], 5), 4.5, FIVE.浓, 970, 1, .25);
+    drawBoat(Fr, 1);
+    // 倒影：船的淡影
+    Fr.save(); Fr.translate(0, 2 * by + 18); Fr.scale(1, -.5); Fr.globalAlpha = .25; drawBoat(Fr, .6); Fr.restore();
+
+    // 石岸
+    if (ox1 + 490 > 0) {
+      const u = prog(t, ...T.cliff);
+      Fr.save(); Fr.filter = `blur(${lerp(12, 3, u)}px)`; Fr.globalAlpha = easeOut(u); poly(Fr, BANK, ox1); Fr.closePath(); Fr.fillStyle = vgrad(Fr, 566, 730, FIVE.重, FIVE.淡); Fr.fill(); Fr.restore();
+      BANK_FACETS.forEach((P, k) => brush(Fr, P, 22, k % 2 ? FIVE.淡 : FIVE.重, 760 + k * 7, prog(u, .3 + k * .08, .6 + k * .08), .8, ox1));
+      BANK_STROKES.forEach((P, k) => brush(Fr, P, k ? 8 : 13, k ? FIVE.浓 : FIVE.焦, 700 + k * 9, prog(u, k * .15, .55 + k * .15), .55, ox1));
+      for (let k = 0; k < 10; k++) { const x = 20 + k * 38 + hash(k + 70) * 14 + ox1, y = BANK[1][1] + 6 + Math.abs(Math.sin(k * .8)) * 30 + k * 4; if (u > .7) { Fr.fillStyle = ink(FIVE.焦 * .8); Fr.beginPath(); Fr.ellipse(x, y - 10, 3.4, 2.4, hash(k) - .5, 0, Math.PI * 2); Fr.fill(); } }
+    }
+    // 松枝（视差 1.25，比石岸走得更快）
+    { const ox2 = -cam * 1.25, pu = prog(t, ...T.pine);
+      if (ox2 + 440 > 0) {
+        brush(Fr, PINE.trunk, 16, FIVE.焦, 800, easeOut(prog(pu, 0, .5)), .45, ox2);
+        PINE.branches.forEach((P, k) => brush(Fr, P, 7, FIVE.浓, 810 + k, prog(pu, .3 + k * .1, .6 + k * .1), .5, ox2));
+        PINE.clusters.forEach(([x, y, r], k) => { const q = easeOut(prog(pu, .45 + k * .08, .8 + k * .08)); if (q <= 0) return;
+          Fr.save(); Fr.filter = 'blur(5px)'; Fr.fillStyle = ink(FIVE.淡 * q); Fr.beginPath(); Fr.ellipse(x + ox2, y + r * .05, r * .95, r * .34, 0, 0, Math.PI * 2); Fr.fill(); Fr.restore();
+          Fr.strokeStyle = ink(FIVE.焦 * .85); Fr.lineWidth = 2.4; Fr.lineCap = 'round';
+          for (let j = 0; j < 26; j++) { const a = Math.PI * (-.05 + j / 25 * 1.1), rr = r * (.55 + hash(k * 30 + j) * .55) * q; Fr.beginPath(); Fr.moveTo(x + ox2, y - 4); Fr.lineTo(x + ox2 + Math.cos(a) * rr, y - 4 + Math.sin(a) * rr * .5); Fr.stroke(); } });
+      } }
+    // 矶石 + 芦苇
+    if (1860 + ox1 < W) {
+      Fr.save(); Fr.filter = 'blur(3px)'; poly(Fr, ROCK, ox1); Fr.closePath(); Fr.fillStyle = vgrad(Fr, 600, 740, FIVE.浓, FIVE.淡); Fr.fill(); Fr.restore();
+      brush(Fr, resample(ROCK.slice(1, 5)), 12, FIVE.焦, 1000, 1, .6, ox1);
+      REEDS.forEach((r, k) => { const sw = Math.sin(t * 1.4 + k * .7) * 8; brush(Fr, resample(curve([r.x + ox1, r.y], [r.x + ox1 + r.b * 30, r.y - r.h * .6], [r.x + ox1 + r.b * 60 + sw, r.y - r.h])), 3.5, FIVE.浓, 1010 + k, 1, .5); });
+    }
+    // 洇：近景整层自身再糊一遍，墨边往纸里渗
+    Fr.save(); Fr.setTransform(1, 0, 0, 1, 0, 0); Fr.filter = 'blur(5px)'; Fr.globalAlpha = .35; Fr.drawImage(Fr.canvas, 0, 0); Fr.restore();
+
+    // 烘云托月：月亮不画，四周染淡墨，把月亮“留”出来
+    const cl = easeOut(prog(t, ...T.cloud));
+    if (cl > 0) { const cx = MOON[0] + ox1, cy = MOON[1];
+      Fr.save(); Fr.save(); Fr.translate(cx, cy); Fr.scale(1.7, 1); const g = Fr.createRadialGradient(0, 0, MOON_R / 1.7, 0, 0, MOON_R * 2.6); g.addColorStop(0, ink(FIVE.淡 * .95 * cl)); g.addColorStop(.3, ink(FIVE.清 * 1.1 * cl)); g.addColorStop(1, ink(0));
+      Fr.fillStyle = g; Fr.beginPath(); Fr.arc(0, 0, MOON_R * 2.6, 0, Math.PI * 2); Fr.fill(); Fr.restore();
+      Fr.filter = 'blur(14px)'; Fr.fillStyle = ink(FIVE.清 * .9 * cl);
+      [[-150, 34, 190, 22], [120, -40, 170, 16], [40, 70, 220, 18]].forEach(([dx, dy, rx, ry], k) => { Fr.beginPath(); Fr.ellipse(cx + dx + (1 - cl) * (k - 1) * 60, cy + dy, rx, ry, 0, 0, Math.PI * 2); Fr.fill(); });
+      Fr.globalCompositeOperation = 'destination-out'; Fr.filter = 'blur(2px)'; Fr.fillStyle = '#000'; Fr.beginPath(); Fr.arc(cx, cy, MOON_R + 2, 0, Math.PI * 2); Fr.fill(); Fr.restore(); }
+
+    // 题字 + 朱印
+    const pu = prog(t, ...T.poem);
+    if (pu > 0) { Fr.save(); Fr.font = `84px ${FONT}`; Fr.textAlign = 'center'; Fr.textBaseline = 'top';
+      Fr.beginPath(); Fr.rect(60, 70, 140, 30 + 190 * pu); Fr.clip();
+      ['钓', '月'].forEach((ch, k) => { Fr.fillStyle = ink(FIVE.焦); Fr.fillText(ch, 128, 88 + k * 92); Fr.filter = 'blur(2px)'; Fr.fillStyle = ink(.25); Fr.fillText(ch, 129, 89 + k * 92); Fr.filter = 'none'; });
+      Fr.restore(); }
+    c.save(); c.globalCompositeOperation = 'multiply'; c.drawImage(Fr.canvas, 0, 0, W, H); c.restore();
+
+    if (t > T.seal - .12) {
+      const u = prog(t, T.seal - .12, T.seal), s = lerp(1.35, 1, easeIn(u)), a = u;
+      const S = layer(c, 'seal'); S.save(); S.translate(128, 312); S.scale(s, s); S.rotate(-.03);
+      S.fillStyle = RED; S.fillRect(-28, -28, 56, 56);
+      S.globalCompositeOperation = 'destination-out'; S.font = `26px ${FONT}`; S.textAlign = 'center'; S.textBaseline = 'middle'; S.fillStyle = '#000'; S.fillText('墨', 0, -12); S.fillText('舟', 0, 13);
+      for (let k = 0; k < 90; k++) { S.globalAlpha = .5 + hash(k) * .5; S.beginPath(); S.arc((hash(k * 3.1) - .5) * 58, (hash(k * 7.3) - .5) * 58, .6 + hash(k * 1.7) * 1.8, 0, Math.PI * 2); S.fill(); }
+      S.globalAlpha = 1; S.lineWidth = 5; S.strokeStyle = '#000'; S.strokeRect(-30.5, -30.5, 61, 61); S.restore();
+      c.save(); c.globalAlpha = a * .92; c.globalCompositeOperation = 'multiply'; c.drawImage(S.canvas, 0, 0, W, H); c.restore();
+    }
+    const fo = prog(t, T.fade, 15); if (fo > 0) { c.fillStyle = `rgba(236,228,209,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    const ac = B => B.sfx.context;
+    const hashN = i => { const n = Math.sin(i * 12.9898) * 43758.5453; return n - Math.floor(n); };
+    // 水声：一段带通噪声，频率慢慢摆动
+    const water = (w, B, d, v = .05) => { const x = ac(B), len = Math.ceil(x.sampleRate * (d + .2)), buf = x.createBuffer(1, len, x.sampleRate), ch = buf.getChannelData(0); for (let i = 0; i < len; i++) ch[i] = hashN(i + 7) * 2 - 1;
+      const s = x.createBufferSource(); s.buffer = buf; const f = x.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = .7; f.frequency.setValueAtTime(500, w); const l = x.createOscillator(), lg = x.createGain(); l.frequency.value = .35; lg.gain.value = 260; l.connect(lg); lg.connect(f.frequency);
+      const g = x.createGain(); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(v, w + 1.5); g.gain.setValueAtTime(v, w + d - 1.2); g.gain.exponentialRampToValueAtTime(.0001, w + d); s.connect(f); f.connect(g); g.connect(B.sfx); s.start(w); l.start(w); s.stop(w + d + .1); l.stop(w + d + .1); };
+    const plop = (w, B, f = 520, v = .25) => { const x = ac(B), o = x.createOscillator(), g = x.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(f, w); o.frequency.exponentialRampToValueAtTime(f * 2.2, w + .09);
+      g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(v, w + .005); g.gain.exponentialRampToValueAtTime(.0001, w + .18); o.connect(g); g.connect(B.sfx); o.start(w); o.stop(w + .2); };
+    // 五声音阶：D 宫调，古筝 + 长音 pad，几乎不用鼓
+    const DR = [[50, 57, 62, 69], [48, 55, 62, 67], [45, 52, 57, 64], [50, 57, 62, 66]];
+    for (let b = 0; b < 5; b++) S.at(b * bar, I.pad, DR[b % 4], bar + .6, .7);
+    S.at(0, I.subbass, 38, bar * 2, .5); S.at(2 * bar, I.subbass, 33, bar * 2, .5);
+    S.at(.05, water, 14.6, .05);
+    const KOTO = [[.2, 74], [1.0, 69], [1.45, 71], [1.9, 74], [3.33, 76], [3.75, 74], [4.17, 69], [5.0, 67], [5.42, 69], [5.83, 62],
+      [T.cast[0], 74], [T.cast[0] + .21, 76], [T.cast[0] + .42, 79], [T.tug, 71], [T.tug + .42, 69]];
+    KOTO.forEach(([tt, m]) => S.at(tt, I.koto, m, .9));
+    // 收竿：一串上行刮奏 + 铃
+    for (let k = 0; k < 8; k++) S.at(T.pull + k * .06, I.koto, [62, 64, 66, 69, 71, 74, 76, 78][k], .8);
+    S.at(T.pull, I.whoosh, .5); S.at(T.sky, (w, B) => I.bell(w, B, 86, .6)); S.at(T.sky, I.shimmer);
+    S.melody([81, 78, 76, 0, 74, 76, 69, 0], T.sky + beat, beat / 2, 'koto', .6);
+    S.at(T.cast[1], plop, 480, .22); S.at(T.pull + .02, plop, 360, .3);
+    S.at(T.tug, I.rim, .6);
+    for (let k = 0; k < 6; k++) S.at(T.pull + .15 + k * .18 + .6, plop, 900 + k * 90, .06);
+    // 落印：一记闷响
+    S.at(T.seal, I.tom, 40, .9); S.at(T.seal, I.thud, .8);
+    S.at(T.fade - .8, (w, B) => [62, 69, 74, 78].forEach((m, i) => I.koto(w + i * .12, B, m, .7)));
+    S.at(T.fade - .8, I.pad, [50, 57, 62, 69], 2.2, .6);
+  }
+});
+</script></body></html>

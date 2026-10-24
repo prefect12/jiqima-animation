@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>水彩晕染 · 一滴雨的山谷</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 水彩晕染：每一块颜色是一个“洗色”（wash）——同一形状做 9 次随机形变，每层 10% 左右透明度叠起来，
+   中间实、边缘虚；再沿边描一圈淡色做“边缘积色”；整张画用 multiply 叠到纸上，最后压纸纹。
+   季节更替 = 新一季的整张画从一个点“晕”开，前沿有一圈深色水痕。 */
+const BPM = 76, BEAT = 60 / BPM;                               // 0.789 s
+const T = {
+  drop: [.3, 2 * BEAT], bloom: [2 * BEAT, 2 * BEAT + 1.2],
+  spring: 6 * BEAT, dropS: [9 * BEAT - .8, 9 * BEAT], summer: [9 * BEAT, 9 * BEAT + 2.6],
+  autumn: [12 * BEAT, 12 * BEAT + 2.6], leaves: [10.4, 13.6], leafLand: 17 * BEAT, fade: 14.4
+};
+const DROP = [640, 432], DROP2 = [652, 585];
+const PAL = {
+  spring: { sky: ['#8FBCE0', '#F4DCC4'], far: '#9DB0D2', mid: ['#B9D47A', '#D3DF8E'], mid2: ['#A6CB6A', '#CFE08C'], river: '#79AED8', fg: ['#93C160', '#B7D680'], fg2: ['#86B95A', '#AFD27A'], tree: '#79B454', shade: '#4F9048', trunk: '#8B6A4A', dots: ['#F3A1BA', '#F7C6D4', '#FFFFFF'], sun: null, char: '春', ink: '#D9587E' },
+  summer: { sky: ['#5FA3DC', '#CBE5F2'], far: '#6F8DC0', mid: ['#5F9F4C', '#8DBF5E'], mid2: ['#4F9146', '#86BA58'], river: '#3E86C6', fg: ['#3E7D3C', '#6BA64E'], fg2: ['#37733A', '#62A04A'], tree: '#2F7439', shade: '#1F5A2F', trunk: '#5E4632', dots: null, sun: ['#FFE08A', 980, 150, 62], char: '夏', ink: '#2E7A3E' },
+  autumn: { sky: ['#E7AF7C', '#F8E1B4'], far: '#A88CAC', mid: ['#D9923B', '#EBBE63'], mid2: ['#C8702F', '#E6A94F'], river: '#5E8DB8', fg: ['#B55130', '#D98B3E'], fg2: ['#A5442C', '#CF7A36'], tree: '#D4572F', shade: '#9E3A26', trunk: '#5A3E2C', dots: ['#F2C04A', '#E98A2C', '#C8452D'], sun: ['#F29A4A', 985, 212, 58], char: '秋', ink: '#C0502A' }
+};
+const FONT = '"Ma Shan Zheng", "Kaiti SC", "STKaiti", serif';
+
+/* ---------- 初始化：纸纹、颗粒、形变形状（只在这里用 Math.random） ---------- */
+const rnd = Math.random, gauss = () => { let u = 0, v = 0; while (!u) u = rnd(); while (!v) v = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+function tile(n, px) { const cv = document.createElement('canvas'); cv.width = cv.height = n; const x = cv.getContext('2d'), im = x.createImageData(n, n); for (let y = 0; y < n; y++) for (let i = 0; i < n; i++) im.data.set(px(i, y), (y * n + i) * 4); x.putImageData(im, 0, 0); return cv; }
+const N = 256, HM = new Float32Array(N * N);
+{ const grids = [8, 24, 64].map(g => ({ g, a: Array.from({ length: g * g }, rnd) }));
+  const sm = x => x * x * (3 - 2 * x);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { let h = 0;
+    grids.forEach(({ g, a }, k) => { const u = x / N * g, v = y / N * g, x0 = Math.floor(u), y0 = Math.floor(v), fx = sm(u - x0), fy = sm(v - y0), q = (i, j) => a[((j % g) * g) + (i % g)];
+      h += ((q(x0, y0) * (1 - fx) + q(x0 + 1, y0) * fx) * (1 - fy) + (q(x0, y0 + 1) * (1 - fx) + q(x0 + 1, y0 + 1) * fx) * fy) * [.25, .35, .4][k]; });
+    HM[y * N + x] = h + rnd() * .05; } }
+const hm = (x, y) => HM[((y + N) % N) * N + ((x + N) % N)];
+// 冷压纸：高度图做浮雕，亮面白、暗面灰
+const PAPER = tile(N, (x, y) => { const e = (hm(x - 1, y - 1) - hm(x + 1, y + 1)) * 3.2; return e > 0 ? [255, 255, 250, Math.min(255, e * 160)] : [90, 80, 70, Math.min(255, -e * 120)]; });
+// 颜料颗粒沉在纸的凹处
+const GRAN = tile(N, (x, y) => { const h = hm(x, y), a = Math.max(0, .5 - h) * 2; return [40, 30, 50, Math.min(255, Math.pow(a, 1.6) * 150 + (rnd() < .04 ? 60 : 0))]; });
+// 纸的凸处：颜料薄，透出纸白
+const PEAK = tile(N, (x, y) => { const h = hm(x, y), a = Math.max(0, h - .55) * 3; return [0, 0, 0, Math.min(255, a * 150)]; });
+
+function densify(pts, step) { const out = []; for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / step)); for (let k = 0; k < n; k++) out.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]); } return out; }
+function deform(pts, depth, vr) {
+  let P = pts.map(p => [p[0], p[1], p[2] ?? (.6 + rnd() * .8)]);
+  for (let d = 0; d < depth; d++) { const Q = []; for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length], len = Math.hypot(b[0] - a[0], b[1] - a[1]); Q.push(a);
+    Q.push([(a[0] + b[0]) / 2 + gauss() * len * vr * a[2], (a[1] + b[1]) / 2 + gauss() * len * vr * a[2], (a[2] + b[2]) / 2 * (.8 + rnd() * .4)]); } P = Q; }
+  return P;
+}
+// 一块洗色：base 形状 → 9 层各自再形变
+function makeWash(pts, o, { step = 70, layers = 9, vr = .32, lvr = .36, alpha = .11 } = {}) {
+  const base = deform(densify(pts, step), 2, vr);
+  const L = Array.from({ length: layers }, () => deform(base, 2, lvr).map(p => [p[0], p[1]]));
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, R = 0; base.forEach(([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); R = Math.max(R, Math.hypot(x - o[0], y - o[1])); });
+  // 湿中湿的“花”：在形状内部随机放几团颜色更深/更浅的水渍
+  const mott = Array.from({ length: Math.max(3, Math.round((x1 - x0) * (y1 - y0) / 60000)) }, () => ({ x: x0 + rnd() * (x1 - x0), y: y0 + rnd() * (y1 - y0), r: 30 + rnd() * Math.min(160, (x1 - x0) * .25), b: Math.floor(rnd() * 5), dark: rnd() < .6 }));
+  return { L, base: base.map(p => [p[0], p[1]]), box: [x0, y0, x1, y1], o, R: R * 1.08, alpha, blob: Math.floor(rnd() * BLOBS.length), mott };
+}
+const circle = (n, r = 1) => Array.from({ length: n }, (_, i) => [Math.cos(i / n * Math.PI * 2) * r, Math.sin(i / n * Math.PI * 2) * r]);
+const BLOBS = Array.from({ length: 5 }, () => deform(circle(14), 4, .22).map(p => [p[0], p[1]]));
+const MASKBLOB = Array.from({ length: 6 }, () => deform(circle(18), 4, .3).map(p => [p[0], p[1]]));
+const ellPts = (cx, cy, rx, ry, n = 16) => Array.from({ length: n }, (_, i) => [cx + Math.cos(i / n * Math.PI * 2) * rx, cy + Math.sin(i / n * Math.PI * 2) * ry]);
+
+// 山谷几何（所有季节共用同一套形状）
+const riverPts = (() => { const L = [], R = []; for (let y = 426; y <= 760; y += 12) { const u = (y - 426) / 334, cx = 640 + Math.sin(u * 3.4 + .2) * 70 * u, w = 5 + u * u * 150; L.push([cx - w, y]); R.unshift([cx + w, y]); } return [...L, ...R]; })();
+const W8 = {
+  sky: makeWash([[-60, -60], [1340, -60], [1340, 520], [900, 480], [640, 470], [380, 480], [-60, 520]], DROP, { step: 120, lvr: .2, alpha: .1 }),
+  glow: makeWash([[-60, 250], [1340, 240], [1340, 480], [-60, 490]], DROP, { step: 120, alpha: .06 }),
+  far: makeWash([[-60, 580], [-60, 300], [130, 250], [290, 292], [420, 232], [560, 300], [650, 326], [770, 282], [900, 222], [1050, 282], [1180, 240], [1340, 300], [1340, 580]], DROP, { step: 60, alpha: .1 }),
+  midL: makeWash([[-60, 760], [-60, 372], [140, 352], [330, 392], [500, 444], [610, 470], [652, 520], [600, 760]], DROP, { step: 60, alpha: .12 }),
+  midR: makeWash([[1340, 760], [1340, 362], [1120, 344], [920, 402], [760, 452], [668, 482], [640, 520], [700, 760]], DROP, { step: 60, alpha: .12 }),
+  river: makeWash(riverPts, DROP, { step: 40, vr: .2, lvr: .18, alpha: .12 }),
+  fgL: makeWash([[-60, 780], [-60, 542], [140, 520], [330, 560], [460, 640], [520, 780]], [300, 700], { step: 60, alpha: .13 }),
+  fgR: makeWash([[1340, 780], [1340, 556], [1110, 530], [930, 582], [820, 662], [790, 780]], [1000, 700], { step: 60, alpha: .13 })
+};
+const TREES = [[128, 398, 34], [228, 386, 28], [330, 414, 32], [458, 458, 22], [1012, 384, 32], [1118, 372, 28], [1214, 388, 26], [812, 456, 22], [96, 574, 50], [262, 566, 42], [1040, 586, 46], [1196, 566, 52]]
+  .map(([x, y, r], i) => ({ x, y, r, i, crown: makeWash(deform(circle(10, r), 1, .15).map(([a, b]) => [x + a, y - r * 1.25 + b * 1.05]), [x, y - r * 1.2], { step: 16, vr: .22, lvr: .2, alpha: .15, layers: 7 }),
+    shade: makeWash(deform(circle(9, r * .62), 1, .15).map(([a, b]) => [x + r * .25 + a, y - r * .95 + b]), [x, y - r], { step: 14, vr: .2, lvr: .2, alpha: .13, layers: 5 }),
+    dots: Array.from({ length: 4 }, (_, k) => ({ x: x + (rnd() - .5) * r * 1.3, y: y - r * 1.25 + (rnd() - .5) * r * 1.2, r: r * (.2 + rnd() * .12), c: k % 3, b: Math.floor(rnd() * 5) })) }));
+const LEAVES = Array.from({ length: 6 }, (_, i) => ({ x0: 180 + i * 190 + rnd() * 60, t0: T.leaves[0] + i * .45, sway: 30 + rnd() * 30, ph: rnd() * 6, c: i % 3, shape: deform(ellPts(0, 0, 11, 6, 8), 2, .12).map(p => [p[0], p[1]]) }));
+const LAST_LEAF = { shape: deform(ellPts(0, 0, 13, 7, 8), 2, .12).map(p => [p[0], p[1]]) };
+
+const cvs = {};
+function layer(c, name) {
+  const w = c.canvas.width, h = c.canvas.height; let cv = cvs[name]; if (!cv) cv = cvs[name] = document.createElement('canvas');
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const l = cv.getContext('2d'); l.setTransform(1, 0, 0, 1, 0, 0); l.globalCompositeOperation = 'source-over'; l.globalAlpha = 1; l.filter = 'none'; l.clearRect(0, 0, w, h); l.setTransform(w / 1280, 0, 0, w / 1280, 0, 0); return l;
+}
+
+Film({
+  title: '水彩晕染 · 一滴雨的山谷', DUR: 15, BPM, poster: 8.1,
+  fonts: [['96px "Ma Shan Zheng"', '春夏秋一滴雨']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, hash, easeOut, easeIn, ease } = F;
+    const path = (x, P, ox = 0, oy = 0, s = 1) => { x.beginPath(); P.forEach(([a, b], i) => i ? x.lineTo(ox + a * s, oy + b * s) : x.moveTo(ox + a * s, oy + b * s)); x.closePath(); };
+    const fillOf = (x, col, box) => { if (!Array.isArray(col)) return col; const g = x.createLinearGradient(0, box[1], 0, Math.min(box[3], 760)); g.addColorStop(0, col[0]); g.addColorStop(1, col[1]); return g; };
+    // 画一块洗色：g<1 时只在一个不规则的“湿区”里出现，湿区前沿有一道深色水痕
+    function wash(x, w, col, g = 1, am = 1) {
+      if (g <= 0 || !col) return;
+      x.save();
+      const R = w.R * easeOut(g), B = BLOBS[w.blob];
+      if (g < 1) { path(x, B, w.o[0], w.o[1], R); x.clip(); }
+      x.fillStyle = fillOf(x, col, w.box);
+      x.globalAlpha = w.alpha * am; w.L.forEach(P => { path(x, P); x.fill(); });
+      // 湿中湿：形状内部的深浅水渍
+      x.save(); path(x, w.base); x.clip();
+      w.mott.forEach(m => { x.globalAlpha = (m.dark ? .07 : .0) * am; if (m.dark) { path(x, BLOBS[m.b], m.x, m.y, m.r); x.fill(); } else { const f = x.fillStyle; x.fillStyle = '#FFFFFF'; x.globalAlpha = .1 * am; path(x, BLOBS[m.b], m.x, m.y, m.r * .8); x.fill(); x.fillStyle = f; } });
+      x.restore();
+      // 边缘积色：沿两层轮廓各描一道
+      x.strokeStyle = x.fillStyle; x.lineWidth = 2.6; x.globalAlpha = .32 * am; path(x, w.L[0]); x.stroke(); x.lineWidth = 1.6; x.globalAlpha = .16 * am; path(x, w.L[4]); x.stroke();
+      if (g < 1) { path(x, w.L[0]); x.clip(); x.globalAlpha = .35 * am * (1 - g); x.lineWidth = 5; path(x, B, w.o[0], w.o[1], R); x.stroke(); }
+      x.restore();
+    }
+    function dot(x, cx, cy, r, col, b, am = 1) { x.save(); x.fillStyle = col; for (let k = 0; k < 4; k++) { x.globalAlpha = .3 * am; path(x, BLOBS[(b + k) % 5], cx + k * .6, cy - k * .4, r * (1 - k * .08)); x.fill(); } x.globalAlpha = .3 * am; x.strokeStyle = col; x.lineWidth = 1.2; path(x, BLOBS[b], cx, cy, r); x.stroke(); x.restore(); }
+    // 一整季的画；grow(name, 起点, 时长) 控制第一遍“画出来”的过程
+    function season(x, p, first) {
+      const G = (a, d) => first ? prog(t, a, a + d) : 1;
+      wash(x, W8.sky, p.sky, G(T.bloom[0] + .3, 1.9));
+      wash(x, W8.glow, p.sky[1], G(T.bloom[0] + .6, 1.6), 1.2);
+      if (p.sun) { const [col, sx, sy, r] = p.sun; dot(x, sx, sy, r, col, 2, 1.6); x.save(); x.globalAlpha = .12; x.fillStyle = col; path(x, BLOBS[3], sx, sy, r * 1.7); x.fill(); x.restore(); }
+      wash(x, W8.far, p.far, G(T.bloom[0] + 1.0, 1.4));
+      wash(x, W8.midL, p.mid, G(T.bloom[0] + 1.4, 1.5)); wash(x, W8.midR, p.mid2, G(T.bloom[0] + 1.6, 1.5));
+      wash(x, W8.river, p.river, G(T.bloom[0] + 1.6, 1.4), 1.2);
+      wash(x, W8.fgL, p.fg, G(T.bloom[0] + 2.0, 1.4)); wash(x, W8.fgR, p.fg2, G(T.bloom[0] + 2.2, 1.4));
+      TREES.forEach(tr => {
+        const t0 = T.bloom[0] + 2.6 + tr.i * .11, g = G(t0, .8);
+        if (g <= 0) return;
+        x.save(); x.strokeStyle = p.trunk; x.globalAlpha = .55; x.lineWidth = Math.max(2, tr.r * .12); x.lineCap = 'round'; x.beginPath(); x.moveTo(tr.x, tr.y + 4); x.lineTo(tr.x + 2, lerp(tr.y + 4, tr.y - tr.r * .9, easeOut(g))); x.stroke(); x.restore();
+        wash(x, tr.crown, p.tree, g); wash(x, tr.shade, p.shade, G(t0 + .3, .7), .9);
+        if (p.dots) tr.dots.forEach((d, k) => { const gd = first ? easeOut(prog(t, T.spring + .1 + (tr.i * 4 + k) * .045, T.spring + .5 + (tr.i * 4 + k) * .045)) : 1; if (gd > 0) dot(x, d.x, d.y, d.r * gd, p.dots[d.c], d.b); });
+      });
+    }
+
+    /* ---------- 纸 ---------- */
+    c.fillStyle = '#FBF8F1'; c.fillRect(0, 0, W, H);
+    const IN = [34, 30, W - 68, H - 60];                             // 胶带留下的白边
+
+    /* ---------- 这一帧的整张画 ---------- */
+    const P = layer(c, 'P');
+    const sT = T.summer, aT = T.autumn;
+    const base = t < sT[1] ? 'spring' : t < aT[1] ? 'summer' : 'autumn';
+    // 雨滴落点：一圈“回花”（backrun）——中间浅、边缘深；随后继续散开、淡进整张画里
+    const bl = prog(t, T.bloom[0], T.bloom[0] + 3.2), blA = 1 - prog(t, T.bloom[0] + 1.4, T.bloom[0] + 3.2);
+    if (bl > 0 && blA > 0) { const r = 70 * easeOut(prog(t, ...T.bloom)) + 160 * easeIn(prog(t, T.bloom[1], T.bloom[0] + 3.2)), col = '#4F8FCC';
+      P.save(); P.fillStyle = col; P.globalAlpha = .09 * blA; for (let k = 0; k < 5; k++) { path(P, BLOBS[k], DROP[0], DROP[1] + 6, r * (1 - k * .06)); P.fill(); }
+      P.globalAlpha = .5 * blA; P.strokeStyle = col; P.lineWidth = 3; path(P, MASKBLOB[1], DROP[0], DROP[1] + 6, r * .98); P.stroke(); P.globalAlpha = .22 * blA; P.lineWidth = 1.5; path(P, MASKBLOB[4], DROP[0], DROP[1] + 6, r * .7); P.stroke(); P.restore(); }
+    season(P, PAL[base], base === 'spring');
+    const trans = t >= sT[0] && t < sT[1] ? ['summer', sT, DROP2, 1150] : t >= aT[0] && t < aT[1] ? ['autumn', aT, [560, -140], 1180] : null;
+    if (trans) {
+      const [nm, tt, o, Rmax] = trans, g = ease(prog(t, tt[0], tt[1])) * .85 + prog(t, tt[0], tt[1]) * .15, R = Rmax * g;
+      const S = layer(c, 'S'); season(S, PAL[nm], false);
+      const M = layer(c, 'M'); M.fillStyle = '#000';
+      MASKBLOB.forEach((B, k) => { M.globalAlpha = .34; path(M, B, o[0], o[1], R * (1 - k * .035)); M.fill(); });
+      S.globalCompositeOperation = 'destination-in'; S.setTransform(1, 0, 0, 1, 0, 0); S.drawImage(M.canvas, 0, 0); S.setTransform(S.canvas.width / 1280, 0, 0, S.canvas.width / 1280, 0, 0);
+      S.globalCompositeOperation = 'source-atop'; S.strokeStyle = PAL[nm].shade; S.lineWidth = 8; S.globalAlpha = .45 * (1 - g * .5); path(S, MASKBLOB[0], o[0], o[1], R * .985); S.stroke();
+      S.lineWidth = 3; S.globalAlpha = .2; path(S, MASKBLOB[2], o[0], o[1], R * .96); S.stroke();
+      P.setTransform(1, 0, 0, 1, 0, 0); P.drawImage(S.canvas, 0, 0); P.setTransform(P.canvas.width / 1280, 0, 0, P.canvas.width / 1280, 0, 0);
+    }
+    // 雨滴落点：一圈“回花”（backrun）——中间浅、边缘深
+    // 落叶（秋）
+    if (t > T.leaves[0]) LEAVES.forEach((lf, i) => { const u = prog(t, lf.t0, lf.t0 + 3.2); if (u <= 0 || u >= 1) return;
+      const x = lf.x0 + Math.sin(u * 6 + lf.ph) * lf.sway + u * 80, y = 60 + u * 640, a = Math.sin(u * 8 + lf.ph) * .9;
+      P.save(); P.translate(x, y); P.rotate(a); P.fillStyle = PAL.autumn.dots[lf.c]; for (let k = 0; k < 3; k++) { P.globalAlpha = .35; path(P, lf.shape, k * .5, 0, 1 - k * .1); P.fill(); } P.restore(); });
+    { const u = prog(t, T.leafLand - 2.2, T.leafLand); if (u > 0) { const x = lerp(760, 668, u) + Math.sin(u * 7) * 36 * (1 - u), y = lerp(40, 598, easeIn(u) * .4 + u * .6), a = Math.sin(u * 9) * .8 * (1 - u) + .4;
+      P.save(); P.translate(x, y); P.rotate(a); P.fillStyle = '#C8452D'; for (let k = 0; k < 3; k++) { P.globalAlpha = .45; path(P, LAST_LEAF.shape, k * .5, 0, 1.3 - k * .1); P.fill(); } P.globalAlpha = .5; P.strokeStyle = '#8E2E20'; P.lineWidth = 1.2; P.beginPath(); P.moveTo(-14, 0); P.lineTo(14, 0); P.stroke(); P.restore(); } }
+    // 季节字：写在天上，像用笔蘸色写的
+    const chars = [['spring', T.spring, T.summer[0]], ['summer', T.summer[0], T.autumn[0]], ['autumn', T.autumn[0] + .5, T.fade + 1]];
+    chars.forEach(([k, a, b]) => { const u = prog(t, a, a + .8) * (1 - prog(t, b - .1, b + .5)); if (u <= 0) return;
+      P.save(); P.font = `104px ${FONT}`; P.textAlign = 'center'; P.textBaseline = 'middle'; P.fillStyle = PAL[k].ink;
+      P.globalAlpha = .25 * u; P.filter = 'blur(3px)'; P.fillText(PAL[k].char, 132, 150); P.filter = 'none';
+      P.globalAlpha = .75 * u; P.fillText(PAL[k].char, 130, 148); P.restore(); });
+
+    // 颜料颗粒 + 纸纹透光
+    P.globalCompositeOperation = 'source-atop'; P.globalAlpha = .55; P.fillStyle = P.createPattern(GRAN, 'repeat'); P.fillRect(0, 0, W, H);
+    P.globalCompositeOperation = 'destination-out'; P.globalAlpha = .45; P.fillStyle = P.createPattern(PEAK, 'repeat'); P.fillRect(0, 0, W, H);
+    P.globalCompositeOperation = 'source-over'; P.globalAlpha = 1;
+
+    c.save(); c.beginPath(); c.rect(...IN); c.clip(); c.globalCompositeOperation = 'multiply'; c.drawImage(P.canvas, 0, 0, W, H); c.restore();
+    c.save(); c.fillStyle = c.createPattern(PAPER, 'repeat'); c.globalAlpha = .38; c.fillRect(0, 0, W, H); c.restore();
+
+    /* ---------- 雨滴（真的水，画在纸面上方） ---------- */
+    const drop = (p, [tx, ty], a, b) => { const u = prog(t, a, b); if (u <= 0 || u >= 1) return; const y = lerp(-60, ty, easeIn(u)), x = tx, s = 1 + u * .2;
+      c.save(); c.globalAlpha = .25 * u; c.fillStyle = '#3F5A78'; c.beginPath(); c.ellipse(x + 10, ty + 10, 14 * u, 5 * u, 0, 0, Math.PI * 2); c.fill(); c.restore();
+      c.save(); c.translate(x, y); c.scale(s * .9, s * 1.15);
+      c.beginPath(); c.moveTo(0, -30); c.bezierCurveTo(6, -14, 16, -2, 16, 8); c.arc(0, 8, 16, 0, Math.PI); c.bezierCurveTo(-16, -2, -6, -14, 0, -30); c.closePath();
+      const g = c.createRadialGradient(-5, 2, 2, 0, 6, 20); g.addColorStop(0, 'rgba(210,232,250,.55)'); g.addColorStop(.7, 'rgba(90,150,210,.55)'); g.addColorStop(1, 'rgba(40,90,150,.75)'); c.fillStyle = g; c.fill();
+      c.strokeStyle = 'rgba(30,70,120,.5)'; c.lineWidth = 1.2; c.stroke(); c.fillStyle = 'rgba(255,255,255,.9)'; c.beginPath(); c.ellipse(-6, 2, 3, 5, -.4, 0, Math.PI * 2); c.fill(); c.restore(); };
+    drop(1, DROP, ...T.drop); drop(2, DROP2, ...T.dropS);
+    // 涟漪
+    const ring = (o, t0, n, col) => { for (let k = 0; k < n; k++) { const u = prog(t, t0 + k * .18, t0 + 1.3 + k * .18); if (u <= 0 || u >= 1) continue;
+      c.save(); c.strokeStyle = col; c.globalAlpha = .45 * (1 - u); c.lineWidth = 2; c.beginPath(); c.ellipse(o[0], o[1] + 6, 12 + u * 90, 4 + u * 26, 0, 0, Math.PI * 2); c.stroke(); c.restore(); } };
+    ring(DROP, T.drop[1], 3, '#3E6E9E'); ring(DROP2, T.dropS[1], 3, '#2E5E8E'); ring([668, 598], T.leafLand, 3, '#3E5E7E');
+    // 溅起的小水珠
+    if (t > T.drop[1] && t < T.drop[1] + .5) { const u = prog(t, T.drop[1], T.drop[1] + .5); for (let k = 0; k < 7; k++) { const a = -Math.PI * (.1 + .8 * k / 6), r = 20 + u * 70 * (.7 + hash(k) * .5);
+      c.fillStyle = `rgba(70,130,200,${.6 * (1 - u)})`; c.beginPath(); c.arc(DROP[0] + Math.cos(a) * r, DROP[1] + Math.sin(a) * r * .8 + u * u * 40, 3.5 * (1 - u * .5), 0, Math.PI * 2); c.fill(); } }
+
+    const fo = prog(t, T.fade, 15); if (fo > 0) { c.fillStyle = `rgba(251,248,241,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    const ac = B => B.sfx.context;
+    // 水滴声：正弦快速下滑 + 一点噪声
+    const plink = (w, B, f = 1700, v = .22) => { const x = ac(B), o = x.createOscillator(), g = x.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(f, w); o.frequency.exponentialRampToValueAtTime(f * .45, w + .06);
+      g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(v, w + .004); g.gain.exponentialRampToValueAtTime(.0001, w + .3); o.connect(g); g.connect(B.sfx); o.start(w); o.stop(w + .35); };
+    // 晕开：一段慢慢张开的低通噪声，像水在纸里走
+    const bleed = (w, B, d = 1.6, v = .12) => { const x = ac(B), s = x.createBufferSource(), len = Math.ceil(x.sampleRate * (d + .2)), buf = x.createBuffer(1, len, x.sampleRate), ch = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) ch[i] = (hashN(i) * 2 - 1); s.buffer = buf; const f = x.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(200, w); f.frequency.exponentialRampToValueAtTime(1800, w + d * .6); f.frequency.exponentialRampToValueAtTime(400, w + d);
+      const g = x.createGain(); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(v, w + d * .4); g.gain.exponentialRampToValueAtTime(.0001, w + d); s.connect(f); f.connect(g); g.connect(B.sfx); s.start(w); s.stop(w + d + .1); };
+    const hashN = i => { const n = Math.sin(i * 12.9898) * 43758.5453; return n - Math.floor(n); };
+    // 和声：春 F–C/E–Dm–B♭，夏 明亮，秋 转小调
+    const SP = [[53, 60, 64, 69], [52, 55, 60, 67], [50, 57, 60, 65], [46, 53, 57, 62]];
+    const AU = [[50, 57, 60, 65], [46, 53, 57, 62], [48, 55, 58, 64], [45, 52, 57, 60]];
+    const nb = Math.ceil(15 / bar);
+    for (let b = 0; b < nb; b++) {
+      const t0 = b * bar, prog_ = t0 >= T.autumn[0] - .2 ? AU : SP, ch = prog_[b % 4];
+      if (t0 > .5) S.at(t0, I.strings, ch.map(m => m), bar + .4, .8);
+      // 钢琴分解和弦：每拍一个音
+      for (let k = 0; k < 8; k++) { const tt = t0 + k * beat / 2; if (tt < T.drop[1] || tt > T.fade + .2) continue; if (k % 2 && tt < T.spring) continue; S.at(tt, I.piano, ch[[0, 2, 1, 3, 2, 3, 1, 2][k]] + 12, k % 2 ? .45 : .7, 1.4); }
+      if (t0 >= T.drop[1] - .1) S.at(t0, I.bass, ch[0] - 12, bar * .9, .5);
+    }
+    S.at(0, (w, B) => I.bell(w, B, 88, .35));
+    S.at(T.drop[1], plink); S.at(T.drop[1] + .02, (w, B) => plink(w, B, 2600, .08)); S.at(T.drop[1] + .1, bleed, 2.6, .14);
+    S.at(T.bloom[0] + .8, bleed, 2.2, .1);
+    for (let k = 0; k < 12; k++) S.at(T.bloom[0] + 2.6 + k * .11, (w, B) => plink(w, B, 1200 + (k % 5) * 180, .05));
+    S.at(T.spring, I.chime); for (let k = 0; k < 10; k++) S.at(T.spring + .1 + k * .19, I.mbox, [84, 86, 88, 91, 93][k % 5], .5);
+    S.at(T.dropS[1], plink, 1500, .24); S.at(T.summer[0] + .1, bleed, 2, .14); S.at(T.summer[0], I.shimmer);
+    S.melody([72, 76, 79, 81, 79, 77, 76, 0], T.summer[0] + beat, beat / 2, 'keys', .8);
+    S.at(T.autumn[0], bleed, 2.4, .14); S.at(T.autumn[0], (w, B) => I.whoosh(w, B, .5));
+    S.melody([74, 72, 69, 0, 67, 69, 65, 0], T.autumn[0] + beat, beat / 2, 'keys', .8);
+    LEAVES.forEach(lf => S.at(lf.t0 + .6, I.paper));
+    S.at(T.leafLand, plink, 1100, .2); S.at(T.leafLand, (w, B) => I.bell(w, B, 81, .5));
+    S.at(T.fade - .3, (w, B) => [62, 65, 69, 72].forEach((m, i) => I.piano(w + i * .09, B, m, .8, 2.4)));
+  }
+});
+</script></body></html>

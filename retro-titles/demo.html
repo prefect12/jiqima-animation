@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>60 年代片头 · 胡须疑案</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bowlby+One+SC&family=Josefin+Sans:wght@700&family=Ma+Shan+Zheng&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+// an invented title sequence: a silhouette detective chases a silhouette cat through the letters of the title
+const INK = '#17130F', CREAM = '#F3E6C9', MUST = '#E9A92C', TANG = '#DE5A2C', TEAL = '#2C7A74', ROSE = '#E7937F';
+const DISP = '"Bowlby One SC", Impact, sans-serif', GEO = '"Josefin Sans", "Futura", sans-serif', BRUSH = '"Ma Shan Zheng", "Kaiti SC", cursive';
+const WORD = 'WHISKER', LCOL = [CREAM, MUST, TEAL, CREAM, MUST, TEAL, CREAM];
+const V = 520, CATX = 820, GROUND = 600, HIT0 = 4.5, BEAT = .5;          // chase speed px/s, cat's screen x, ground line
+const hitT = k => HIT0 + k * BEAT;                                       // the cat runs into letter k on beat
+const T = { bars: 0, iris: 1.0, dash: 2.0, open: 2.5, stop: 8.0, panels: 9.5, card: 12.0, the: 12.7, caseT: 13.0, cn: 13.3, cat: 13.0, det: 13.2 };
+// world scroll: steady from open → stop, then decelerates to rest over .8 s
+const worldX = t => t < T.open ? 0 : t < T.stop ? V * (t - T.open) : V * (T.stop - T.open) + V * Math.min(.8, t - T.stop) * (1 - Math.min(.8, t - T.stop) / 1.6);
+
+function detective(c, x, y, s, ph, run, face = 1, lookUp = 0, lens = 1) {
+  c.save(); c.translate(x, y); c.scale(s * face, s); c.fillStyle = INK; c.strokeStyle = INK;
+  const a = Math.sin(ph * Math.PI * 2) * run, bob = Math.abs(Math.sin(ph * Math.PI * 2)) * 10 * run;
+  c.translate(0, -bob);
+  [[-12, a], [12, -a]].forEach(([hx, r]) => { c.save(); c.translate(hx, -104); c.rotate(r * .7); c.fillRect(-9, 0, 18, 100); c.fillRect(-9, 94, 32, 11); c.restore(); });
+  c.beginPath(); c.moveTo(-36, -232); c.lineTo(34, -232); c.lineTo(52 + 6 * run, -96); c.lineTo(-58 - 26 * run, -92 + 6 * run); c.closePath(); c.fill();
+  c.beginPath(); c.moveTo(-30, -236); c.lineTo(-8, -214); c.lineTo(0, -250); c.lineTo(24, -214); c.lineTo(32, -238); c.fill();
+  c.fillStyle = MUST; c.fillRect(-46 - 10 * run, -156, 96 + 10 * run, 8); c.fillStyle = INK;
+  c.save(); c.translate(4, -250); c.rotate(-lookUp);
+  c.beginPath(); c.arc(0, 0, 20, 0, 7); c.fill(); c.beginPath(); c.moveTo(16, -6); c.lineTo(28, 4); c.lineTo(15, 8); c.fill();
+  c.beginPath(); c.ellipse(2, -16, 44, 7, 0, 0, 7); c.fill(); c.beginPath(); c.moveTo(-20, -16); c.lineTo(-15, -44); c.lineTo(5, -38); c.lineTo(22, -44); c.lineTo(26, -16); c.fill();
+  c.fillStyle = TANG; c.fillRect(-19, -24, 45, 7); c.restore();
+  if (lens) { // arm + magnifying glass
+    const ay = -206 - 30 * lookUp; c.lineWidth = 14; c.lineCap = 'round'; c.beginPath(); c.moveTo(14, -218); c.lineTo(62, ay); c.stroke();
+    c.lineWidth = 7; c.beginPath(); c.moveTo(62, ay); c.lineTo(80, ay - 8); c.stroke(); c.beginPath(); c.arc(98, ay - 16, 20, 0, 7); c.stroke();
+    c.fillStyle = 'rgba(243,230,201,.55)'; c.fill();
+  }
+  c.restore();
+}
+function cat(c, x, y, s, ph, run, sit = 0, t = 0) {
+  c.save(); c.translate(x, y); c.scale(s, s); c.fillStyle = INK; c.strokeStyle = INK; c.lineCap = 'round';
+  const a = ph * Math.PI * 2, st = 1 + .14 * Math.sin(a) * run;
+  if (sit) { // sitting, tail swishing
+    c.beginPath(); c.ellipse(0, -44, 34, 46, 0, 0, 7); c.fill();
+    c.beginPath(); c.arc(8, -104, 24, 0, 7); c.fill();
+    [[-6, 1], [18, -1]].forEach(([ex]) => { c.beginPath(); c.moveTo(ex - 12, -118); c.lineTo(ex - 4, -146); c.lineTo(ex + 8, -120); c.fill(); });
+    c.lineWidth = 9; c.beginPath(); c.moveTo(-26, -12); c.bezierCurveTo(-70, -10, -66 + 14 * Math.sin(t * 5), -70, -40 + 18 * Math.sin(t * 5 + 1), -96); c.stroke();
+    c.fillStyle = MUST; [-2, 18].forEach(ex => { c.beginPath(); c.ellipse(ex, -106, 6, 4, 0, 0, 7); c.fill(); }); c.fillStyle = INK; [-2, 18].forEach(ex => c.fillRect(ex - 1, -110, 2, 8));
+    c.restore(); return;
+  }
+  c.translate(0, -Math.abs(Math.sin(a)) * 14 * run);
+  [[-34, 0], [-24, .5], [34, .25], [44, .75]].forEach(([hx, off]) => { const r = Math.sin(a + off * Math.PI * 2) * .9 * run; c.save(); c.translate(hx * st, -30); c.rotate(r); c.lineWidth = 9; c.beginPath(); c.moveTo(0, 0); c.lineTo(0, 30); c.stroke(); c.restore(); });
+  c.beginPath(); c.ellipse(0, -42, 58 * st, 21, -.05 * Math.sin(a), 0, 7); c.fill();
+  c.beginPath(); c.arc(60 * st, -58, 20, 0, 7); c.fill();
+  c.beginPath(); c.moveTo(48 * st, -70); c.lineTo(54 * st, -96); c.lineTo(64 * st, -74); c.fill(); c.beginPath(); c.moveTo(62 * st, -74); c.lineTo(74 * st, -94); c.lineTo(78 * st, -66); c.fill();
+  c.lineWidth = 9; c.beginPath(); c.moveTo(-52 * st, -48); c.bezierCurveTo(-86, -60, -94, -100 + 16 * Math.sin(a), -76, -112 + 10 * Math.sin(a + 1)); c.stroke();
+  c.fillStyle = MUST; c.beginPath(); c.ellipse(68 * st, -62, 6, 4, 0, 0, 7); c.fill(); c.fillStyle = INK; c.fillRect(68 * st - 1, -66, 2, 8);
+  c.restore();
+}
+function paw(c, x, y, s, rot) { c.save(); c.translate(x, y); c.rotate(rot); c.scale(s, s); c.fillStyle = INK; c.beginPath(); c.ellipse(0, 8, 16, 13, 0, 0, 7); c.fill(); [[-17, -8], [-6, -17], [6, -17], [17, -8]].forEach(([px, py]) => { c.beginPath(); c.ellipse(px, py, 6, 8, px * .02, 0, 7); c.fill(); }); c.restore(); }
+function letter(c, ch, x, y, size, col, rot = 0, sh = 8) {
+  c.save(); c.translate(x, y); c.rotate(rot); c.font = `${size}px ${DISP}`; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+  c.fillStyle = INK; c.fillText(ch, sh, sh * .7); c.fillStyle = col; c.fillText(ch, 0, 0); c.restore();
+}
+// title-row slots (top of frame during the chase, centre on the title card)
+function slots(c, size, cx) { c.font = `${size}px ${DISP}`; const w = [...WORD].map(ch => c.measureText(ch).width), gap = size * .06, tot = w.reduce((a, b) => a + b) + gap * 6; let x = cx - tot / 2; return w.map(wi => { const p = x + wi / 2; x += wi + gap; return p; }); }
+
+Film({
+  title: '60 年代片头 · 胡须疑案', DUR: 15, BPM: 120, poster: 14.0,
+  fonts: [['200px "Bowlby One SC"', 'WHISKER'], ['40px "Josefin Sans"', 'THE CASE'], ['60px "Ma Shan Zheng"', '《胡须疑案》']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, ease, easeOut, easeIn, back, hash, clamp } = F;
+    // gate weave: the whole frame drifts a pixel, like a film print
+    c.save(); c.translate((hash(Math.floor(t * 24)) - .5) * 2.2, (hash(Math.floor(t * 24) + 7) - .5) * 2.2);
+    const ph = t / BEAT / 2;                                  // run cycle: one stride per beat
+    if (t < T.open + .45) {
+      // ---- intro: stripes drop in on eighth notes, then an iris frames the detective
+      const cols = [MUST, TANG, TEAL, CREAM, TANG, MUST];
+      c.fillStyle = CREAM; c.fillRect(-10, -10, W + 20, H + 20);
+      cols.forEach((col, i) => { const u = easeOut(prog(t, i * .16, i * .16 + .3)), bw = W / 6, dir = i % 2 ? 1 : -1; c.fillStyle = col; c.fillRect(i * bw - 1, dir * H * (1 - u), bw + 2, H); });
+      const R = t < T.open ? 190 * back(prog(t, T.iris, T.iris + .3)) : lerp(190, 900, easeIn(prog(t, T.open, T.open + .45)));
+      if (t >= T.iris) {
+        const inner = t < T.open ? CREAM : TANG;
+        c.save(); c.beginPath(); c.rect(-10, -10, W + 20, H + 20); c.moveTo(640 + Math.max(1, R + 14), 380); c.arc(640, 380, Math.max(1, R + 14), 0, 7, true); c.fillStyle = INK; c.fill('evenodd');
+        c.beginPath(); c.arc(640, 380, Math.max(1, R + 14), 0, 7); c.fillStyle = MUST; c.fill();
+        c.beginPath(); c.arc(640, 380, Math.max(0, R), 0, 7); c.clip(); c.fillStyle = inner; c.fillRect(0, 0, W, H);
+        if (t >= T.open) { c.fillStyle = TEAL; c.fillRect(0, GROUND, W, H); }
+        const jump = t > T.dash + .25 && t < T.dash + .6 ? Math.sin(Math.PI * (t - T.dash - .25) / .35) * 30 : 0;
+        const face = t < T.dash ? (Math.floor(t / BEAT) % 2 ? -1 : 1) : 1;
+        const go = easeIn(prog(t, T.open, T.open + .45));   // hand-off into the chase pose
+        detective(c, lerp(640, 560, go), lerp(540, GROUND, go) - jump, lerp(.78, .9, go), ph, go, face, t > T.dash + .25 && !go ? -.15 : 0);
+        if (t > T.dash && t < T.dash + .5) cat(c, lerp(380, 920, prog(t, T.dash, T.dash + .45)), 548, .9, ph * 2, 1);
+        c.restore();
+      }
+    } else if (t < T.card) {
+      // ---- the chase (world scrolls right-to-left)
+      const wx = worldX(t);
+      c.fillStyle = TANG; c.fillRect(-10, -10, W + 20, H + 20);
+      for (let i = -1; i < 9; i++) { const x = ((i * 260 - wx * .25) % 2340 + 2340) % 2340 - 260; c.fillStyle = ['#C44820', ROSE, '#EF7B4B'][((i % 3) + 3) % 3]; if (i % 2) { c.beginPath(); c.arc(x, 250 + 60 * hash(i), 70 + 40 * hash(i + 3), 0, 7); c.fill(); } else c.fillRect(x - 60, 300 + 80 * hash(i + 5), 120, 400); }
+      for (let i = -1; i < 12; i++) { const x = ((i * 190 - wx * .6) % 2090 + 2090) % 2090 - 190; c.fillStyle = INK; c.fillRect(x, 380, 10, GROUND - 380); c.beginPath(); c.arc(x + 5, 376, 16, Math.PI, 0); c.fill(); }
+      c.fillStyle = TEAL; c.fillRect(-10, GROUND, W + 20, H);
+      c.fillStyle = CREAM; for (let i = -1; i < 12; i++) { const x = ((i * 140 - wx) % 1540 + 1540) % 1540 - 140; c.fillRect(x, 660, 70, 10); }
+      // paw prints the cat leaves behind (stamped in world space, so they scroll away)
+      const catRun = 1, catX = t < 3.2 ? lerp(1450, CATX, easeOut(prog(t, T.open + .2, 3.2))) : CATX + Math.pow(Math.max(0, t - T.stop), 2) * 1600;
+      for (let k = 0; k < 24; k++) { const tp = 3.3 + k * .2; if (tp > t || tp > T.stop) continue; const x = CATX - (wx - worldX(tp)) - 20; if (x < -40) continue; paw(c, x, GROUND + 26 + (k % 2) * 16, .6, Math.PI / 2); }
+      const detRun = 1 - prog(t, T.stop, T.stop + .8), detX = lerp(560, 430, ease(prog(t, T.open + .45, 3.6)));
+      const look = t > 8.9 ? easeOut(prog(t, 8.9, 9.2)) * .5 : 0;
+      detective(c, detX, GROUND, .9, ph, detRun, 1, look);
+      if (t > 9.0) { const u = back(prog(t, 9.0, 9.2)); c.save(); c.translate(detX + 10, GROUND - 330); c.scale(u, u); c.font = `90px ${DISP}`; c.textAlign = 'center'; c.fillStyle = INK; c.fillText('?', 4, 4); c.fillStyle = CREAM; c.fillText('?', 0, 0); c.restore(); }
+      if (catX < W + 150) cat(c, catX, GROUND, 1.05, ph * 1.6, catRun, 0, t);
+      // letters on the ground → popped up into the title row when the cat runs through them
+      const sl = slots(c, 96, 640);
+      for (let k = 0; k < WORD.length; k++) {
+        const th = hitT(k);
+        if (t < th) { const x = CATX + (worldX(th) - wx); if (x < W + 200) letter(c, WORD[k], x, GROUND + 4, 250, LCOL[k]); }
+        else { const u = prog(t, th, th + .38), e = back(u); letter(c, WORD[k], lerp(CATX, sl[k], e), lerp(GROUND + 4, 170, e) - Math.sin(Math.PI * u) * 50, lerp(250, 96, easeOut(u)), LCOL[k], (1 - easeOut(u)) * Math.PI * 2 * (k % 2 ? -1 : 1), lerp(8, 5, u)); }
+      }
+      // ---- split-screen panels
+      if (t >= T.panels) {
+        const pw = W / 3, pc = [INK, MUST, TANG];
+        for (let i = 0; i < 3; i++) {
+          const t0 = T.panels + i * BEAT, u = easeOut(prog(t, t0, t0 + .25)); if (u <= 0) continue;
+          const dir = i % 2 ? 1 : -1, oy = dir * H * (1 - u);
+          c.save(); c.beginPath(); c.rect(i * pw, oy, pw + 1, H); c.clip(); c.translate(i * pw, oy);
+          c.fillStyle = pc[i]; c.fillRect(0, 0, pw + 1, H);
+          if (i === 0) { // cat's eyes in the dark
+            const bl = t > 11.0 && t < 11.18 ? .1 : 1, dil = 4 + 6 * Math.max(0, Math.sin((t - 10.5) * 4));
+            [-60, 60].forEach(ex => { c.save(); c.translate(pw / 2 + ex, 360); c.scale(1, bl); c.fillStyle = MUST; c.beginPath(); c.moveTo(-44, 0); c.quadraticCurveTo(0, -46, 44, 0); c.quadraticCurveTo(0, 46, -44, 0); c.fill(); c.fillStyle = INK; c.beginPath(); c.ellipse(0, 0, dil, 30, 0, 0, 7); c.fill(); c.restore(); });
+          }
+          if (i === 1) { // the detective's lens
+            const look = Math.sin(Math.floor((t - 10) / BEAT) * Math.PI / 2 + 1) * 26;
+            c.strokeStyle = INK; c.lineWidth = 26; c.lineCap = 'round'; c.beginPath(); c.moveTo(pw / 2 + 90, 450); c.lineTo(pw / 2 + 170, 580); c.stroke();
+            c.fillStyle = CREAM; c.beginPath(); c.arc(pw / 2, 330, 130, 0, 7); c.fill(); c.lineWidth = 22; c.stroke();
+            c.fillStyle = '#FFFFFF'; c.beginPath(); c.ellipse(pw / 2, 330, 80, 46, 0, 0, 7); c.fill(); c.fillStyle = INK; c.beginPath(); c.arc(pw / 2 + look, 330, 30, 0, 7); c.fill();
+            c.fillStyle = INK; c.fillRect(pw / 2 - 90, 262, 180, 12);
+          }
+          if (i === 2) for (let k = 0; k < 5; k++) { const tk = T.panels + 1.0 + k * BEAT / 2; if (t >= tk) paw(c, pw / 2 + (k % 2 ? 50 : -50), 600 - k * 110, 1.3 * back(prog(t, tk, tk + .12)), -.2); }
+          c.restore();
+        }
+      }
+    }
+    if (t >= T.card - .3) {
+      // ---- title card
+      const open = easeIn(prog(t, T.card - .3, T.card));
+      if (t < T.card) { c.save(); c.beginPath(); c.rect(W / 2 - W / 2 * open, 0, W * open, H); c.clip(); }
+      c.fillStyle = TEAL; c.fillRect(-10, -10, W + 20, H + 20);
+      c.fillStyle = MUST; c.beginPath(); c.arc(640, 360, Math.max(0, 250 * back(prog(t, T.card - .3, T.card + .1))), 0, 7); c.fill();
+      c.fillStyle = TANG; for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2 + t * .25, u = easeOut(prog(t, T.card, T.card + .5)); c.save(); c.translate(640, 360); c.rotate(a); c.fillRect(270 * u, -8, 60 * u, 16); c.restore(); }
+      const sl = slots(c, 170, 640);
+      for (let k = 0; k < WORD.length; k++) { const t0 = T.card + k * .07, u = back(prog(t, t0, t0 + .22)); if (t < t0) continue; letter(c, WORD[k], sl[k], lerp(-60, 420, u), 170, CREAM, 0, 10); }
+      c.font = `700 44px ${GEO}`; c.textAlign = 'center'; c.letterSpacing = '22px';
+      if (t > T.the) { const u = easeOut(prog(t, T.the, T.the + .3)); c.fillStyle = INK; c.fillText('THE', lerp(-200, 640, u) + 11, 222); }
+      if (t > T.caseT) { const u = easeOut(prog(t, T.caseT, T.caseT + .3)); c.font = `700 58px ${GEO}`; c.letterSpacing = '30px'; c.fillStyle = INK; c.fillText('CASE', lerp(1500, 640, u) + 15, 512); }
+      c.letterSpacing = '0px';
+      if (t > T.cn) { const u = prog(t, T.cn, T.cn + .5); c.save(); c.beginPath(); c.rect(440, 560, 400 * u, 110); c.clip(); c.font = `64px ${BRUSH}`; c.textAlign = 'center'; c.fillStyle = CREAM; c.fillText('《胡须疑案》', 640, 636); c.restore(); }
+      // the cat lands on the K, the detective peeks in from the left with his lens
+      if (t > T.cat) { const u = prog(t, T.cat, T.cat + .4), kx = sl[4]; cat(c, lerp(1400, kx, easeOut(u)), lerp(420 - 118, 420 - 118, u) - Math.sin(Math.PI * u) * 140, .9, 0, 0, 1, t); }
+      if (t > T.det) { const u = easeOut(prog(t, T.det, T.det + .35)); detective(c, lerp(-160, 120, u), 745, .95, 0, 0, 1, .35); }
+      if (t < T.card) c.restore();
+    }
+    c.restore();
+    F.grain(c, t, .09); F.vignette(c, .5, '30,15,5');
+    const fo = prog(t, 14.5, 15); if (fo > 0) { c.fillStyle = `rgba(23,19,15,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S, sw = beat * 2 / 3;
+    const nz = (w, B, d, peak, type, f, q = 1, f2, a = .002) => {
+      const ctx = B.sfx.context, n = Math.ceil(ctx.sampleRate * (d + a + .05)), buf = ctx.createBuffer(1, n, ctx.sampleRate), ar = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) ar[i] = Math.random() * 2 - 1;
+      const s = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain(); s.buffer = buf; fl.type = type; fl.frequency.setValueAtTime(f, w); fl.Q.value = q;
+      if (f2) fl.frequency.exponentialRampToValueAtTime(f2, w + d); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(peak, w + a); g.gain.exponentialRampToValueAtTime(.0001, w + a + d);
+      s.connect(fl); fl.connect(g); g.connect(B.drum); s.start(w); s.stop(w + a + d + .05);
+    };
+    const ride = (w, B, v = 1) => { nz(w, B, .5, .07 * v, 'highpass', 7000, .6); const ctx = B.sfx.context, o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = 5200; g.gain.setValueAtTime(.02 * v, w); g.gain.exponentialRampToValueAtTime(.0001, w + .4); o.connect(g); g.connect(B.drum); o.start(w); o.stop(w + .45); };
+    const brush = (w, B, v = 1) => nz(w, B, .18, .09 * v, 'bandpass', 3000, .7, 1800, .05);
+    const meow = (w, B) => { const ctx = B.sfx.context, o = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain(); o.type = 'sawtooth'; o.frequency.setValueAtTime(520, w); o.frequency.linearRampToValueAtTime(880, w + .12); o.frequency.linearRampToValueAtTime(600, w + .38); f.type = 'bandpass'; f.frequency.setValueAtTime(900, w); f.frequency.linearRampToValueAtTime(1600, w + .15); f.frequency.linearRampToValueAtTime(800, w + .38); f.Q.value = 3; g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.35, w + .04); g.gain.exponentialRampToValueAtTime(.0001, w + .42); o.connect(f); f.connect(g); g.connect(B.sfx); o.start(w); o.stop(w + .45); };
+    // walking bass through Dm – G7 – Dm – A7 …, one note per beat
+    const WALK = [[38, 41, 45, 44], [43, 47, 45, 39], [38, 41, 45, 46], [45, 49, 52, 39], [38, 41, 45, 44], [43, 47, 45, 39]];
+    for (let b = 0; b < 6; b++) WALK[b].forEach((m, k) => S.at(b * bar + k * beat, I.bass, m, .42, .95));
+    for (let k = 0; k < 24; k++) { const t0 = k * beat; S.at(t0, ride, k % 2 ? .8 : 1); if (k % 2) { S.at(t0 + sw, ride, .6); S.at(t0, brush); } if (!(k % 4)) S.at(t0, I.kick, .35); }
+    const CH = [[53, 57, 60, 64], [53, 55, 59, 65], [53, 57, 60, 64], [55, 57, 61, 64], [53, 57, 60, 64], [53, 55, 59, 65]];
+    for (let b = 1; b < 6; b++) { S.at(b * bar + beat + sw, (w, B) => CH[b].forEach(m => I.keys(w, B, m, .55, .3))); S.at(b * bar + 3 * beat, (w, B) => CH[b].forEach(m => I.keys(w, B, m, .45, .25))); }
+    const stab = (ch, v = 1, d = .2) => (w, B) => ch.forEach(m => I.brass(w, B, m, v, d));
+    // intro: stripes land on eighths, brass hit on the iris
+    for (let i = 0; i < 6; i++) S.at(i * .16 + .12, I.rim, .9);
+    S.at(0, stab([62, 65, 69, 72], 1.1, .3)); S.at(T.iris, stab([62, 65, 69, 74], 1.3, .5)); S.at(T.iris, I.thud);
+    S.at(T.dash, I.whip); S.at(T.dash + .05, meow); S.at(T.dash + .25, I.boing);
+    S.at(T.open, I.whoosh); S.at(T.open, stab([57, 61, 64, 67], 1.2, .25));
+    for (let k = 0; k < 10; k++) S.at(3.0 + k * beat, I.thud, .3);                   // detective footsteps
+    for (let k = 0; k < 30; k++) { const tt = 3.0 + k * .166; if (tt < T.stop) S.at(tt, I.tick, .35); }  // cat patter
+    // each letter popped = a brass stab climbing the scale + pop
+    WORD.split('').forEach((_, k) => { S.at(hitT(k), I.pop, 1 + k * .08); S.at(hitT(k), stab([62 + [0, 2, 3, 5, 7, 9, 10][k], 69 + [0, 2, 3, 5, 7, 9, 10][k]], .9, .16)); });
+    S.melody([74, 72, 69, 67, 65, 0, 62, 0], 8.0, beat / 2, 'brass', .8);
+    S.at(T.stop, meow); S.at(T.stop + .3, I.whip); S.at(9.0, I.boing);
+    // panels: a muted-trumpet spy riff over rim clicks
+    for (let i = 0; i < 3; i++) { S.at(T.panels + i * beat, I.swish); S.at(T.panels + i * beat + .2, I.thud, .6); }
+    S.melody([62, 65, 64, 0, 62, 69, 68, 0, 67, 65, 62], T.panels + beat, beat / 2, 'lead', 1.1);
+    for (let k = 0; k < 5; k++) S.at(T.panels + 1.0 + k * beat / 2, I.tick, .7);
+    S.at(11.0, I.pop2);
+    for (let k = 0; k < 5; k++) { S.at(T.panels + k * beat, I.bass, [38, 41, 43, 44, 45][k], .4, .95); S.at(T.panels + k * beat, ride); }
+    // title card: shout chorus + rimshot hits for each letter
+    S.at(T.card - .3, I.riser, .3);
+    S.at(T.card, stab([50, 62, 65, 69, 72, 76], 1.4, 1.2)); S.at(T.card, I.impact); S.at(T.card, I.bass, 38, 1.2, 1.2);
+    for (let k = 0; k < 7; k++) S.at(T.card + k * .07, I.rim, .8);
+    S.at(T.the, I.swish); S.at(T.caseT, I.swish); S.at(T.cn, I.whoosh, .4); S.at(T.cat + .4, I.pop); S.at(T.cat + .1, meow);
+    S.melody([74, 77, 81, 0, 79, 0, 81], 12.9, beat / 2, 'brass', .8);
+    S.at(14.0, stab([50, 62, 65, 69, 74, 77], 1.2, .9)); S.at(14.0, ride, 1.2); S.at(14.0, I.kick, .7); S.at(14.0, I.bass, 38, 1, 1);
+  }
+});
+</script></body></html>

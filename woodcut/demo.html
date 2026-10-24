@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>木刻版画 · 守灯人</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@900&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 木刻版画：黑是没刻掉的木面，白是刀刻掉的地方。天空、海、光全靠一道道刀痕的粗细表现明暗；
+   只加一块暖黄套色版给“灯火”。动作按 12 帧/秒走，刀痕每 1/6 秒“重刻”一次，像逐帧刻出来的版画动画。
+   时间表（BPM 80，一拍 0.75 秒，一小节 3 秒）——draw() 和 score() 共用。 */
+const BPM = 80, BEAT = 60 / BPM;
+const T = {
+  peel: [.1, .9], walk: [.9, 3.0], win: [3.75, 4.5], lamp: 5.25, beam: 6.0,
+  dock: [7.5, 9.0, 10.5], sail: 3.6, dawn: [12.0, 14.0], lampOff: [12.4, 13.2], wave: [12.75, 13.6], title: [[.9, 3.2], [13.2, 15]], fade: [14.45, 15]
+};
+const INK = '#17130F', PAPER = '#ECE4D2', SPOT = '#E4A83A';
+const IX = 24, IY = 24, IW = 1232, IH = 672, HOR = 400;
+const LAMP = [1010, 140];
+const TITLE = '"Noto Serif SC", "Songti SC", serif';
+
+/* 初始化：木纹（印在黑色上的浅色纹路 + 漏墨白点）、纸纹 */
+const GRAIN = document.createElement('canvas'); GRAIN.width = 640; GRAIN.height = 360;
+{ const g = GRAIN.getContext('2d');
+  for (let i = 0; i < 90; i++) { let y = Math.random() * 360; g.strokeStyle = `rgba(120,100,80,${.05 + Math.random() * .12})`; g.lineWidth = .6 + Math.random() * 1.8; g.beginPath(); g.moveTo(0, y); for (let x = 0; x <= 640; x += 20) { y += Math.random() * 2 - 1 + Math.sin(x / 90 + i) * .6; g.lineTo(x, y); } g.stroke(); }
+  for (let i = 0; i < 900; i++) { g.fillStyle = `rgba(236,228,210,${Math.random() * .35})`; g.fillRect(Math.random() * 640, Math.random() * 360, 1 + Math.random() * 1.5, 1); } }
+const FIB = document.createElement('canvas'); FIB.width = FIB.height = 300;
+{ const g = FIB.getContext('2d'); for (let i = 0; i < 3000; i++) { g.fillStyle = `rgba(${Math.random() < .5 ? '90,70,50' : '255,252,240'},${Math.random() * .07})`; g.fillRect(Math.random() * 300, Math.random() * 300, 1 + Math.random() * 2, 1 + Math.random()); }
+  for (let i = 0; i < 160; i++) { g.strokeStyle = `rgba(110,90,60,${Math.random() * .06})`; g.lineWidth = .5; g.beginPath(); let x = Math.random() * 300, y = Math.random() * 300; g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += Math.random() * 14 - 7; y += Math.random() * 14 - 7; g.lineTo(x, y); } g.stroke(); } }
+
+// 一刀：两头尖、中间宽的柳叶形（加进当前路径，最后统一填色）
+function gouge(c, x1, y1, x2, y2, w) { const dx = x2 - x1, dy = y2 - y1, l = Math.hypot(dx, dy); if (l < .5 || w <= .05) return; const nx = -dy / l * w, ny = dx / l * w, mx = (x1 + x2) / 2, my = (y1 + y2) / 2; c.moveTo(x1, y1); c.quadraticCurveTo(mx + nx, my + ny, x2, y2); c.quadraticCurveTo(mx - nx, my - ny, x1, y1); }
+// 弯的一刀：两条边往同一侧鼓（刻浪尖、云边用）
+function gougeArc(c, x1, y1, x2, y2, w, bend) { const dx = x2 - x1, dy = y2 - y1, l = Math.hypot(dx, dy); if (l < .5 || w <= .05) return; const nx = -dy / l, ny = dx / l, mx = (x1 + x2) / 2, my = (y1 + y2) / 2; c.moveTo(x1, y1); c.quadraticCurveTo(mx + nx * (bend + w), my + ny * (bend + w), x2, y2); c.quadraticCurveTo(mx + nx * (bend - w), my + ny * (bend - w), x1, y1); }
+const PATH = [[640, 700], [760, 664], [900, 640], [872, 590], [950, 560], [1004, 522]];   // 守灯人上山的小路
+const BOATS = [{ hx: 380, dx: 190, seed: 1 }, { hx: 600, dx: 330, seed: 2 }, { hx: 250, dx: 470, seed: 3 }];
+
+Film({
+  title: '木刻版画 · 守灯人', DUR: 15, BPM, poster: 10.2,
+  fonts: [['900 38px "Noto Serif SC"', '守灯人']],
+  draw(c, tRaw, F) {
+    const { W, H, prog, lerp, clamp, ease, easeOut, easeIn, hash } = F;
+    const t = Math.floor(tRaw * 12) / 12, bf = Math.floor(tRaw * 6);        // 12 帧/秒的动作，6 次/秒的“重刻”
+    const jit = (k, a = 1) => (hash(k * 13.1 + bf * 7.7) - .5) * a;
+    const dawn = ease(prog(t, ...T.dawn));
+    const lampOn = t >= T.lamp && t < T.lampOff[1] ? 1 - ease(prog(t, ...T.lampOff)) : 0;
+    const flash = t >= T.lamp ? Math.max(0, 1 - (t - T.lamp) / .5) : 0;
+    const carve = fn => { c.beginPath(); fn(); c.fillStyle = PAPER; c.fill(); };
+    const spot = fn => { c.save(); c.translate(3, -2); c.beginPath(); fn(); c.fillStyle = SPOT; c.fill(); c.restore(); };
+
+    c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
+    c.save(); c.beginPath(); c.rect(IX, IY, IW, IH); c.clip();
+    c.fillStyle = INK; c.fillRect(IX, IY, IW, IH);
+
+    // ---------- 天空：横向刀痕，越靠近地平线越粗（越亮）；天亮时整体加粗 ----------
+    carve(() => { for (let r = 0, y = IY + 6; y < HOR - 2; y += 8, r++) { const v = (y - IY) / (HOR - IY), w = .2 + 1.9 * Math.pow(v, 2.2) + dawn * (1.3 + 1.6 * v); let x = IX - 20 + 60 * hash(r); let k = 0; while (x < IX + IW + 20) { const len = 70 + 190 * hash(r * 31 + k), gap = 5 + 12 * hash(r * 17 + k * 3); gouge(c, x, y + jit(r * 50 + k, .8), x + len, y + jit(r * 50 + k + 1, .8), w * (.75 + .4 * hash(r + k * 7))); x += len + gap; k++; } } });
+    // 月亮：刻白，右边留黑排线
+    const mx = 230, my = 120;
+    carve(() => { c.moveTo(mx + 40, my); c.arc(mx, my, 40, 0, Math.PI * 2); });
+    c.save(); c.beginPath(); c.arc(mx, my, 40, 0, Math.PI * 2); c.clip(); c.strokeStyle = INK; c.lineWidth = 2; for (let k = 0; k < 9; k++) { const x = mx + 8 + k * 4.2; c.beginPath(); c.moveTo(x, my - 44); c.lineTo(x + 3, my + 44); c.lineWidth = .6 + k * .45; c.stroke(); } c.restore();
+    // 星星
+    carve(() => { for (let k = 0; k < 18; k++) { const x = IX + 40 + hash(k + 90) * 1150, y = IY + 20 + hash(k + 91) * 200, s = 3 + 4 * hash(k + 92) * (1 - dawn); gouge(c, x - s, y, x + s, y, 1); gouge(c, x, y - s, x, y + s, 1); } });
+    // 日出：半个太阳 + 放射刀痕 + 暖色套版
+    if (dawn > 0) {
+      const sx = 420, sy = lerp(470, 392, dawn), sr = 74;
+      carve(() => { for (let k = 0; k < 22; k++) { const a = Math.PI + (k + .5) / 22 * Math.PI, r0 = sr + 12, r1 = r0 + 60 + 320 * dawn * (k % 2 ? .6 : 1); gouge(c, sx + Math.cos(a) * r0, sy + Math.sin(a) * r0, sx + Math.cos(a) * r1, sy + Math.sin(a) * r1, 2 + 3 * dawn); } });
+      c.save(); c.beginPath(); c.rect(IX, IY, IW, HOR - IY); c.clip();
+      carve(() => { c.moveTo(sx + sr, sy); c.arc(sx, sy, sr, 0, Math.PI * 2); });
+      spot(() => { c.moveTo(sx + sr - 10, sy); c.arc(sx, sy, sr - 10, 0, Math.PI * 2); });
+      c.restore();
+    }
+    // 云：黑色云带盖住天空刀痕；上沿刻一道细光边，下沿一排扇贝弧，每个弧里再刻两道回纹
+    [[300, 92, 380, 0], [800, 60, 440, 1], [600, 214, 320, 2]].forEach(([cx, cy, w, i]) => {
+      const x0 = cx + t * (5 + i * 2), h = w * .16, n = Math.round(w / 70), sw = w / n;
+      const shape = () => { c.moveTo(x0 - w / 2, cy); c.bezierCurveTo(x0 - w / 2, cy - h * 1.4, x0 - w * .1, cy - h * 1.9, x0 + w * .1, cy - h * 1.3); c.bezierCurveTo(x0 + w * .3, cy - h * 1.8, x0 + w / 2 + 10, cy - h, x0 + w / 2, cy); for (let q = n - 1; q >= 0; q--) { const sx = x0 - w / 2 + q * sw + sw / 2; c.arc(sx, cy, sw / 2, 0, Math.PI, false); } c.closePath(); };
+      c.beginPath(); shape(); c.fillStyle = INK; c.fill();
+      if (dawn > 0) { c.save(); c.beginPath(); shape(); c.clip(); carve(() => { for (let y = cy - h * 2; y < cy + sw / 2; y += 7) gouge(c, x0 - w / 2 + 20 * hash(y), y, x0 + w / 2 - 20 * hash(y + 1), y + jit(y, 1), .2 + 1.5 * dawn * Math.max(0, (y - cy + h * 2) / (h * 2 + sw / 2))); }); c.restore(); }   // 天亮：云肚子里也刻出横线
+      carve(() => {
+        for (let q = 0; q < n; q++) { const sx = x0 - w / 2 + q * sw + sw / 2; [[1, 2.2], [.72, 1.4], [.46, .9]].forEach(([k, ww]) => { for (let s2 = 0; s2 < 3; s2++) { const a0 = .15 + s2 * .98, a1 = a0 + .86; gougeArc(c, sx + Math.cos(a0) * sw / 2 * k, cy + Math.sin(a0) * sw / 2 * k, sx + Math.cos(a1) * sw / 2 * k, cy + Math.sin(a1) * sw / 2 * k, ww + dawn, -sw * k * .12); } }); }
+        gougeArc(c, x0 - w * .42, cy - h * 1.15, x0 + w * .06, cy - h * 1.45, 1.2 + dawn, -h * .5); gougeArc(c, x0 + w * .14, cy - h * 1.35, x0 + w * .46, cy - h * .7, 1.1 + dawn, -h * .4);
+      });
+    });
+    // ---------- 海：一行行波浪刀痕，越近越粗越宽；月光下那一条更亮 ----------
+    c.fillStyle = INK; c.fillRect(IX, HOR, IW, IH);
+    carve(() => {
+      gouge(c, IX - 10, HOR, IX + IW + 10, HOR, 1.4);                                   // 海平线
+      const N = 24;
+      for (let k = 0; k < N; k++) {
+        const v = k / (N - 1), y = HOR + 10 + 300 * Math.pow(v, 1.55), amp = 1.5 + 9 * Math.pow(v, 1.3), lam = 30 + 120 * v, w0 = .45 + 2.4 * v + dawn * (.9 + 1.6 * v);
+        const off = ((t * (14 + 40 * v) + k * 37) % lam), n = Math.ceil(960 / lam) + 2;
+        for (let q = -1; q < n; q++) { const xc = IX + q * lam + off + (k % 2) * lam * .5 + jit(k * 90 + q, 4), L = lam * (.42 + .25 * hash(k * 13 + q)); if (xc > 920 + 30 * v) break; const moon = Math.max(0, 1 - Math.abs(xc - mx) / (70 + 140 * v)); gougeArc(c, xc - L / 2, y + jit(k * 40 + q, 1.2), xc + L / 2, y + jit(k * 40 + q + 3, 1.2), w0 * (.7 + .5 * hash(k * 5 + q)) * (1 + 1.4 * moon), -amp * .8); }
+      }
+    });
+    // 灯光：两道光束绕着转，一边扫过海面
+    if (lampOn > 0 && t >= T.beam - .5) {
+      const phi = (t - T.beam) * 1.5 + Math.PI / 2 * 0, len = 1100;
+      [0, Math.PI].forEach(o => {
+        const a = phi + o, cx = Math.cos(a), toward = Math.sin(a);
+        if (Math.abs(cx) < .05) return;
+        const L = len * Math.abs(cx) * lampOn, dir = Math.sign(cx), tilt = .09, spread = .075 + .05 * Math.max(0, toward);
+        const ang = dir > 0 ? tilt : Math.PI - tilt;
+        c.save(); c.beginPath(); c.moveTo(LAMP[0], LAMP[1]); c.lineTo(LAMP[0] + Math.cos(ang - spread) * L, LAMP[1] + Math.sin(ang - spread) * L); c.lineTo(LAMP[0] + Math.cos(ang + spread) * L, LAMP[1] + Math.sin(ang + spread) * L); c.closePath(); c.clip();
+        c.fillStyle = PAPER; c.fillRect(IX, IY, IW, IH);
+        c.strokeStyle = INK; for (let k = -6; k <= 6; k++) { const aa = ang + k / 6 * spread; c.lineWidth = .6 + Math.abs(k) * .35; c.beginPath(); c.moveTo(LAMP[0] + Math.cos(aa) * 60, LAMP[1] + Math.sin(aa) * 60); c.lineTo(LAMP[0] + Math.cos(aa) * L, LAMP[1] + Math.sin(aa) * L); c.stroke(); }
+        c.restore();
+      });
+    }
+    // ---------- 码头 + 船 ----------
+    c.fillStyle = INK; c.fillRect(40, 584, 520, 14);
+    for (let k = 0; k < 9; k++) c.fillRect(52 + k * 62, 596, 9, 80);
+    carve(() => { gouge(c, 36, 584, 564, 583, 1.8); for (let k = 0; k < 26; k++) gouge(c, 44 + k * 20, 591, 60 + k * 20, 591 + jit(k + 300, 1), 1.3); for (let k = 0; k < 9; k++) { gouge(c, 53 + k * 62, 600, 53 + k * 62, 676, 1.3); for (let q = 0; q < 3; q++) gouge(c, 58 + k * 62, 612 + q * 22, 60 + k * 62, 624 + q * 22, 1.2); } });
+    const boats = BOATS.map((b, i) => { const t1 = T.dock[i], t0 = t1 - T.sail - i * .3, u = clamp((t - t0) / (t1 - t0), 0, 1), e = 1 - Math.pow(1 - u, 2.2); return { ...b, i, u, x: lerp(b.hx, b.dx, e), y: lerp(HOR + 6, 612, Math.pow(e, 1.4)), s: lerp(.26, 1.2, Math.pow(e, 1.3)), vis: t >= t0, docked: u >= 1 }; }).filter(b => b.vis).sort((a, b) => a.y - b.y);
+    boats.forEach(b => {
+      const bob = Math.sin(t * 2.4 + b.seed) * 3 * b.s, s = b.s;
+      c.save(); c.translate(b.x, b.y + bob); c.scale(s, s); c.rotate(Math.sin(t * 1.8 + b.seed) * .04);
+      if (!b.docked) carve(() => { for (let k = 1; k < 5; k++) { gouge(c, 70 + k * 26, 8 + k * 3, 90 + k * 30, 12 + k * 5, 1.6); gouge(c, 70 + k * 26, 8 - k * 1, 94 + k * 30, 6 - k * 1, 1.2); } });
+      c.fillStyle = INK; c.beginPath(); c.moveTo(-80, -6); c.lineTo(80, -10); c.quadraticCurveTo(70, 14, 40, 16); c.lineTo(-58, 16); c.quadraticCurveTo(-76, 10, -80, -6); c.closePath(); c.fill();
+      c.fillRect(-3, -110, 5, 104);
+      carve(() => { gouge(c, -80, -7, 80, -11, 2.2); gougeArc(c, -60, 17, 42, 17, 2, 3); gouge(c, -70, 2, 64, -2, 1.6); gouge(c, -60, 9, 52, 7, 1.2); c.moveTo(4, -104); c.lineTo(60, -16); c.lineTo(4, -16); c.closePath(); for (let k = 0; k < 4; k++) gouge(c, -16 + jit(k + b.seed * 9, 3), 26 + k * 9, -12 + jit(k + b.seed * 9 + 1, 3), 31 + k * 9, 1.4 - k * .2); });
+      c.strokeStyle = INK; for (let k = 0; k < 6; k++) { c.lineWidth = .8 + k * .3; c.beginPath(); c.moveTo(12 + k * 8, -86 + k * 12); c.lineTo(12 + k * 8, -18); c.stroke(); }
+      spot(() => { c.moveTo(-8, -58); c.arc(-14, -58, 7, 0, Math.PI * 2); });
+      carve(() => { for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; gouge(c, -14 + Math.cos(a) * 11, -58 + Math.sin(a) * 11, -14 + Math.cos(a) * 20, -58 + Math.sin(a) * 20, 1.2); } });
+      c.restore();
+    });
+    // ---------- 崖和灯塔 ----------
+    const cliff = [[840, 720], [868, 610], [900, 566], [960, 530], [1000, 520], [1100, 516], [1170, 478], [1260, 452], [1260, 720]];
+    c.fillStyle = INK; c.beginPath(); cliff.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y)); c.closePath(); c.fill();
+    carve(() => {
+      for (let k = 0; k < cliff.length - 2; k++) gouge(c, cliff[k][0], cliff[k][1] + 3, cliff[k + 1][0], cliff[k + 1][1] + 3, 2.2);
+      for (let k = 0; k < 110; k++) { const u = hash(k + 500), v = hash(k + 600), x = lerp(870, 1250, u), top = x < 1000 ? lerp(610, 520, (x - 868) / 132) : x < 1170 ? lerp(520, 478, (x - 1000) / 170) : lerp(478, 452, (x - 1170) / 90), y = top + 12 + v * (700 - top), a = -.5 + hash(k + 700) * .5; gouge(c, x, y, x + Math.cos(a) * (18 + 26 * v), y + Math.sin(a) * (18 + 26 * v), 1.2 + 1.8 * (1 - v)); }
+      for (let k = 0; k < PATH.length - 1; k++) { const [x1, y1] = PATH[k], [x2, y2] = PATH[k + 1]; for (let q = 0; q < 6; q++) { const a = q / 6, b = (q + .6) / 6; gouge(c, lerp(x1, x2, a), lerp(y1, y2, a), lerp(x1, x2, b), lerp(y1, y2, b), 2.6); } }
+      const sp = (Math.sin(t * 3.1) + 1) / 2; for (let k = 0; k < 7; k++) { const a = -Math.PI * (.35 + .5 * k / 6), r0 = 8, r1 = 16 + 22 * sp * hash(k + bf); gougeArc(c, 862 + Math.cos(a) * r0, 616 + Math.sin(a) * r0, 862 + Math.cos(a) * r1, 616 + Math.sin(a) * r1, 1.5, -3); }
+    });
+    // 塔身：白塔（刻空），右侧留黑排线，两道黑环
+    const tw = y => lerp(55, 35, (520 - y) / 342);
+    c.fillStyle = PAPER; c.beginPath(); c.moveTo(1010 - tw(520), 520); c.lineTo(1010 - tw(178), 178); c.lineTo(1010 + tw(178), 178); c.lineTo(1010 + tw(520), 520); c.closePath(); c.fill();
+    c.strokeStyle = INK; c.lineWidth = 5; c.stroke();
+    c.save(); c.clip(); for (let k = 0; k < 14; k++) { const f = k / 13; c.lineWidth = .5 + f * f * 4.2; c.beginPath(); c.moveTo(1012 + k * 3.6, 520); c.lineTo(1012 + k * 2.4, 178); c.stroke(); }
+    [[300, 330], [420, 452]].forEach(([a, b]) => { c.fillStyle = INK; c.fillRect(900, a, 220, b - a); }); c.restore();
+    carve(() => { [[300, 330], [420, 452]].forEach(([a, b]) => { for (let y = a + 6; y < b - 2; y += 7) gouge(c, 1010 - tw(y) + 4, y, 1010 + 4, y + jit(y, 1), .9); }); });
+    // 窗：由下往上亮
+    [[470, T.win[0] - .75], [380, T.win[0]], [260, T.win[1]]].forEach(([y, on]) => {
+      c.fillStyle = INK; c.beginPath(); c.roundRect(1002, y - 14, 16, 26, [8, 8, 0, 0]); c.fill();
+      if (t >= on) { spot(() => { c.roundRect(1005, y - 10, 10, 19, [5, 5, 0, 0]); }); carve(() => { for (let k = 0; k < 6; k++) { const a = Math.PI + k / 5 * Math.PI; gouge(c, 1010 + Math.cos(a) * 16, y + Math.sin(a) * 18, 1010 + Math.cos(a) * 26, y + Math.sin(a) * 30, 1); } }); }
+    });
+    // 门（守灯人进门时透出暖光）
+    c.fillStyle = INK; c.beginPath(); c.roundRect(996, 482, 28, 38, [14, 14, 0, 0]); c.fill();
+    if (t > T.walk[1] - .3 && t < T.win[0]) spot(() => c.roundRect(1000, 488, 20, 32, [10, 10, 0, 0]));
+    // 回廊 + 灯室 + 顶
+    c.fillStyle = INK; c.fillRect(952, 170, 116, 10); c.fillRect(956, 146, 108, 3); for (let k = 0; k <= 9; k++) c.fillRect(957 + k * 11.6, 146, 2.4, 24);
+    c.fillRect(976, 104, 68, 44);
+    if (lampOn > 0 || flash > 0) {
+      const g0 = Math.max(lampOn, flash);
+      carve(() => { for (let k = 0; k < 28; k++) { const a = k / 28 * Math.PI * 2 + (t - T.lamp) * .6, r0 = 44, r1 = r0 + (40 + 50 * (k % 2)) * g0 + 60 * flash; gouge(c, LAMP[0] + Math.cos(a) * r0, LAMP[1] - 14 + Math.sin(a) * r0, LAMP[0] + Math.cos(a) * r1, LAMP[1] - 14 + Math.sin(a) * r1, 2.4 * g0); } });
+      carve(() => c.rect(982, 108, 56, 36)); spot(() => { c.moveTo(LAMP[0] + 16, LAMP[1] - 14); c.arc(LAMP[0], LAMP[1] - 14, 16, 0, Math.PI * 2); });
+      c.fillStyle = INK; for (let k = 0; k < 4; k++) c.fillRect(981 + k * 18.5, 106, 3, 40);
+    } else { carve(() => { for (let k = 0; k < 4; k++) gouge(c, 986 + k * 16, 110, 986 + k * 16, 142, 1.2); }); }
+    c.fillStyle = INK; c.beginPath(); c.moveTo(968, 106); c.quadraticCurveTo(1010, 52, 1052, 106); c.closePath(); c.fill(); c.fillRect(1007, 50, 6, 16);
+    carve(() => gouge(c, 984, 98, 1004, 72, 1.6));
+    // ---------- 守灯人 ----------
+    const keeper = (x, y, ph, wave = 0, lantern = true, sc = 1.5) => {
+      const body = (col, e) => {
+        c.fillStyle = col; c.strokeStyle = col; c.lineCap = 'round'; c.lineJoin = 'round';
+        [1, -1].forEach(s => { c.beginPath(); c.moveTo(-2, -18); c.lineTo(-2 + s * 6 * Math.sin(ph), 0); c.lineWidth = 4.5 + e; c.stroke(); });
+        c.beginPath(); c.moveTo(-8, -18); c.lineTo(-6, -40); c.lineTo(6, -40); c.lineTo(9, -18); c.closePath(); c.fill(); if (e) { c.lineWidth = e; c.stroke(); }
+        c.beginPath(); c.arc(0, -46, 6 + e / 2, 0, Math.PI * 2); c.fill(); c.fillRect(-9 - e / 2, -52 - e / 2, 18 + e, 3 + e); c.fillRect(-5 - e / 2, -58 - e / 2, 10 + e, 7 + e);
+        c.beginPath(); c.moveTo(4, -36); if (wave) { const a = -2.3 + .5 * Math.sin(wave * 14); c.lineTo(4 + Math.cos(a) * 18, -36 + Math.sin(a) * 18); } else c.lineTo(14, -24); c.lineWidth = 3.5 + e; c.stroke();
+        if (lantern) c.fillRect(12 - e / 2, -24 - e / 2, 8 + e, 11 + e);
+      };
+      c.save(); c.translate(x, y); c.scale(sc, sc);
+      body(PAPER, 3.2); body(INK, 0);                       // 先刻一圈白边，再留黑剪影
+      if (lantern) { spot(() => { c.moveTo(22, -18); c.arc(16, -18, 6, 0, Math.PI * 2); }); carve(() => { for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; gouge(c, 16 + Math.cos(a) * 10, -18 + Math.sin(a) * 10, 16 + Math.cos(a) * 19, -18 + Math.sin(a) * 19, 1.1); } }); }
+      c.restore();
+    };
+    if (t >= T.walk[0] && t < T.walk[1]) {
+      const u = prog(t, ...T.walk), segs = PATH.length - 1, f = u * segs, i = Math.min(segs - 1, Math.floor(f)), v = f - i;
+      keeper(lerp(PATH[i][0], PATH[i + 1][0], v), lerp(PATH[i][1], PATH[i + 1][1], v), t * 9);
+    }
+    if (t >= T.dawn[0] + .4) keeper(1050, 170, 0, t >= T.wave[0] && t < T.wave[1] ? t : 0, false, 1.25);
+    // ---------- 片名：刻在一块黑底上 ----------
+    const [ta, tb] = T.title, show = (t >= ta[0] && t < ta[1]) || t >= tb[0];
+    if (show) { c.fillStyle = INK; c.fillRect(1084, 628, 150, 52); c.font = `900 36px ${TITLE}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = PAPER; c.fillText('守灯人', 1159, 656); c.strokeStyle = PAPER; c.lineWidth = 2; c.strokeRect(1090, 634, 138, 40); }
+    // 木纹 + 纸纹
+    c.save(); c.globalCompositeOperation = 'screen'; c.globalAlpha = .55; c.fillStyle = c.createPattern(GRAIN, 'repeat'); c.fillRect(IX, IY, IW, IH); c.restore();
+    c.restore();
+    // 纸边与版框（边缘不齐）
+    c.save(); c.globalCompositeOperation = 'multiply'; c.fillStyle = c.createPattern(FIB, 'repeat'); c.fillRect(0, 0, W, H); c.restore();
+    c.strokeStyle = INK; c.lineWidth = 3; c.beginPath(); for (let k = 0; k <= 80; k++) { const u = k / 80; c.lineTo(IX + IW * u, IY + (hash(k) - .5) * 2); } for (let k = 0; k <= 45; k++) { const u = k / 45; c.lineTo(IX + IW + (hash(k + 90) - .5) * 2, IY + IH * u); } for (let k = 80; k >= 0; k--) { const u = k / 80; c.lineTo(IX + IW * u, IY + IH + (hash(k + 190) - .5) * 2); } for (let k = 45; k >= 0; k--) { const u = k / 45; c.lineTo(IX + (hash(k + 290) - .5) * 2, IY + IH * u); } c.stroke();
+    // 开场：像把印好的纸从版上揭下来——一张白纸从左往右掀开
+    const pu = prog(tRaw, ...T.peel);
+    if (pu < 1) { const ex = lerp(-300, W + 300, easeIn(pu) * .4 + pu * .6); c.save(); c.beginPath(); c.moveTo(ex, 0); c.lineTo(W, 0); c.lineTo(W, H); c.lineTo(ex - 240, H); c.closePath(); c.fillStyle = PAPER; c.fill(); c.fillStyle = c.createPattern(FIB, 'repeat'); c.fill(); const sg = c.createLinearGradient(ex - 120, 0, ex - 40, 0); sg.addColorStop(0, 'rgba(0,0,0,0)'); sg.addColorStop(1, 'rgba(0,0,0,.35)'); c.fillStyle = sg; c.beginPath(); c.moveTo(ex - 60, 0); c.lineTo(ex, 0); c.lineTo(ex - 240, H); c.lineTo(ex - 300, H); c.closePath(); c.fill(); c.restore(); }
+    const fo = prog(tRaw, ...T.fade); if (fo > 0) { c.fillStyle = `rgba(23,19,15,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    // 海浪：一直在
+    for (let x = 0; x < 15; x += 2.2) S.at(x, (w, B) => sea(w, B, 3.2, x > 12 ? .7 : 1));
+    S.at(T.peel[0], I.paper); S.at(T.peel[0] + .3, I.whoosh, .4);
+    // 低音弦乐：Dm – B♭ – F – C，天亮时落到 D 大三和弦
+    const PR = [[38, 45, 50, 53], [34, 41, 46, 50], [41, 48, 53, 57], [36, 43, 48, 52], [38, 45, 50, 54]];
+    PR.forEach((ch, b) => S.at(b * bar, (w, B) => I.strings(w, B, ch, bar + .4, b === 4 ? 1.3 : 1)));
+    PR.forEach((ch, b) => { S.at(b * bar, I.subbass, ch[0], bar * .9, .6); });
+    // 大提琴旋律
+    const CEL = [[4, 57, 2], [6, 55, 1], [7, 53, 1], [8, 50, 3], [12, 53, 1.5], [13.5, 55, .5], [14, 57, 2], [16, 58, 1], [17, 57, 1], [18, 55, 2], [20, 53, 1], [21, 52, 1], [22, 50, 2], [24, 54, 2], [26, 57, 2], [28, 62, 4]];
+    CEL.forEach(([b, m, d]) => S.at(b * beat, (w, B) => cello(w, B, m, d * beat)));
+    // 守灯人上山的脚步、关门、窗一扇扇亮
+    for (let x = T.walk[0]; x < T.walk[1]; x += beat / 2) S.at(x, I.thud, .18);
+    S.at(T.walk[1], I.thud, .6); S.at(T.walk[1] + .05, I.rim, .5);
+    [T.win[0] - .75, T.win[0], T.win[1]].forEach((x, i) => S.at(x, I.bell, 79 + i * 2, .35));
+    // 点灯：一声闷响 + 亮
+    S.at(T.lamp - .4, I.riser, .6); S.at(T.lamp, I.impact); S.at(T.lamp, I.shimmer);
+    S.at(T.beam, (w, B) => foghorn(w, B)); S.at(T.beam + 2 * bar, (w, B) => foghorn(w, B, .8));
+    // 船靠岸：港口钟 + 船帮碰码头
+    T.dock.forEach((x, i) => { S.at(x, I.bell, [67, 64, 62][i], .9); S.at(x + .05, I.thud, .5); S.at(x - .4, I.swish); });
+    // 天亮
+    S.at(T.dawn[0], I.chime); S.at(T.dawn[0] + .6, (w, B) => gull(w, B)); S.at(T.dawn[0] + 1.4, (w, B) => gull(w, B, 1.1));
+    S.at(14.0, I.bell, 62, .6);
+  }
+});
+
+/* ---------- 自己合成的：海浪、大提琴、雾笛、海鸥 ---------- */
+function sea(w, B, d, v = 1) { const ctx = B.sfx.context, len = Math.ceil(ctx.sampleRate * (d + .2)), nb = ctx.createBuffer(1, len, ctx.sampleRate), a = nb.getChannelData(0); let p = 0; for (let i = 0; i < len; i++) { p = p * .98 + (Math.random() * 2 - 1) * .2; a[i] = p; } const s = ctx.createBufferSource(); s.buffer = nb; const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(400, w); f.frequency.linearRampToValueAtTime(1400, w + d * .45); f.frequency.linearRampToValueAtTime(300, w + d); const g = ctx.createGain(); g.gain.setValueAtTime(.0001, w); g.gain.linearRampToValueAtTime(.55 * v, w + d * .45); g.gain.linearRampToValueAtTime(.0001, w + d); s.connect(f); f.connect(g); g.connect(B.sfx); s.start(w); s.stop(w + d + .1); }
+function cello(w, B, m, d) { const ctx = B.pad.context, f = 440 * Math.pow(2, (m - 69) / 12), o = ctx.createOscillator(), o2 = ctx.createOscillator(), lf = ctx.createOscillator(), lg = ctx.createGain(), fl = ctx.createBiquadFilter(), g = ctx.createGain(); o.type = 'sawtooth'; o2.type = 'triangle'; o.frequency.value = f; o2.frequency.value = f * 1.002; lf.frequency.value = 5; lg.gain.setValueAtTime(0, w); lg.gain.linearRampToValueAtTime(f * .01, w + .4); lf.connect(lg); lg.connect(o.frequency); lg.connect(o2.frequency); fl.type = 'lowpass'; fl.frequency.value = 1100; fl.Q.value = 1.4; g.gain.setValueAtTime(.0001, w); g.gain.linearRampToValueAtTime(.09, w + .25); g.gain.setValueAtTime(.09, w + Math.max(.3, d - .1)); g.gain.linearRampToValueAtTime(.0001, w + d + .35); o.connect(fl); o2.connect(fl); fl.connect(g); g.connect(B.pad); [o, o2, lf].forEach(n => { n.start(w); n.stop(w + d + .4); }); }
+function foghorn(w, B, v = 1) { const ctx = B.sfx.context, g = ctx.createGain(), fl = ctx.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = 420; [65, 97.5].forEach(fq => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = fq; o.connect(fl); o.start(w); o.stop(w + 2); }); g.gain.setValueAtTime(.0001, w); g.gain.linearRampToValueAtTime(.22 * v, w + .35); g.gain.setValueAtTime(.22 * v, w + 1.2); g.gain.linearRampToValueAtTime(.0001, w + 1.9); fl.connect(g); g.connect(B.sfx); }
+function gull(w, B, p = 1) { const ctx = B.sfx.context; for (let i = 0; i < 2; i++) { const x = w + i * .22, o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(1500 * p, x); o.frequency.exponentialRampToValueAtTime(2300 * p, x + .06); o.frequency.exponentialRampToValueAtTime(1100 * p, x + .18); g.gain.setValueAtTime(.0001, x); g.gain.exponentialRampToValueAtTime(.05, x + .03); g.gain.exponentialRampToValueAtTime(.0001, x + .2); o.connect(g); g.connect(B.sfx); o.start(x); o.stop(x + .22); } }
+</script></body></html>

@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>1930s 橡皮管卡通 · 黄油吐司舞</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=ZCOOL+QingKe+HuangYou&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Limelight&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@900&text=完一出原创小卡通">
+<script src="../_engine/core.js"></script></head><body><script>
+const DECO = '"ZCOOL QingKe HuangYou", "PingFang SC", sans-serif', EN = 'Limelight, Georgia, serif', SERIF = '"Noto Serif SC", "Songti SC", serif';
+const PAPER = '#EFE4C9', LIGHT = '#D9CBA8', MID = '#A8977A', DARK = '#5E5140', INK = '#16120D', WHITE = '#FBF7EC';
+// ---- 时间表（120 BPM，一拍 0.5 秒；角色动作按 12 帧/秒“一拍二”）----
+const BEAT = .5;
+const TITLE = [0, 1.0], IRIS_IN = [1.0, 1.6];
+const RATTLE = [1.5, 3.0], POP = 3.0, LAND = 4.0;         // 烤面包机抖三下，叮！吐司弹出，落地
+const WAKE = 4.0, WAVE = [4.5, 5.0];
+const DANCE = [5.0, 8.0];
+const LID = 6.75, KNIFE = [7.0, 7.5];                      // 黄油盒盖掀开，刀带着黄油飞来，接住
+const SPREAD = [8.0, 8.5, 9.0, 9.5, 10.0];                 // 五拍抹五下
+const JUMP = [10.5, 11.5], TADA = 11.5, WINK = 13.0;
+const IRIS_OUT = [13.4, 14.1], FIN = 14.1, FADE = 14.5;
+const CT = 540;                                             // 台面高度
+const TS = 1.3, TX = 450, HX = 760, HY = CT - 145 * TS;    // 吐司放大倍数、面包机位置、吐司站位（身体中心）
+// 面包上的气孔：初始化时随机
+const HOLES = Array.from({ length: 16 }, () => [(Math.random() - .5) * 100, -50 + Math.random() * 120, 2 + Math.random() * 3.5]);
+Film({
+  title: '1930s 橡皮管卡通 · 黄油吐司舞', DUR: 15, BPM: 120, poster: 9.25,
+  fonts: [['120px "ZCOOL QingKe HuangYou"', '黄油吐司舞叮！糖'], ['900 120px "Noto Serif SC"', '完一出原创小卡通'], ['40px Limelight', '~TOAST']],
+  draw(c, tRaw, F) {
+    const { W, H, prog, lerp, clamp, ease, easeOut, easeIn, back, hash, rrect } = F;
+    const f24 = Math.floor(tRaw * 24), t = Math.floor(tRaw * 12) / 12;   // 角色 12fps，胶片效果 24fps
+    const ph = t / BEAT;                                                   // 拍数
+    const hop = (o = 0) => Math.abs(Math.sin(Math.PI * (ph + o)));        // 0 在拍点（落地），1 在两拍之间（最高）
+    const squash = (o = 0) => Math.pow(Math.abs(Math.cos(Math.PI * (ph + o))), 6);   // 拍点上压扁
+    // ---------- 片头字幕卡 ----------
+    if (tRaw < TITLE[1]) { titleCard(); film(); return; }
+    // 胶片抖动（gate weave）
+    c.save(); c.translate((hash(f24) - .5) * 3, (hash(f24 + 7) - .5) * 4);
+    // ---------- 墙 + 条纹壁纸 ----------
+    c.fillStyle = LIGHT; c.fillRect(-10, -10, W + 20, CT + 10);
+    for (let x = -10; x < W + 20; x += 48) { c.fillStyle = '#CDBD98'; c.fillRect(x, -10, 20, CT + 10); }
+    // 挂镜线
+    c.fillStyle = MID; c.fillRect(-10, 360, W + 20, 10); c.fillStyle = DARK; c.fillRect(-10, 368, W + 20, 3);
+    // 窗户（随拍弹跳）
+    bouncy(290, 330, 0, 1, () => {
+      c.fillStyle = WHITE; rrect(c, -110, -230, 220, 220, 8); c.fill(); outline(4);
+      c.fillStyle = '#E6DCC2'; c.fillRect(-100, -220, 200, 200);
+      c.strokeStyle = INK; c.lineWidth = 4; c.beginPath(); c.moveTo(0, -220); c.lineTo(0, -20); c.moveTo(-100, -120); c.lineTo(100, -120); c.stroke();
+      // 窗外小云
+      c.fillStyle = WHITE; c.beginPath(); c.arc(-50 + Math.sin(t) * 6, -170, 18, 0, 7); c.arc(-28 + Math.sin(t) * 6, -176, 22, 0, 7); c.arc(-6 + Math.sin(t) * 6, -168, 16, 0, 7); c.fill();
+      // 窗帘
+      [-1, 1].forEach(s => { c.fillStyle = PAPER; c.beginPath(); c.moveTo(s * 118, -240); c.lineTo(s * 40, -240); c.quadraticCurveTo(s * (70 + 12 * hop(.5)), -130, s * 100, -30); c.lineTo(s * 118, -30); c.closePath(); c.fill(); outline(3.5); for (let k = 0; k < 3; k++) { c.beginPath(); c.moveTo(s * (60 + k * 18), -236); c.quadraticCurveTo(s * (86 + k * 10), -130, s * (104 + k * 5), -40); c.lineWidth = 2; c.stroke(); } });
+      c.fillStyle = DARK; c.fillRect(-130, -250, 260, 12); outline(3);
+    });
+    // 挂钟
+    bouncy(1110, 250, .5, 1.2, () => {
+      c.fillStyle = WHITE; c.beginPath(); c.arc(0, -70, 58, 0, 7); c.fill(); outline(5);
+      c.fillStyle = INK; for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; c.beginPath(); c.arc(Math.sin(a) * 46, -70 - Math.cos(a) * 46, k % 3 ? 2.5 : 4.5, 0, 7); c.fill(); }
+      c.lineCap = 'round'; c.lineWidth = 5; c.beginPath(); c.moveTo(0, -70); c.lineTo(Math.sin(t * 2) * 30, -70 - Math.cos(t * 2) * 30); c.stroke();
+      c.lineWidth = 3.5; c.beginPath(); c.moveTo(0, -70); c.lineTo(Math.sin(t * .3 + 1) * 22, -70 - Math.cos(t * .3 + 1) * 22); c.stroke();
+      // 钟摆
+      const sw = Math.sin(Math.PI * ph) * .35; c.save(); c.translate(0, -12); c.rotate(sw); c.fillStyle = MID; c.fillRect(-3, 0, 6, 60); c.beginPath(); c.arc(0, 66, 12, 0, 7); c.fill(); outline(3); c.restore();
+    });
+    // 架子 + 茶壶 + 糖罐
+    c.fillStyle = DARK; c.fillRect(960, 400, 300, 14); c.fillStyle = INK; c.fillRect(960, 412, 300, 3);
+    bouncy(1040, 400, 0, 1, () => { c.fillStyle = WHITE; c.beginPath(); c.ellipse(0, -38, 44, 38, 0, 0, 7); c.fill(); outline(4); c.beginPath(); c.moveTo(40, -44); c.quadraticCurveTo(70, -60, 72, -76); c.lineWidth = 7; c.strokeStyle = INK; c.stroke(); c.beginPath(); c.arc(-44, -40, 16, Math.PI * .5, Math.PI * 1.5); c.lineWidth = 6; c.stroke(); c.fillStyle = MID; c.beginPath(); c.ellipse(0, -76, 18, 7, 0, 0, 7); c.fill(); outline(3); c.fillStyle = INK; c.beginPath(); c.arc(0, -86, 6, 0, 7); c.fill(); });
+    bouncy(1185, 400, .5, 1, () => { c.fillStyle = PAPER; rrect(c, -30, -70, 60, 70, 10); c.fill(); outline(4); c.fillStyle = MID; rrect(c, -34, -82, 68, 16, 6); c.fill(); outline(3.5); c.fillStyle = INK; c.font = `26px ${DECO}`; c.textAlign = 'center'; c.fillText('糖', 0, -24); c.textAlign = 'left'; });
+    // ---------- 台面 ----------
+    c.fillStyle = DARK; c.fillRect(-10, CT, W + 20, H - CT + 10);
+    c.fillStyle = MID; c.fillRect(-10, CT, W + 20, 16); c.fillStyle = INK; c.fillRect(-10, CT + 16, W + 20, 4);
+    c.strokeStyle = 'rgba(22,18,13,.35)'; c.lineWidth = 2; for (let k = 0; k < 6; k++) { c.beginPath(); c.moveTo(-10, 590 + k * 24); for (let x = 0; x < W + 20; x += 40) c.lineTo(x, 590 + k * 24 + Math.sin(x * .02 + k * 2) * 4); c.stroke(); }
+    // 花盆（随拍摇）
+    bouncy(1190, CT, .25, 1, () => { c.fillStyle = MID; c.beginPath(); c.moveTo(-32, -60); c.lineTo(32, -60); c.lineTo(24, 0); c.lineTo(-24, 0); c.closePath(); c.fill(); outline(4); const sw = Math.sin(Math.PI * ph) * .25; c.save(); c.translate(0, -60); c.rotate(sw); c.strokeStyle = INK; c.lineWidth = 5; c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(10, -40, 0, -80); c.stroke(); for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2 + t; c.fillStyle = WHITE; c.beginPath(); c.ellipse(Math.cos(a) * 18, -80 + Math.sin(a) * 18, 12, 8, a, 0, 7); c.fill(); outline(3); } c.fillStyle = INK; c.beginPath(); c.arc(0, -80, 9, 0, 7); c.fill(); c.restore(); });
+    // 黄油盒
+    const lidUp = t > LID ? Math.min(1, (t - LID) / .25) * (t < 8.5 ? 1 : 1 - Math.min(1, (t - 8.5) / .25)) : 0;
+    bouncy(1030, CT, .5, 1, () => {
+      c.fillStyle = WHITE; c.beginPath(); c.ellipse(0, -8, 78, 14, 0, 0, 7); c.fill(); outline(4);
+      c.save(); c.translate(0, -18 - lidUp * 70); c.rotate(lidUp * .5);
+      c.fillStyle = PAPER; c.beginPath(); c.moveTo(-62, 0); c.bezierCurveTo(-60, -60, 60, -60, 62, 0); c.closePath(); c.fill(); outline(4);
+      c.fillStyle = INK; c.beginPath(); c.arc(0, -46, 8, 0, 7); c.fill(); c.restore();
+    });
+    // ---------- 吐司（在面包机里时先画）----------
+    const T = toastState();
+    if (T.inSlot) { c.save(); c.beginPath(); c.rect(0, 0, W, CT - 30); c.clip(); drawToast(T); c.restore(); }
+    // ---------- 烤面包机 ----------
+    const rattle = t > RATTLE[0] && t < POP ? (hash(Math.floor(t * 12)) - .5) * 8 : 0;
+    bouncy(TX + rattle, CT, 0, t < POP ? 1.3 : 1, () => {
+      c.scale(1.2, 1.2);
+      // 机身
+      const g = c.createLinearGradient(-120, 0, 120, 0); g.addColorStop(0, '#8F8672'); g.addColorStop(.3, '#EEE8D8'); g.addColorStop(.55, '#B6AC95'); g.addColorStop(1, '#6E6552');
+      c.fillStyle = g; c.beginPath(); c.moveTo(-120, -8); c.lineTo(-120, -110); c.quadraticCurveTo(-120, -150, -80, -150); c.lineTo(80, -150); c.quadraticCurveTo(120, -150, 120, -110); c.lineTo(120, -8); c.closePath(); c.fill(); outline(5);
+      c.fillStyle = 'rgba(255,255,255,.7)'; c.fillRect(-78, -136, 14, 110);
+      c.fillStyle = INK; rrect(c, -80, -156, 160, 12, 6); c.fill();   // 面包槽
+      // 底座 + 脚
+      c.fillStyle = DARK; rrect(c, -128, -18, 256, 18, 6); c.fill(); outline(4);
+      // 拉杆
+      const lever = t < POP ? 60 : 0; c.fillStyle = INK; c.fillRect(120, -120, 8, 90); c.fillStyle = WHITE; rrect(c, 124, -120 + lever, 30, 16, 6); c.fill(); outline(3);
+      // 旋钮（小表情脸：两个点）
+      c.fillStyle = WHITE; c.beginPath(); c.arc(-70, -46, 14, 0, 7); c.fill(); outline(3); c.save(); c.translate(-70, -46); c.rotate(t * 3); c.fillStyle = INK; c.fillRect(-2, -12, 4, 10); c.restore();
+      // 冒气
+      if (t > RATTLE[0] && t < POP + .5) for (let k = 0; k < 3; k++) { const q = ((t - RATTLE[0]) * 1.2 + k / 3) % 1; c.save(); c.globalAlpha = 1 - q; c.fillStyle = WHITE; c.beginPath(); c.arc(-30 + k * 30 + Math.sin(q * 6 + k) * 10, -160 - q * 90, 10 + q * 14, 0, 7); c.fill(); outline(2.5); c.restore(); }
+    }, true);
+    if (!T.inSlot) drawToast(T);
+    // “叮！”
+    if (t > POP && t < POP + .7) { const k = back(prog(t, POP, POP + .25)); c.save(); c.translate(180, 420); c.rotate(-.2); c.scale(k, k); burst(0, 0, 95, 62, WHITE); c.font = `60px ${DECO}`; c.fillStyle = INK; c.textAlign = 'center'; c.fillText('叮！', 6, 20); c.restore(); }
+    // 黄油刀飞行
+    if (t > KNIFE[0] - .25 && t < KNIFE[1]) { const u = prog(t, KNIFE[0] - .25, KNIFE[1]); const x = lerp(1030, T.hand[0], u), y = lerp(CT - 60, T.hand[1], u) - Math.sin(Math.PI * u) * 170; knife(x, y, u * Math.PI * 4, 1); }
+    // 终场闪星
+    if (t > TADA) for (let k = 0; k < 6; k++) { const q = ((t - TADA) * 1.3 + k / 6) % 1, a = k / 6 * Math.PI * 2 + 1; c.save(); c.globalAlpha = Math.sin(Math.PI * q); star(HX + Math.cos(a) * (170 + q * 40), HY - 20 + Math.sin(a) * (170 + q * 30), 22 * Math.sin(Math.PI * q) + 4, 8, WHITE); c.restore(); }
+    c.restore();   // gate weave
+    // ---------- 光圈（iris）----------
+    let iris = null;
+    if (tRaw < IRIS_IN[1]) iris = [640, 360, lerp(0, 820, easeOut(prog(tRaw, ...IRIS_IN)))];
+    if (tRaw > IRIS_OUT[0]) iris = [HX, HY, lerp(820, 0, easeIn(prog(tRaw, ...IRIS_OUT)))];
+    if (iris) { c.fillStyle = '#0B0906'; c.beginPath(); c.rect(0, 0, W, H); c.arc(iris[0], iris[1], Math.max(0, iris[2]), 0, Math.PI * 2, true); c.fill('evenodd'); }
+    if (tRaw > FIN) { c.fillStyle = '#0B0906'; c.fillRect(0, 0, W, H); const k = easeOut(prog(tRaw, FIN, FIN + .25)); c.save(); c.globalAlpha = k; c.fillStyle = PAPER; c.font = `900 110px ${SERIF}`; c.textAlign = 'center'; c.fillText('完', 640, 398); c.strokeStyle = PAPER; c.lineWidth = 3; c.beginPath(); c.ellipse(640, 360, 120, 100, 0, 0, 7); c.stroke(); c.lineWidth = 1.5; c.beginPath(); c.ellipse(640, 360, 132, 112, 0, 0, 7); c.stroke(); c.restore(); }
+    film();
+    const fo = prog(tRaw, FADE, 15); if (fo > 0) { c.fillStyle = `rgba(0,0,0,${fo})`; c.fillRect(0, 0, W, H); }
+
+    // ================= 工具 =================
+    function outline(w) { c.strokeStyle = INK; c.lineWidth = w; c.lineJoin = 'round'; c.lineCap = 'round'; c.stroke(); }
+    // 所有物件都踩拍子：离开拍点时拉长上弹，拍点时压扁
+    function bouncy(x, y, o, amp, fn, noSquash) {
+      const up = hop(o) * 10 * amp, sq = squash(o) * .06 * amp;
+      c.save(); c.translate(x, y - up); c.scale(1 + sq, 1 - sq); fn(); c.restore();
+    }
+    function burst(x, y, R, r, col) { c.beginPath(); for (let k = 0; k < 24; k++) { const a = k / 24 * Math.PI * 2, rr = k % 2 ? r : R * (.85 + .15 * hash(k)); c.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr * .8); } c.closePath(); c.fillStyle = col; c.fill(); outline(4); }
+    function star(x, y, R, r, col) { c.beginPath(); for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2 - Math.PI / 2, rr = k % 2 ? r : R; c.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } c.closePath(); c.fillStyle = col; c.fill(); outline(3); }
+    function knife(x, y, rot, butter) {
+      c.save(); c.translate(x, y); c.rotate(rot);
+      c.fillStyle = DARK; rrect(c, -8, -8, 50, 16, 8); c.fill(); outline(3);
+      c.fillStyle = '#E8E2D2'; c.beginPath(); c.moveTo(-8, -7); c.lineTo(-78, -7); c.quadraticCurveTo(-96, 0, -78, 7); c.lineTo(-8, 7); c.closePath(); c.fill(); outline(3);
+      if (butter) { c.fillStyle = '#FFF6D6'; rrect(c, -80, -20, 40 * butter, 16, 4); c.fill(); outline(2.5); }
+      c.restore();
+    }
+    // 白手套：四根手指 + 手掌 + 喇叭口袖口 + 手背三道线
+    function glove(x, y, ang, spread = 1) {
+      c.save(); c.translate(x, y); c.rotate(ang);
+      c.fillStyle = WHITE;
+      for (let k = 0; k < 4; k++) { const a = (-.5 + k * .33) * spread; c.save(); c.rotate(a); c.beginPath(); c.ellipse(20, 0, 12, 6.5, 0, 0, 7); c.fill(); outline(3); c.restore(); }
+      c.beginPath(); c.ellipse(-2, 12 * spread, 7, 10, -.6, 0, 7); c.fill(); outline(3);          // 拇指
+      c.beginPath(); c.arc(4, 0, 15, 0, 7); c.fill(); outline(3);
+      c.strokeStyle = INK; c.lineWidth = 2; [-5, 0, 5].forEach(d => { c.beginPath(); c.moveTo(-2, d); c.lineTo(10, d * 1.3); c.stroke(); });
+      c.beginPath(); c.moveTo(-10, -16); c.lineTo(-22, -20); c.lineTo(-22, 20); c.lineTo(-10, 16); c.closePath(); c.fillStyle = WHITE; c.fill(); outline(3);
+      c.restore();
+    }
+    // 橡皮管：没有关节，一条平滑的弧
+    function hose(x0, y0, x1, y1, bend) {
+      const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1;
+      c.beginPath(); c.moveTo(x0, y0); c.quadraticCurveTo(mx - dy / L * bend, my + dx / L * bend, x1, y1);
+      c.strokeStyle = INK; c.lineWidth = 9; c.lineCap = 'round'; c.stroke();
+    }
+    function shoe(x, y, dir) { c.fillStyle = INK; c.beginPath(); c.ellipse(x + dir * 12, y - 10, 30, 15, 0, 0, 7); c.fill(); c.fillStyle = 'rgba(251,247,236,.8)'; c.beginPath(); c.ellipse(x + dir * 20, y - 16, 9, 4, -.3 * dir, 0, 7); c.fill(); }
+    // ================= 吐司角色 =================
+    function toastState() {
+      const S = { x: TX, y: 0, rot: 0, inSlot: false, awake: t >= WAKE, hand: [0, 0] };
+      let feet;
+      if (t < POP) { S.inSlot = true; const r = t > RATTLE[0] ? (hash(Math.floor(t * 12) + 3) - .5) * 6 : 0; S.x = TX + r; S.cy = CT - 100 + r; S.air = 1; }
+      else if (t < LAND) { const u = (t - POP) / (LAND - POP); S.x = lerp(TX, HX, u); S.cy = lerp(CT - 100, HY, u) - 560 * u * (1 - u) * 1.3; S.rot = u * Math.PI * 2; S.air = 1; }
+      else if (t > JUMP[0] && t < JUMP[1]) { const u = (t - JUMP[0]) / (JUMP[1] - JUMP[0]); S.x = HX; S.cy = HY - 300 * u * (1 - u) * 4 * .5; S.rot = -ease(u) * Math.PI * 2; S.air = 1; }
+      else { S.x = HX; S.cy = HY - (t > DANCE[0] && t < JUMP[0] ? hop() * 22 : hop() * 8); S.air = 0; }
+      S.sq = S.air ? 0 : squash() * (t > DANCE[0] ? .1 : .05);
+      if (t >= LAND && t < LAND + .25) S.sq = .22 * (1 - (t - LAND) / .25);
+      if (t >= TADA && t < TADA + .25) S.sq = .22 * (1 - (t - TADA) / .25);
+      // 右手位置（接刀、抹黄油）
+      const dx = S.x, dy = S.cy;
+      if (t >= KNIFE[0] && t < KNIFE[1]) S.hand = [dx + 150 * TS, dy - 20 * TS];
+      else S.hand = [dx + 150 * TS, dy - 20 * TS];
+      return S;
+    }
+    function drawToast(S) {
+      const cx = S.x, cy = S.cy;
+      const buttered = t < SPREAD[0] ? 0 : Math.min(1, (SPREAD.filter(s => t >= s).length - 1 + clamp((t - SPREAD[SPREAD.filter(s => t >= s).length - 1]) / .4, 0, 1)) / 5);
+      c.save(); c.translate(cx, cy); c.rotate(S.rot); c.scale(TS, TS);
+      const hasLimbs = !S.inSlot;
+      // ---- 腿 ----
+      if (hasLimbs) {
+        let L = [-50, 85 + 60], R = [50, 85 + 60], bl = 16, br = -16;
+        if (S.air) { L = [-60, 130]; R = [60, 130]; bl = 30; br = -30; }
+        else if (t > DANCE[0] && t < JUMP[0]) { const k = Math.sin(Math.PI * ph); L = [-40 - 40 * Math.max(0, k), 145 - 50 * Math.max(0, k)]; R = [40 + 40 * Math.max(0, -k), 145 - 50 * Math.max(0, -k)]; bl = 26 * k; br = 26 * k; }
+        else if (t >= TADA) { L = [-58, 145]; R = [84, 112]; br = -30; }
+        hose(-30, 80, L[0], L[1], bl); hose(30, 80, R[0], R[1], br);
+        shoe(L[0], L[1] + 2, -1); shoe(R[0], R[1] + 2, 1);
+      }
+      // ---- 身体（压扁拉长）----
+      c.save(); c.scale(1 + S.sq, 1 - S.sq); c.translate(0, S.sq * 80);
+      const body = () => { c.beginPath(); rrect(c, -64, -40, 128, 126, 16); c.moveTo(-26 + 42, -52); c.arc(-26, -52, 42, 0, Math.PI * 2); c.moveTo(26 + 42, -52); c.arc(26, -52, 42, 0, Math.PI * 2); c.moveTo(48, -30); c.arc(0, -64, 48, 0, Math.PI * 2); };
+      c.save(); body(); c.lineWidth = 14; c.strokeStyle = INK; c.stroke(); c.fillStyle = '#8C6F48'; c.fill(); c.restore();
+      c.save(); c.scale(.84, .84); c.translate(0, 4); body(); c.fillStyle = '#E4D2A8'; c.fill(); c.restore();
+      c.fillStyle = 'rgba(94,81,64,.35)'; HOLES.forEach(([x, y, r]) => { c.beginPath(); c.ellipse(x, y, r, r * .7, 0, 0, 7); c.fill(); });
+      // 黄油：抹一下多一片
+      if (buttered > 0) {
+        c.save(); c.scale(.84, .84); c.translate(0, 4); body(); c.clip();
+        c.fillStyle = '#FFF6D6'; c.beginPath(); c.moveTo(-100, -130); c.lineTo(100, -130); c.lineTo(100, -60 + 40 * buttered);
+        for (let k = 8; k >= 0; k--) { const x = -100 + k * 25; c.quadraticCurveTo(x + 12, -60 + 40 * buttered + (k % 2 ? 24 : 6) * buttered, x, -60 + 40 * buttered); }
+        c.closePath(); c.fill(); c.strokeStyle = 'rgba(22,18,13,.6)'; c.lineWidth = 3; c.stroke();
+        c.fillStyle = 'rgba(255,255,255,.95)'; c.beginPath(); c.ellipse(-30, -96, 20 * buttered, 6 * buttered, -.3, 0, 7); c.fill();
+        c.restore();
+      }
+      // ---- 脸 ----
+      if (S.awake && !S.inSlot) {
+        const look = t > KNIFE[0] - .5 && t < KNIFE[1] ? 5 : t > SPREAD[0] && t < JUMP[0] ? -4 : 0;
+        const wink = t > WINK && t < WINK + .4;
+        [-24, 24].forEach((ex, i) => {
+          c.fillStyle = WHITE; c.beginPath(); c.ellipse(ex, -2, 17, 26, 0, 0, 7); c.fill(); outline(3.5);
+          if (wink && i === 1) { c.strokeStyle = INK; c.lineWidth = 5; c.beginPath(); c.arc(ex, 4, 12, Math.PI * 1.1, Math.PI * 1.9); c.stroke(); return; }
+          // 饼切眼（pie-cut）：黑椭圆缺一角
+          const px = ex + 4 + look, py = 4 + (look < 0 ? -6 : 0);
+          c.fillStyle = INK; c.beginPath(); c.ellipse(px, py, 9, 16, 0, 0, 7); c.fill();
+          c.fillStyle = WHITE; c.beginPath(); c.moveTo(px + 1, py - 3); c.arc(px, py, 17, -1.25, -.75); c.closePath(); c.fill();
+        });
+        c.fillStyle = INK; c.beginPath(); c.ellipse(0, 24, 7, 5, 0, 0, 7); c.fill();
+        // 大笑嘴
+        const open = t > DANCE[0] ? .7 + .3 * hop() : .6;
+        c.beginPath(); c.moveTo(-34, 34); c.quadraticCurveTo(0, 34 + 44 * open, 34, 34); c.quadraticCurveTo(0, 42, -34, 34); c.fillStyle = INK; c.fill();
+        c.save(); c.clip(); c.fillStyle = '#A8977A'; c.beginPath(); c.ellipse(4, 34 + 36 * open, 16, 12, 0, 0, 7); c.fill(); c.restore();
+        c.strokeStyle = INK; c.lineWidth = 3; [-1, 1].forEach(s => { c.beginPath(); c.arc(s * 38, 34, 6, s > 0 ? Math.PI * .9 : -Math.PI * .1, s > 0 ? Math.PI * 1.6 : Math.PI * .6); c.stroke(); });
+        // 眉毛
+        c.lineWidth = 4; [-24, 24].forEach(ex => { c.beginPath(); c.moveTo(ex - 12, -38 - (t > TADA ? 6 : 0)); c.quadraticCurveTo(ex, -46 - (t > TADA ? 6 : 0), ex + 12, -38 - (t > TADA ? 6 : 0)); c.stroke(); });
+      } else if (!S.inSlot || true) {
+        // 睡着：闭眼
+        c.strokeStyle = INK; c.lineWidth = 4; [-24, 24].forEach(ex => { c.beginPath(); c.arc(ex, -4, 10, .2, Math.PI - .2); c.stroke(); });
+      }
+      c.restore();
+      // ---- 手臂 ----
+      if (hasLimbs) {
+        let Lh = [-110, 70], Rh = [110, 70], bL = -20, bR = 20, aL = Math.PI - .3, aR = .3;
+        if (S.air) { Lh = [-100, -50]; Rh = [100, -50]; aL = -Math.PI * .7; aR = -Math.PI * .3; bL = 30; bR = -30; }
+        else if (t < WAVE[1]) { if (t > WAVE[0]) { Rh = [105, -60 + Math.sin(t * 30) * 12]; aR = -1.2; bR = -30; } }
+        else if (t < KNIFE[0]) { const k = Math.sin(Math.PI * ph); Lh = [-120, 10 - 50 * k]; Rh = [120, 10 + 50 * k]; aL = Math.PI + .4 * k; aR = -.4 * k; bL = 30 * k; bR = 30 * k; }
+        else if (t < SPREAD[0]) { const k = Math.sin(Math.PI * ph); Lh = [-120, 10 - 50 * k]; aL = Math.PI + .4 * k; Rh = [150, -20]; aR = 0; bR = 10; }
+        else if (t < JUMP[0]) { const s = (t - SPREAD[0]) / BEAT, k = Math.sin(Math.PI * s); Lh = [-80, 60]; aL = Math.PI * .6; bL = -40; Rh = [-20 + 70 * (s % 2 < 1 ? ease(s % 1) : 1 - ease(s % 1)), -150]; aR = -.4; bR = 70; }
+        else { Lh = [-130, -80]; Rh = [130, -80]; aL = -Math.PI * .8; aR = -Math.PI * .2; bL = 20; bR = -20; }
+        hose(-62, 20, Lh[0], Lh[1], bL); hose(62, 20, Rh[0], Rh[1], bR);
+        glove(Lh[0], Lh[1], aL); glove(Rh[0], Rh[1], aR);
+        if (t >= KNIFE[1] && t < JUMP[0] + .3) knife(Rh[0] + 6, Rh[1] - 4, aR + Math.PI + (t > SPREAD[0] ? .3 : 0), Math.max(0, 1 - buttered));
+      }
+      c.restore();
+    }
+    // ================= 胶片质感 =================
+    function film() {
+      // 统一棕褐色调
+      c.save(); c.globalCompositeOperation = 'color'; c.fillStyle = 'rgba(150,118,72,.55)'; c.fillRect(0, 0, W, H); c.restore();
+      // 闪烁
+      const fl = hash(f24 * 3.1); c.fillStyle = fl > .5 ? `rgba(255,248,230,${(fl - .5) * .12})` : `rgba(20,14,8,${(.5 - fl) * .14})`; c.fillRect(0, 0, W, H);
+      // 划痕：竖线，有的会持续几帧
+      for (let k = 0; k < 3; k++) {
+        const seg = Math.floor(f24 / (k + 2)), on = hash(seg * 5.3 + k) > .55; if (!on) continue;
+        const x = hash(seg * 1.7 + k * 11) * W + Math.sin(f24 * .7 + k) * 3;
+        c.strokeStyle = hash(seg + k) > .4 ? 'rgba(250,244,228,.55)' : 'rgba(20,14,8,.5)'; c.lineWidth = .8 + hash(seg * 2 + k) * 1.4;
+        c.beginPath(); c.moveTo(x, hash(seg + 3) * 200 - 100); c.lineTo(x + (hash(seg + 9) - .5) * 10, H); c.stroke();
+      }
+      // 灰尘和毛发
+      for (let k = 0; k < 6; k++) {
+        if (hash(f24 * 9.1 + k) > .45) continue;
+        const x = hash(f24 * 3.3 + k * 7) * W, y = hash(f24 * 5.9 + k * 3) * H, r = 1 + hash(f24 + k * 13) * 3;
+        c.fillStyle = hash(k + f24 * 2) > .3 ? 'rgba(20,14,8,.7)' : 'rgba(250,244,228,.7)';
+        if (k === 0 && hash(f24 * 1.3) > .6) { c.strokeStyle = 'rgba(20,14,8,.6)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.bezierCurveTo(x + 20, y - 15, x + 30, y + 20, x + 50, y + 5); c.stroke(); }
+        else { c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); }
+      }
+      F.grain(c, tRaw, .1);
+      F.vignette(c, .7, '20,14,8');
+    }
+    function titleCard() {
+      c.fillStyle = '#0B0906'; c.fillRect(0, 0, W, H);
+      const k = easeOut(prog(tRaw, 0, .3)) * (1 - prog(tRaw, .85, 1));
+      c.save(); c.globalAlpha = k; c.translate((hash(f24) - .5) * 3, (hash(f24 + 7) - .5) * 4);
+      c.fillStyle = PAPER; rrect(c, 140, 80, 1000, 560, 30); c.fill();
+      c.strokeStyle = INK; c.lineWidth = 6; rrect(c, 170, 110, 940, 500, 20); c.stroke(); c.lineWidth = 2; rrect(c, 184, 124, 912, 472, 14); c.stroke();
+      [[200, 140], [1080, 140], [200, 580], [1080, 580]].forEach(([x, y]) => star(x, y, 18, 7, INK));
+      c.fillStyle = INK; c.textAlign = 'center'; c.font = `40px ${EN}`; c.fillText('~ TOAST ~', 640, 240);
+      c.font = `150px ${DECO}`; c.fillText('黄油吐司舞', 640, 410);
+      c.font = `900 30px ${SERIF}`; c.fillText('一出原创小卡通', 640, 500);
+      c.restore();
+    }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    // 拉格泰姆：C – A7 – D7 – G7，左手“嘭-恰”跨步，右手切分旋律
+    const CH = [[60, 64, 67], [61, 64, 67, 69], [62, 66, 69, 72], [59, 62, 65, 67]], RT = [36, 33, 38, 31];
+    for (let b = 0; b < 8; b++) {
+      const t0 = b * bar, ch = CH[b % 4], r = RT[b % 4];
+      S.at(t0, I.piano, r, .9, .5); S.at(t0 + beat, (w, B) => ch.forEach(m => I.piano(w, B, m, .5, .3)));
+      S.at(t0 + 2 * beat, I.piano, r + 7, .8, .5); S.at(t0 + 3 * beat, (w, B) => ch.forEach(m => I.piano(w, B, m, .5, .3)));
+      if (b >= 1) { S.at(t0 + beat, I.snare, .35); S.at(t0 + 3 * beat, I.snare, .35); for (let e = 0; e < 4; e++) S.at(t0 + e * beat + beat * .66, I.hat, .5); }
+    }
+    // 片头：钢琴上行琶音 + 圆号（铜管低音区）
+    [60, 64, 67, 72, 76, 79, 84].forEach((m, i) => S.at(i * .07, I.piano, m, .7, .8));
+    S.at(0, I.brass, 55, 1.2, .9); S.at(0, I.brass, 60, 1.2, .9);
+    // 旋律（八分音符，切分）
+    const MEL = [[76, 79, 0, 76, 72, 0, 74, 76], [76, 79, 81, 0, 79, 76, 73, 0], [78, 81, 0, 78, 74, 0, 76, 78], [79, 77, 74, 71, 67, 0, 0, 0]];
+    for (let b = 1; b < 7; b++) MEL[(b - 1) % 4].forEach((m, i) => { if (m) { S.at(b * bar + i * beat / 2, I.piano, m + 12, .5, .3); if (b >= 2) S.at(b * bar + i * beat / 2, I.brass, m - 12, .8, .22); } });
+    // 钢琴八度大跳
+    [5.0, 7.0, 9.0].forEach(x => { S.at(x, I.piano, 48, 1.1, .4); S.at(x + beat / 2, I.piano, 72, .8, .3); });
+    // 烤面包机抖动 + 叮
+    for (let x = RATTLE[0]; x < POP; x += BEAT) { S.at(x, I.rim, 1); S.at(x + .08, I.rim, .7); S.at(x, I.tom, 50, .5); }
+    S.at(POP, I.ding); S.at(POP, I.bell, 84, 1);
+    // 滑哨：自己搭振荡器（上滑 / 下滑）
+    const slide = (w, B, f0, f1, d) => {
+      const ctx = B.sfx.context, o = ctx.createOscillator(), g = ctx.createGain(), v = ctx.createOscillator(), vg = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(f0, w); o.frequency.exponentialRampToValueAtTime(f1, w + d);
+      v.frequency.value = 7; vg.gain.value = f0 * .02; v.connect(vg); vg.connect(o.frequency);
+      g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.16, w + .04); g.gain.setValueAtTime(.16, w + d - .05); g.gain.exponentialRampToValueAtTime(.0001, w + d);
+      o.connect(g); g.connect(B.sfx); o.start(w); v.start(w); o.stop(w + d + .05); v.stop(w + d + .05);
+    };
+    S.at(POP + .02, slide, 400, 1600, .45); S.at(POP + .5, slide, 1500, 350, .5);
+    S.at(LAND, I.boing); S.at(LAND, I.thud, .8);
+    S.at(WAKE + .1, I.pop2); S.at(WAVE[0], I.whip);
+    // 跳舞：每拍一个木鱼脚步
+    for (let x = DANCE[0]; x < JUMP[0]; x += BEAT) S.at(x, I.rim, .6);
+    S.at(LID, I.pop); S.at(KNIFE[0] - .25, I.swish); S.at(KNIFE[1], I.boing);
+    SPREAD.forEach((x, i) => { S.at(x, I.squash); S.at(x + .05, I.paper); });
+    S.at(JUMP[0], slide, 300, 1400, .5); S.at(JUMP[0] + .5, slide, 1400, 500, .45);
+    S.at(TADA, I.thud); S.at(TADA, I.chime); S.at(TADA, (w, B) => [48, 60, 64, 67, 72].forEach(m => I.brass(w, B, m, .9, 1.2)));
+    S.at(WINK, I.pop2);
+    S.at(IRIS_OUT[0], slide, 900, 250, .7);
+    S.at(FIN, (w, B) => { [36, 48].forEach(m => I.piano(w, B, m, 1, 1.5)); [60, 64, 67, 72].forEach(m => I.piano(w, B, m, .7, 1.5)); });
+  }
+});
+</script></body></html>

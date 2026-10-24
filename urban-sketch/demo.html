@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>钢笔淡彩 · 巷口早点</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 钢笔淡彩：先用钢笔一根根画出一点透视的巷口（线头出头、角上交叉、阴影排线），
+   再把整张淡彩预先画好缓存起来，但只在“热气走过的地方”露出来——色层用一张遮罩 destination-in，
+   遮罩 = 热气路径上一串不规则的圆，热气经过后才慢慢张开。 */
+const BPM = 84, BEAT = 60 / BPM;                                   // 0.714 s
+const T = { lines: [.3, 7 * BEAT], steam: 7 * BEAT, travel: [8 * BEAT, 15.5 * BEAT], bloom: [15 * BEAT, 17 * BEAT], note: [17 * BEAT, 18.2 * BEAT], fade: 14.4 };
+const PEN = '#2A2521', VP = [640, 300];
+const FONT = '"Zhi Mang Xing", "Kaiti SC", "STKaiti", cursive';
+
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const R = rng(5);
+const lerp = (a, b, u) => a + (b - a) * u, lp = (p, q, u) => [lerp(p[0], q[0], u), lerp(p[1], q[1], u)];
+const pz = z => (1 - 1 / (1 + 2.5 * z)) / (1 - 1 / 3.5);          // 纵深：越远越挤
+const LW = (z, h) => { const d = pz(z), x = lerp(0, 520, d), yb = lerp(700, 380, d), yt = lerp(60, 250, d); return [x, lerp(yb, yt, h)]; };      // 左墙
+const RW = (z, h) => { const d = pz(z), x = lerp(1280, 760, d), yb = lerp(700, 380, d), yt = lerp(40, 250, d); return [x, lerp(yb, yt, h)]; };    // 右墙
+const ell = (cx, cy, rx, ry, a0 = 0, a1 = Math.PI * 2, n = 28) => Array.from({ length: n + 1 }, (_, i) => { const a = a0 + (a1 - a0) * i / n; return [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]; });
+
+/* ---------- 线稿：每根线 = 点列 + 开始时间 + 时长；直线两头出头 ---------- */
+const LINES = [];
+let clock = T.lines[0];
+function ln(pts, dur = .12, { over = 8, w = 1.7, gap = .02, jit = 1.1 } = {}) {
+  let P = pts.map(p => [p[0] + (R() - .5) * jit, p[1] + (R() - .5) * jit]);
+  if (P.length === 2 && over) { const [a, b] = P, d = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, ux = (b[0] - a[0]) / d, uy = (b[1] - a[1]) / d, o1 = over * (.4 + R()), o2 = over * (.4 + R());
+    P = [[a[0] - ux * o1, a[1] - uy * o1], [lerp(a[0], b[0], .5) + (R() - .5) * 1.5, lerp(a[1], b[1], .5) + (R() - .5) * 1.5], [b[0] + ux * o2, b[1] + uy * o2]]; }
+  LINES.push({ P, t0: clock, dur, w: w * (.85 + R() * .3) }); clock += dur * .55 + gap;
+}
+const box = (a, b, c, d, dur = .1, o) => { ln([a, b], dur, o); ln([b, c], dur, o); ln([c, d], dur, o); ln([d, a], dur, o); };
+function hatch(poly, ang, gap, dur = .25, w = 1) {           // 在多边形里排平行线（只保留落在多边形里的那一截）
+  const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]), cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2, rr = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2;
+  const ca = Math.cos(ang), sa = Math.sin(ang), start = clock;
+  for (let o = -rr; o <= rr; o += gap) {
+    const a = [cx - ca * rr - sa * o, cy - sa * rr + ca * o], b = [cx + ca * rr - sa * o, cy + sa * rr + ca * o], hits = [];
+    for (let i = 0; i < poly.length; i++) { const p = poly[i], q = poly[(i + 1) % poly.length], den = (b[0] - a[0]) * (q[1] - p[1]) - (b[1] - a[1]) * (q[0] - p[0]); if (Math.abs(den) < 1e-6) continue;
+      const u = ((p[0] - a[0]) * (q[1] - p[1]) - (p[1] - a[1]) * (q[0] - p[0])) / den, v = ((p[0] - a[0]) * (b[1] - a[1]) - (p[1] - a[1]) * (b[0] - a[0])) / den; if (v >= 0 && v <= 1) hits.push(u); }
+    hits.sort((x, y) => x - y); if (hits.length < 2) continue;
+    const u0 = hits[0] + .02, u1 = hits[hits.length - 1] - .02 * R();
+    LINES.push({ P: [lp(a, b, u0), lp(a, b, u1)], t0: start + (o + rr) / (2 * rr) * dur, dur: .08, w: w * (.8 + R() * .4) });
+  }
+  clock = start + dur * .7;
+}
+// 1. 透视骨架
+ln([[0, 60], LW(1, 1)], .22, { over: 0 }); ln([[0, 700], LW(1, 0)], .22, { over: 0 }); ln([[1280, 40], RW(1, 1)], .22, { over: 0 }); ln([[1280, 700], RW(1, 0)], .22, { over: 0 });
+ln([LW(1, 1), LW(1, 0)], .1); ln([RW(1, 1), RW(1, 0)], .1); ln([LW(1, 0), RW(1, 0)], .1); ln([LW(1, 1), RW(1, 1)], .1);
+[.18, .5].forEach(z => { ln([LW(z, 1.02), LW(z, 0)], .12); ln([RW(z, 1.02), RW(z, 0)], .12); });
+ln([LW(0, .66), LW(1, .66)], .16, { w: 1.2 }); ln([RW(0, .7), RW(1, .7)], .16, { w: 1.2 });
+// 远处：门洞、窗、屋檐
+box([575, 380], [575, 318], [625, 318], [625, 380], .08); box([660, 300], [660, 270], [712, 270], [712, 300], .07); ln([[505, 250], [640, 222], [775, 250]], .16, { over: 6 });
+// 2. 摊子：雨棚、柱子、台面
+ln([[318, 330], [716, 330]], .16); ln([[380, 292], [684, 292]], .12); ln([[318, 330], [380, 292]], .08); ln([[716, 330], [684, 292]], .08);
+LINES.push({ P: Array.from({ length: 8 }, (_, k) => ell(318 + k * 49.75 + 24.9, 330, 24.9, 16, Math.PI, 0, 8)).flat(), t0: clock, dur: .45, w: 1.5 }); clock += .3;   // 雨棚的波浪边
+for (let k = 1; k < 8; k++) ln([[318 + k * 49.75, 330], [380 + k * 38, 292]], .05, { over: 3, w: 1.2 });
+ln([[345, 346], [345, 470]], .1); ln([[690, 346], [690, 470]], .1);
+box([330, 470], [700, 470], [700, 612], [330, 612], .14); ln([[330, 470], [367, 450]], .06); ln([[367, 450], [693, 450]], .12); ln([[700, 470], [693, 450]], .05);
+for (let k = 1; k < 10; k++) ln([[330 + k * 37, 474], [330 + k * 37, 610]], .04, { over: 2, w: 1.1 });
+box([520, 505], [596, 505], [596, 568], [520, 568], .06, { w: 1.3 });
+[515, 527, 539, 551].forEach(y => ln([[528, y], [528 + 40 + R() * 16, y]], .03, { over: 0, w: 1 }));
+// 3. 蒸笼、锅
+for (let k = 0; k < 3; k++) { const yb = 452 - k * 26; LINES.push({ P: ell(600, yb, 62, 13, 0, Math.PI, 16), t0: clock, dur: .1, w: 1.7 }); clock += .06; ln([[538, yb], [538, yb - 26]], .04, { over: 2 }); ln([[662, yb], [662, yb - 26]], .04, { over: 2 }); }
+LINES.push({ P: ell(600, 374, 62, 13, 0, Math.PI * 2, 24), t0: clock, dur: .12, w: 1.7 }); clock += .08;
+LINES.push({ P: ell(600, 374, 62, 26, Math.PI, Math.PI * 2, 16), t0: clock, dur: .12, w: 1.7 }); clock += .08;
+LINES.push({ P: ell(600, 344, 8, 5, 0, Math.PI * 2, 10), t0: clock, dur: .05, w: 1.7 }); clock += .05;
+ln([[392, 452], [392, 408]], .05); ln([[452, 452], [452, 408]], .05); LINES.push({ P: ell(422, 408, 30, 8), t0: clock, dur: .1, w: 1.7 }); clock += .08;
+LINES.push({ P: ell(422, 452, 30, 7, 0, Math.PI, 12), t0: clock, dur: .06, w: 1.5 }); clock += .05; ln([[430, 406], [470, 360]], .06, { w: 2.2 });
+// 4. 招牌（字后面单独写）、灯笼和电线
+box([404, 232], [596, 232], [596, 288], [404, 288], .1, { w: 1.9 }); ln([[430, 232], [440, 150]], .06, { w: 1 }); ln([[570, 232], [560, 150]], .06, { w: 1 });
+const WIRE = u => { const a = LW(.3, .78), b = RW(.3, .8); return [lerp(a[0], b[0], u), lerp(a[1], b[1], u) + Math.sin(Math.PI * u) * 46]; };
+LINES.push({ P: Array.from({ length: 30 }, (_, i) => WIRE(i / 29)), t0: clock, dur: .35, w: 1.2 }); clock += .2;
+LINES.push({ P: Array.from({ length: 30 }, (_, i) => { const a = LW(.6, .95), b = RW(.55, .92), u = i / 29; return [lerp(a[0], b[0], u), lerp(a[1], b[1], u) + Math.sin(Math.PI * u) * 30]; }), t0: clock, dur: .3, w: 1 }); clock += .15;
+const LANTERNS = [[.28, 44], [.72, 40]].map(([u, r]) => { const [x, y] = WIRE(u); return [x, y + 14 + r, r]; });
+LANTERNS.forEach(([x, y, r]) => { ln([[x, y - r - 14], [x, y - r]], .03, { over: 0 }); LINES.push({ P: ell(x, y, r * .85, r, 0, Math.PI * 2, 24), t0: clock, dur: .12, w: 1.7 }); clock += .07;
+  [-.5, 0, .5].forEach(k => LINES.push({ P: ell(x, y, r * .85 * Math.abs(k), r, -Math.PI / 2, Math.PI / 2, 10).map(p => [k < 0 ? 2 * x - p[0] : p[0], p[1]]), t0: clock, dur: .05, w: 1 })); clock += .05;
+  box([x - 12, y - r - 4], [x + 12, y - r - 4], [x + 12, y - r + 4], [x - 12, y - r + 4], .03); ln([[x, y + r], [x, y + r + 26]], .04, { over: 0 }); });
+// 5. 窗、空调、自行车、盆栽、小凳
+[[.06, .2], [.3, .42]].forEach(([z0, z1]) => [[.45, .6], [.74, .9]].forEach(([h0, h1]) => { box(LW(z0, h0), LW(z1, h0), LW(z1, h1), LW(z0, h1), .05, { w: 1.4 }); ln([lp(LW(z0, h0), LW(z1, h0), .5), lp(LW(z0, h1), LW(z1, h1), .5)], .03, { over: 0, w: 1 }); }));
+[[.05, .18], [.3, .4]].forEach(([z0, z1]) => [[.5, .64], [.76, .9]].forEach(([h0, h1]) => box(RW(z0, h0), RW(z1, h0), RW(z1, h1), RW(z0, h1), .05, { w: 1.4 })));
+box(RW(.22, .52), RW(.27, .52), RW(.27, .6), RW(.22, .6), .04, { w: 1.3 });
+[[902, 612], [1032, 604]].forEach(([x, y]) => { LINES.push({ P: ell(x, y, 50, 48, 0, Math.PI * 2, 30), t0: clock, dur: .1, w: 1.6 }); clock += .06; });
+ln([[902, 612], [950, 548]], .04); ln([[950, 548], [1010, 548]], .04); ln([[1010, 548], [1032, 604]], .04); ln([[950, 548], [966, 604]], .04); ln([[966, 604], [902, 612]], .04); ln([[966, 604], [1010, 548]], .04); ln([[944, 540], [962, 536]], .03, { w: 2.4 }); ln([[1010, 548], [1002, 520], [1020, 514]], .04, { over: 0 });
+box([112, 628], [168, 628], [160, 690], [120, 690], .05); for (let k = 0; k < 7; k++) { const a = -Math.PI / 2 + (k - 3) * .38; LINES.push({ P: [[140, 628], [140 + Math.cos(a) * 30, 628 + Math.sin(a) * 34 - 10], [140 + Math.cos(a) * 52, 628 + Math.sin(a) * 50]], t0: clock, dur: .05, w: 1.3 }); clock += .025; }
+LINES.push({ P: ell(772, 612, 34, 9), t0: clock, dur: .07, w: 1.6 }); clock += .05; ln([[744, 616], [736, 676]], .04); ln([[800, 616], [808, 676]], .04); ln([[772, 621], [772, 680]], .04);
+// 5b. 更多细节：左墙门洞、落水管、砖缝、挑出来的招牌；右墙门帘；筐子、灯泡、包子
+box(LW(.62, 0), LW(.74, 0), LW(.74, .42), LW(.62, .42), .06, { w: 1.5 }); ln([lp(LW(.62, .42), LW(.74, .42), 0), lp(LW(.62, .5), LW(.74, .5), 0)], .02, { over: 0 });
+ln([LW(.26, 1), LW(.26, 0)], .08, { w: 1.2 }); ln([[LW(.26, 1)[0] + 7, LW(.26, 1)[1] + 2], [LW(.26, 0)[0] + 7, LW(.26, 0)[1] - 2]], .08, { w: 1.2 });
+[[.08, .25], [.2, .12], [.48, .3], [.8, .2]].forEach(([z, h]) => { for (let k = 0; k < 4; k++) { const a = LW(z + (k % 2) * .025, h + Math.floor(k / 2) * .035), b = LW(z + .035 + (k % 2) * .025, h + Math.floor(k / 2) * .035); ln([a, b], .02, { over: 1, w: 1 }); } });
+{ const a = LW(.36, .7), b = LW(.36, .52); box(a, [a[0] + 60, a[1] + 8], [b[0] + 60, b[1] + 6], b, .06, { w: 1.5 }); for (let k = 1; k < 4; k++) ln([[a[0] + 14, lerp(a[1], b[1], k / 4) + 3], [a[0] + 44, lerp(a[1], b[1], k / 4) + 5]], .02, { over: 0, w: 1 }); }
+box(RW(.6, 0), RW(.74, 0), RW(.74, .45), RW(.6, .45), .06, { w: 1.5 }); for (let k = 1; k < 5; k++) ln([lp(RW(.6, .45), RW(.74, .45), k / 5), lp(RW(.6, .2), RW(.74, .2), k / 5 + (k % 2 ? .02 : -.02))], .02, { over: 0, w: 1 });
+{ const a = RW(.4, .62), b = RW(.4, .44); box(a, [a[0] - 56, a[1] + 8], [b[0] - 56, b[1] + 6], b, .06, { w: 1.5 }); }
+box([708, 560], [770, 560], [770, 612], [708, 612], .05); ln([[708, 586], [770, 586]], .03, { over: 3, w: 1.1 }); box([716, 520], [762, 520], [762, 560], [716, 560], .04);
+ln([[520, 330], [520, 352]], .03, { over: 0, w: 1 }); LINES.push({ P: ell(520, 360, 8, 9), t0: clock, dur: .04, w: 1.4 }); clock += .03;
+[[478, 444], [496, 440], [488, 432], [506, 446]].forEach(([x, y]) => { LINES.push({ P: ell(x, y, 10, 6, Math.PI, Math.PI * 2.1, 10), t0: clock, dur: .03, w: 1.3 }); clock += .02; });
+LINES.push({ P: ell(640, 660, 46, 11), t0: clock, dur: .08, w: 1.2 }); clock += .05;
+LINES.push({ P: Array.from({ length: 24 }, (_, i) => { const a = LW(.85, .98), b = RW(.8, .96), u = i / 23; return [lerp(a[0], b[0], u), lerp(a[1], b[1], u) + Math.sin(Math.PI * u) * 18]; }), t0: clock, dur: .2, w: .9 }); clock += .1;
+// 6. 地砖、阴影排线
+// 地砖线遇到摊子就断开，不从东西上穿过去
+[[300, 720, .7], [500, 720, .24], [780, 720, .25], [980, 720, .7]].forEach(([x, y, u]) => ln([[x, y], lp([x, y], VP, u)], .1, { over: 0, w: 1.1 }));
+[640, 560, 500, 452].forEach(y => { const u = (700 - y) / 320, x0 = lerp(0, 520, u) + 20, x1 = lerp(1280, 760, u) - 20, blocked = y < 615 && y > 440;
+  if (!blocked) ln([[x0, y], [x1, y]], .08, { over: 0, w: .9 }); else { if (x0 < 320) ln([[x0, y], [320, y]], .05, { over: 0, w: .9 }); ln([[780, y], [x1, y]], .06, { over: 0, w: .9 }); } });
+hatch([[335, 474], [695, 474], [695, 506], [335, 506]], -1.0, 7, .35, .9);
+hatch([RW(0, 0), RW(.5, 0), RW(.5, .28), RW(0, .22)], -.9, 9, .4, .9);
+hatch([[330, 614], [700, 614], [740, 640], [300, 640]], -.35, 8, .3, .9);
+hatch([LW(.7, 0), LW(1, 0), LW(1, .55), LW(.7, .55)], -1.2, 7, .3, .8);
+// 把整套线稿的时间压进 [T.lines[0], T.lines[1]]
+{ const raw = clock, k = (T.lines[1] - T.lines[0]) / (raw - T.lines[0]); LINES.forEach(L => { L.t0 = T.lines[0] + (L.t0 - T.lines[0]) * k; L.dur *= Math.max(k, .5); }); }
+const LINES_END = T.lines[1];
+
+/* ---------- 淡彩（整张先画好，缓存） ---------- */
+const WASHES = [
+  ['#BFD8EA', [[0, 0], [1280, 0], [1280, 44], [760, 252], [520, 252], [0, 62]]],
+  ['#E8BD80', [[0, 60], [520, 250], [520, 380], [0, 700]]], ['#9EA6C8', [[0, 430], [520, 330], [520, 382], [0, 702]], .6],
+  ['#AEB9CF', [[1280, 40], [760, 250], [760, 380], [1280, 700]]], ['#E7B98B', [[1280, 120], [900, 230], [920, 330], [1280, 330]], .6],
+  ['#EAC2AE', [[520, 250], [760, 250], [760, 380], [520, 380]]],
+  ['#CDBDA6', [[0, 700], [520, 380], [760, 380], [1280, 700], [1280, 720], [0, 720]]], ['#9EA4C0', [[300, 614], [520, 606], [720, 616], [790, 650], [700, 690], [420, 684], [250, 660]], .55],
+  ['#D65A42', [[318, 330], [716, 330], [684, 292], [380, 292]]],
+  ['#B47A4C', [[330, 470], [700, 470], [700, 612], [330, 612]]], ['#8E8BB2', [[332, 472], [698, 472], [698, 510], [332, 510]], .8],
+  ['#E3B862', [[536, 322], [664, 322], [664, 456], [536, 456]]], ['#9EA6AE', [[390, 402], [454, 402], [454, 456], [390, 456]]],
+  ['#C9412E', [[404, 232], [596, 232], [596, 288], [404, 288]]], ['#F0E0B8', [[520, 505], [596, 505], [596, 568], [520, 568]]],
+  ['#E04A32', ...LANTERNS.map(([x, y, r]) => ellPoly(x, y, r * .85, r))], ['#3E8C8A', [[900, 612], [950, 546], [1012, 546], [1032, 604], [966, 606]], .7],
+  ['#7FA75C', [[100, 580], [180, 580], [170, 632], [110, 632]]], ['#B8744A', [[112, 628], [168, 628], [160, 690], [120, 690]]], ['#C89A62', ellPoly(772, 612, 34, 9)]
+];
+function ellPoly(cx, cy, rx, ry) { return ell(cx, cy, rx, ry, 0, Math.PI * 2, 20); }
+// 热气要走的路：蒸笼 → 招牌 → 左灯笼 → 天上 → 右灯笼 → 右墙 → 自行车 → 地面 → 台面 → 锅 → 盆栽
+const PATH_CP = [[600, 350], [640, 290], [560, 262], [470, 250], [400, 200], [520, 150], [700, 130], [860, 190], [930, 300], [960, 440], [960, 580], [800, 600], [620, 560], [470, 540], [400, 440], [260, 470], [150, 600]];
+const PATH = (() => { const out = []; for (let i = 0; i < PATH_CP.length - 1; i++) { const p0 = PATH_CP[Math.max(0, i - 1)], p1 = PATH_CP[i], p2 = PATH_CP[i + 1], p3 = PATH_CP[Math.min(PATH_CP.length - 1, i + 2)];
+  for (let k = 0; k < 6; k++) { const u = k / 6, u2 = u * u, u3 = u2 * u; out.push([0, 1].map(j => .5 * (2 * p1[j] + (-p0[j] + p2[j]) * u + (2 * p0[j] - 5 * p1[j] + 4 * p2[j] - p3[j]) * u2 + (-p0[j] + 3 * p1[j] - 3 * p2[j] + p3[j]) * u3))); } } out.push(PATH_CP[PATH_CP.length - 1]); return out; })();
+const BLOBS = Array.from({ length: 6 }, (_, s) => Array.from({ length: 36 }, (_, i) => { const a = i / 36 * Math.PI * 2; return 1 + .12 * Math.sin(a * 3 + s * 1.7) + .07 * Math.sin(a * 7 + s) + .04 * Math.sin(a * 13 + s * 3); }));
+const PAPER = (() => { const n = 256, cv = document.createElement('canvas'); cv.width = cv.height = n; const x = cv.getContext('2d'), im = x.createImageData(n, n); for (let i = 0; i < im.data.length; i += 4) { const v = R(); im.data[i] = im.data[i + 1] = im.data[i + 2] = v > .5 ? 255 : 90; im.data[i + 3] = R() * 18; } x.putImageData(im, 0, 0); return cv; })();
+
+const cvs = {};
+function layer(c, name) { const w = c.canvas.width, h = c.canvas.height; let cv = cvs[name]; if (!cv) cv = cvs[name] = document.createElement('canvas'); if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const l = cv.getContext('2d'); l.setTransform(1, 0, 0, 1, 0, 0); l.globalCompositeOperation = 'source-over'; l.globalAlpha = 1; l.filter = 'none'; l.clearRect(0, 0, w, h); l.setTransform(w / 1280, 0, 0, w / 1280, 0, 0); return l; }
+const cache = {};
+
+Film({
+  title: '钢笔淡彩 · 巷口早点', DUR: 15, BPM, poster: 13.0,
+  fonts: [['64px "Zhi Mang Xing"', '早点巷口七点十分']],
+  draw(c, t, F) {
+    const { W, H, prog, clamp, hash, ease, easeOut, back } = F;
+    c.fillStyle = '#F7F3EA'; c.fillRect(0, 0, W, H);
+    c.fillStyle = c.createPattern(PAPER, 'repeat'); c.fillRect(0, 0, W, H);
+
+    /* ---------- 淡彩：缓存一张完整的彩色层 ---------- */
+    const key = 'color' + c.canvas.width;
+    if (!cache[key]) { const K = layer(c, 'colorCache'); const r = rng(9);
+      WASHES.forEach(([col, ...polys]) => { let alpha = .5; if (typeof polys[polys.length - 1] === 'number') alpha = polys.pop(); polys.forEach(P => {
+        const ox = (r() - .5) * 14, oy = (r() - .5) * 10;                    // 颜色故意不贴线，偏一点
+        for (let k = 0; k < 3; k++) { K.globalAlpha = alpha * .45; K.fillStyle = col; K.beginPath(); P.forEach(([x, y], i) => { const X = x + ox + (r() - .5) * 10, Y = y + oy + (r() - .5) * 10; i ? K.lineTo(X, Y) : K.moveTo(X, Y); }); K.closePath(); K.fill(); }
+        K.globalAlpha = alpha * .5; K.strokeStyle = col; K.lineWidth = 2.4; K.beginPath(); P.forEach(([x, y], i) => i ? K.lineTo(x + ox, y + oy) : K.moveTo(x + ox, y + oy)); K.closePath(); K.stroke(); }); });
+      // 纸白留光：几处擦掉一点颜色，让淡彩不死板
+      K.globalCompositeOperation = 'destination-out'; for (let k = 0; k < 26; k++) { const x = r() * W, y = r() * H * .9, g = K.createRadialGradient(x, y, 0, x, y, 30 + r() * 60); g.addColorStop(0, 'rgba(0,0,0,.45)'); g.addColorStop(1, 'rgba(0,0,0,0)'); K.globalAlpha = 1; K.fillStyle = g; K.fillRect(x - 100, y - 100, 200, 200); } K.globalCompositeOperation = 'source-over';
+      cache[key] = K.canvas; }
+    /* ---------- 遮罩：热气走过的地方才有颜色 ---------- */
+    const tu = prog(t, ...T.travel), N = PATH.length, M = layer(c, 'mask');
+    M.fillStyle = '#000';
+    const spot = (x, y, r, b) => { M.beginPath(); BLOBS[b % 6].forEach((m, i) => { const a = i / 36 * Math.PI * 2, rr = r * m; i ? M.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr) : M.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }); M.closePath(); M.fill(); };
+    const st = t > T.steam ? easeOut(prog(t, T.steam, T.steam + 1.2)) : 0;
+    if (st > 0) spot(600, 400, 150 * st, 0);                                  // 蒸笼先上色
+    for (let i = 0; i < N; i++) { const ti = T.travel[0] + (T.travel[1] - T.travel[0]) * i / (N - 1), k = easeOut(prog(t, ti, ti + 1.3)); if (k > 0) spot(PATH[i][0], PATH[i][1], 150 * k, i); }
+    const bl = ease(prog(t, ...T.bloom)); if (bl > 0) spot(560, 430, 470 * bl, 3);
+    const Cc = layer(c, 'color'); Cc.setTransform(1, 0, 0, 1, 0, 0); Cc.drawImage(cache[key], 0, 0); Cc.globalCompositeOperation = 'destination-in'; Cc.drawImage(M.canvas, 0, 0);
+    c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'multiply'; c.drawImage(Cc.canvas, 0, 0); c.restore();
+
+    /* ---------- 钢笔线稿 ---------- */
+    c.save(); c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = PEN;
+    LINES.forEach(L => { const u = prog(t, L.t0, L.t0 + L.dur); if (u <= 0) return; const P = L.P, m = (P.length - 1) * u, n = Math.floor(m);
+      c.lineWidth = L.w; c.globalAlpha = .88; c.beginPath(); c.moveTo(...P[0]); for (let i = 1; i <= n; i++) c.lineTo(...P[i]); if (n < P.length - 1) c.lineTo(...lp(P[n], P[n + 1], m - n)); c.stroke(); });
+    c.restore();
+    // 招牌上的字：钢笔勾的
+    const su = prog(t, LINES_END - .9, LINES_END - .5);
+    if (su > 0) { c.save(); c.beginPath(); c.rect(404, 226, 192 * su, 70); c.clip(); c.font = `56px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = PEN; c.fillText('早点', 500, 264); c.restore(); }
+
+    /* ---------- 热气：白色的软团 + 几笔钢笔卷线 ---------- */
+    if (t > T.steam) {
+      for (let k = 0; k < 7; k++) { const ph = ((t - T.steam) * .45 + k / 7) % 1, a = Math.min(1, (t - T.steam) * 1.5) * Math.sin(Math.PI * ph);
+        const x = 600 + Math.sin(ph * 6 + k) * 22 + (k - 3) * 10, y = 345 - ph * 170;
+        const g = c.createRadialGradient(x, y, 0, x, y, 30 + ph * 40); g.addColorStop(0, `rgba(255,255,255,${.75 * a})`); g.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = g; c.fillRect(x - 80, y - 80, 160, 160);
+        c.strokeStyle = `rgba(42,37,33,${.45 * a})`; c.lineWidth = 1.1; c.beginPath(); for (let j = 0; j <= 14; j++) { const q = j / 14, xx = x + Math.sin(q * 5 + k + t * 1.2) * 12 * (1 + ph), yy = y + 20 - q * 50; j ? c.lineTo(xx, yy) : c.moveTo(xx, yy); } c.stroke(); }
+      // 领头的一团热气沿着路径飘，颜色跟着它走
+      if (tu > 0 && tu < 1) { const f = tu * (N - 1), i = Math.floor(f), p = lp(PATH[i], PATH[Math.min(N - 1, i + 1)], f - i);
+        const g = c.createRadialGradient(p[0], p[1], 0, p[0], p[1], 70); g.addColorStop(0, 'rgba(255,255,255,.85)'); g.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = g; c.fillRect(p[0] - 80, p[1] - 80, 160, 160);
+        c.strokeStyle = 'rgba(42,37,33,.55)'; c.lineWidth = 1.2; for (let s = 0; s < 3; s++) { c.beginPath(); for (let j = 0; j <= 20; j++) { const q = j / 20, a = q * Math.PI * 2.6 + t * 3 + s * 2, r = 8 + q * 22; const xx = p[0] - 30 + q * 60 + Math.cos(a) * r * .5, yy = p[1] + Math.sin(a) * r * .5 + (s - 1) * 14; j ? c.lineTo(xx, yy) : c.moveTo(xx, yy); } c.stroke(); } }
+    }
+
+    /* ---------- 页脚手写注记 ---------- */
+    const nu = prog(t, ...T.note);
+    if (nu > 0) { c.save(); c.font = `44px ${FONT}`; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; const s = '巷口 · 七点十分', w = c.measureText(s).width;
+      c.beginPath(); c.rect(36, 10, (w + 20) * nu, 80); c.clip(); c.fillStyle = PEN; c.fillText(s, 44, 62); c.restore(); }
+    F.vignette(c, .14, '90,70,50');
+    const fo = prog(t, T.fade, 15); if (fo > 0) { c.fillStyle = `rgba(247,243,234,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    const ac = B => B.sfx.context;
+    const hashN = i => { const n = Math.sin(i * 12.9898) * 43758.5453; return n - Math.floor(n); };
+    // 钢笔：细碎的高频刮纸声，一段一段
+    const nib = (w, B, d, v = .045) => { const x = ac(B), len = Math.ceil(x.sampleRate * (d + .1)), buf = x.createBuffer(1, len, x.sampleRate), ch = buf.getChannelData(0); for (let i = 0; i < len; i++) ch[i] = (hashN(i + 5) * 2 - 1) * (.5 + .5 * Math.abs(Math.sin(i / x.sampleRate * 23)));
+      const s = x.createBufferSource(); s.buffer = buf; const f = x.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 5200; f.Q.value = 1.1; const g = x.createGain(); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(v, w + .04); g.gain.setValueAtTime(v, w + d - .08); g.gain.exponentialRampToValueAtTime(.0001, w + d);
+      s.connect(f); f.connect(g); g.connect(B.sfx); s.start(w); s.stop(w + d + .05); };
+    // 蒸汽：低通噪声慢慢起来
+    const steam = (w, B, d, v = .06) => { const x = ac(B), len = Math.ceil(x.sampleRate * (d + .1)), buf = x.createBuffer(1, len, x.sampleRate), ch = buf.getChannelData(0); for (let i = 0; i < len; i++) ch[i] = hashN(i + 17) * 2 - 1;
+      const s = x.createBufferSource(); s.buffer = buf; const f = x.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 2500; const g = x.createGain(); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(v, w + .8); g.gain.setValueAtTime(v, w + d - 1); g.gain.exponentialRampToValueAtTime(.0001, w + d);
+      s.connect(f); f.connect(g); g.connect(B.sfx); s.start(w); s.stop(w + d + .05); };
+    // 画线声跟着线稿走：按 0.25 秒一格统计有没有线在画
+    for (let x = T.lines[0]; x < LINES_END; x += .25) { const busy = LINES.some(L => L.t0 < x + .25 && L.t0 + L.dur > x); if (busy) S.at(x, nib, .24, .04 + (hashN(x * 10) * .02)); }
+    S.at(T.steam, steam, 15 - T.steam - .3, .05);
+    // 音乐：清晨的吉他感——拨弦分解 + 轻刷 + 贝斯，84 BPM
+    const PR = [[55, 59, 62, 66], [52, 55, 59, 62], [48, 52, 55, 59], [50, 54, 57, 60]];
+    for (let b = 0; b < 6; b++) { const ch = PR[b % 4], t0 = b * bar; if (t0 > 14.4) break;
+      for (let e = 0; e < 8; e++) { const tt = t0 + e * beat / 2; if (tt > T.fade) break; S.at(tt, I.pluck, ch[[0, 2, 1, 3, 2, 1, 3, 2][e]] + 12, e % 2 ? .45 : .7); }
+      if (t0 >= T.steam - .1) { S.at(t0, I.bass, ch[0] - 12, bar * .45, .6); S.at(t0 + 2 * beat, I.bass, ch[0] - 5, bar * .4, .5); for (let e = 0; e < 4; e++) S.at(t0 + e * beat + beat / 2, I.shaker, .7); }
+      if (t0 >= T.travel[0] - .1) S.at(t0, I.pad, ch, bar + .3, .6); }
+    S.at(T.steam, I.chime);
+    // 热气经过的每个“点位”一声木琴，音一路往上走
+    [0, 3, 4, 6, 7, 9, 12, 16].forEach((cp, k) => { const ti = T.travel[0] + (T.travel[1] - T.travel[0]) * cp * 6 / (PATH.length - 1); S.at(ti, I.marimba, [67, 71, 74, 76, 79, 81, 83, 86][k], .5); });
+    S.at(T.bloom[0], I.shimmer); S.at(T.bloom[0], I.whoosh, .35);
+    S.at(T.note[0], nib, T.note[1] - T.note[0], .05);
+    S.at(T.fade - .5, (w, B) => [55, 62, 66, 69, 74].forEach((m, i) => I.keys(w + i * .06, B, m, 1, 2.4)));
+  }
+});
+</script></body></html>

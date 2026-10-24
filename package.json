@@ -1,0 +1,19 @@
+{
+  "name": "jiqima-animation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "\u673a\u5668\u9a6c Animation \u2014 runnable code animation styles",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node scripts/serve.cjs",
+    "render": "node _engine/render.cjs",
+    "test": "node tests/smoke.cjs",
+    "build:catalog": "node scripts/catalog.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

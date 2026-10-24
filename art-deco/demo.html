@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>装饰艺术 · 电梯直达顶楼</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poiret+One&family=Limelight&family=ZCOOL+XiaoWei&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+// a lift rises through a (fictional) building; every stop opens on a different party
+const GOLD = '#D4AF5A', GOLD2 = '#F3DD95', GOLD3 = '#8E6E2E', WALL = '#0C1214', WALL2 = '#141C1F', BRONZE = '#1B2124';
+const DECO = '"Poiret One", "Didot", serif', DISPLAY = 'Limelight, "Didot", serif', CN = '"ZCOOL XiaoWei", "Songti SC", serif';
+const BEAT = 60 / 144, b = n => n * BEAT;                  // 144 BPM swing; every event sits on a beat
+const OX = 440, OY = 240, OW = 400, OH = 440;              // door opening
+// stops: [arrive/open beat, close beat, floor, name]
+const STOPS = [[6, 11, 3, '三楼 · 爵士乐队'], [14, 19, 6, '六楼 · 香槟塔'], [22, 27, 9, '九楼 · 舞会'], [30, 99, 12, '顶楼']];
+const FLOOR = [[0, 1], [b(4), 1], [b(6), 3], [b(12), 3], [b(14), 6], [b(20), 6], [b(22), 9], [b(28), 9], [b(30), 12]];
+const PUSH = [b(31), b(33)], ZOOM = 2.15, TITLE = b(32.5);
+
+const hash = n => { n = Math.sin(n * 127.1 + 311.7) * 43758.5453; return n - Math.floor(n); };
+const line = (c, x0, y0, x1, y1) => { c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); };
+const poly = (c, pts) => { c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y)); };
+function goldGrad(c, y0, y1) { const g = c.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, GOLD2); g.addColorStop(.5, GOLD); g.addColorStop(1, GOLD3); return g; }
+
+/* ---------- the four parties (local coords 0..400 × 0..440) ---------- */
+function jazz(c, t) {
+  c.fillStyle = '#0D3A32'; c.fillRect(0, 0, OW, OH);
+  c.strokeStyle = GOLD; c.lineWidth = 2; for (let r = 60; r <= 230; r += 28) { c.globalAlpha = .25 + (r % 56 ? .35 : 0); c.beginPath(); c.arc(200, 340, r, Math.PI, 0); c.stroke(); } c.globalAlpha = 1;
+  const sp = c.createLinearGradient(200, 0, 200, 340); sp.addColorStop(0, 'rgba(243,221,149,.35)'); sp.addColorStop(1, 'rgba(243,221,149,0)'); c.fillStyle = sp; poly(c, [[170, 0], [230, 0], [330, 340], [70, 340]]); c.fill();
+  c.fillStyle = '#06201C'; c.fillRect(0, 340, OW, 100); c.fillStyle = GOLD; c.fillRect(0, 338, OW, 3);
+  const ph = t / BEAT, bob = k => Math.abs(Math.sin(Math.PI * (ph + k * .5))) * 6;
+  c.fillStyle = '#050908'; c.strokeStyle = '#050908';
+  // bass player
+  c.save(); c.translate(90, 340 - bob(0)); c.beginPath(); c.arc(0, -150, 15, 0, 7); c.fill(); c.fillRect(-16, -134, 32, 70); c.fillRect(-14, -64, 11, 64); c.fillRect(3, -64, 11, 64);
+  c.translate(30, 0); c.rotate(-.12); c.beginPath(); c.ellipse(0, -46, 26, 34, 0, 0, 7); c.fill(); c.beginPath(); c.ellipse(0, -96, 20, 24, 0, 0, 7); c.fill(); c.fillRect(-3, -180, 6, 70); c.restore();
+  // trumpeter: bell tilts up on every other beat
+  const up = Math.floor(ph) % 2 ? .45 : .15;
+  c.save(); c.translate(200, 340 - bob(1)); c.beginPath(); c.arc(0, -160, 16, 0, 7); c.fill(); c.fillRect(-18, -144, 36, 78); c.fillRect(-15, -66, 12, 66); c.fillRect(3, -66, 12, 66);
+  c.translate(12, -160); c.rotate(-up); c.fillRect(0, -3, 56, 6); poly(c, [[52, -4], [74, -14], [74, 14], [52, 4]]); c.fill(); c.fillStyle = GOLD2; c.beginPath(); c.arc(74, 0, 3, 0, 7); c.fill(); c.restore();
+  // clarinet player
+  c.fillStyle = '#050908'; c.save(); c.translate(310, 340 - bob(2)); c.beginPath(); c.arc(0, -150, 15, 0, 7); c.fill(); c.fillRect(-16, -134, 32, 70); c.fillRect(-14, -64, 11, 64); c.fillRect(3, -64, 11, 64); c.rotate(.25); c.fillRect(-4, -140, 8, 80); c.restore();
+  // notes drifting up
+  c.fillStyle = GOLD2; for (let i = 0; i < 6; i++) { const u = ((t * .5 + i / 6) % 1), x = 140 + 140 * hash(i) + 20 * Math.sin(t * 3 + i), y = 300 - u * 280; c.globalAlpha = Math.sin(Math.PI * u); c.beginPath(); c.ellipse(x, y, 7, 5, -.4, 0, 7); c.fill(); c.fillRect(x + 5, y - 26, 2.5, 26); c.fillRect(x + 5, y - 26, 10, 3); } c.globalAlpha = 1;
+}
+function champagne(c, t) {
+  c.fillStyle = '#4A1422'; c.fillRect(0, 0, OW, OH);
+  c.strokeStyle = 'rgba(212,175,90,.18)'; c.lineWidth = 1.5; for (let y = 0; y < 360; y += 34) for (let x = (y / 34) % 2 * 20; x < OW + 40; x += 40) { c.beginPath(); c.arc(x, y + 34, 20, Math.PI, 0); c.stroke(); c.beginPath(); c.arc(x, y + 34, 11, Math.PI, 0); c.stroke(); }
+  c.fillStyle = '#2B0A12'; c.fillRect(0, 380, OW, 60); c.fillStyle = GOLD; c.fillRect(0, 378, OW, 3);
+  const coupe = (x, y, s) => { c.save(); c.translate(x, y); c.scale(s, s); c.fillStyle = 'rgba(243,221,149,.85)'; c.beginPath(); c.moveTo(-26, -40); c.quadraticCurveTo(0, -12, 26, -40); c.closePath(); c.fill(); c.strokeStyle = GOLD2; c.lineWidth = 2; c.beginPath(); c.moveTo(-28, -42); c.quadraticCurveTo(0, -6, 28, -42); c.stroke(); line(c, 0, -22, 0, -4); line(c, -12, 0, 12, 0); c.restore(); };
+  const rows = [4, 3, 2, 1]; rows.forEach((n, r) => { for (let i = 0; i < n; i++) coupe(200 + (i - (n - 1) / 2) * 62, 378 - r * 48, 1); });
+  // bottle pouring from above
+  c.save(); c.translate(250, 140); c.rotate(2.2); c.fillStyle = '#0B2E22'; c.fillRect(-12, -70, 24, 70); c.fillRect(-5, -96, 10, 28); c.fillStyle = GOLD; c.fillRect(-12, -46, 24, 16); c.fillRect(-6, -98, 12, 10); c.restore();
+  c.strokeStyle = 'rgba(243,221,149,.8)'; c.lineWidth = 3; c.beginPath(); c.moveTo(212, 156); c.quadraticCurveTo(204, 180, 200, 214); c.stroke();
+  c.fillStyle = GOLD2; for (let i = 0; i < 26; i++) { const u = (t * .6 + hash(i)) % 1, x = 200 + (hash(i + 7) - .5) * 240 + 6 * Math.sin(t * 6 + i), y = 370 - u * 260; c.globalAlpha = .8 * (1 - u); c.beginPath(); c.arc(x, y, 2 + 2 * hash(i + 3), 0, 7); c.fill(); } c.globalAlpha = 1;
+  const k = Math.floor(t / BEAT), fl = 1 - (t / BEAT - k); // a sparkle on each beat
+  c.strokeStyle = `rgba(255,240,190,${fl})`; c.lineWidth = 2; const sx = 110 + hash(k) * 180, sy = 200 + hash(k + 1) * 150; for (let i = 0; i < 4; i++) { const a = i * Math.PI / 4; line(c, sx - Math.cos(a) * 14, sy - Math.sin(a) * 14, sx + Math.cos(a) * 14, sy + Math.sin(a) * 14); }
+}
+function ballroom(c, t) {
+  c.fillStyle = '#15203D'; c.fillRect(0, 0, OW, OH);
+  // floor in perspective
+  const hz = 290; c.fillStyle = '#0A0F1E'; c.fillRect(0, hz, OW, OH - hz);
+  c.save(); c.beginPath(); c.rect(0, hz, OW, OH - hz); c.clip(); c.strokeStyle = 'rgba(212,175,90,.55)'; c.lineWidth = 1.5;
+  for (let i = -8; i <= 8; i++) line(c, 200 + i * 20, hz, 200 + i * 120, OH);
+  for (let j = 0; j < 7; j++) { const y = hz + Math.pow(j / 6, 1.8) * (OH - hz); line(c, 0, y, OW, y); } c.restore();
+  // chandelier
+  const sway = Math.sin(t * 2.2) * .03; c.save(); c.translate(200, 0); c.rotate(sway); c.strokeStyle = GOLD; c.lineWidth = 2; line(c, 0, 0, 0, 40);
+  [[70, 40], [52, 62], [34, 84]].forEach(([w, y]) => { c.fillStyle = GOLD; c.fillRect(-w, y, w * 2, 6); for (let x = -w; x <= w; x += 12) { c.globalAlpha = .8; line(c, x, y + 6, x, y + 22 + 6 * Math.sin(x)); c.beginPath(); c.arc(x, y + 24 + 6 * Math.sin(x), 2.5, 0, 7); c.fillStyle = GOLD2; c.fill(); } c.globalAlpha = 1; });
+  poly(c, [[-12, 96], [12, 96], [0, 120]]); c.fillStyle = GOLD; c.fill(); c.restore();
+  const glow = c.createRadialGradient(200, 80, 10, 200, 80, 220); glow.addColorStop(0, 'rgba(243,221,149,.28)'); glow.addColorStop(1, 'rgba(243,221,149,0)'); c.fillStyle = glow; c.fillRect(0, 0, OW, 300);
+  // two couples turning; each half-turn lands on a beat
+  const couple = (x, y, s, ph) => {
+    const k = Math.cos(ph * Math.PI); c.save(); c.translate(x, y); c.scale(s * (Math.abs(k) < .35 ? .35 * Math.sign(k || 1) : k), s); c.fillStyle = '#04060C';
+    c.beginPath(); c.arc(-14, -150, 13, 0, 7); c.fill(); c.fillRect(-28, -136, 26, 70); c.fillRect(-27, -66, 10, 66); c.fillRect(-13, -66, 10, 66); poly(c, [[-28, -80], [-40, -60], [-24, -66]]); c.fill();
+    c.beginPath(); c.arc(16, -144, 12, 0, 7); c.fill(); poly(c, [[6, -130], [26, -130], [30, -80], [52, 0], [-6, 0], [4, -80]]); c.fill();
+    c.strokeStyle = '#04060C'; c.lineWidth = 7; line(c, -6, -118, 16, -112); c.restore();
+  };
+  const ph = t / BEAT; couple(110, 420, 1.2, ph); couple(292, 385, .95, ph + .5);
+  for (let i = 0; i < 30; i++) { const u = (t * .35 + hash(i)) % 1, x = hash(i + 5) * OW + 20 * Math.sin(t * 2 + i), y = u * 320; c.save(); c.translate(x, y); c.rotate(t * 4 + i); c.fillStyle = i % 3 ? GOLD2 : '#E7B9A0'; c.fillRect(-4, -2, 8, 4); c.restore(); }
+}
+function roof(c, t, F) {
+  const sky = c.createLinearGradient(0, 0, 0, OH); sky.addColorStop(0, '#080C26'); sky.addColorStop(1, '#2B1C48'); c.fillStyle = sky; c.fillRect(0, 0, OW, OH);
+  c.fillStyle = '#FFF4D0'; for (let i = 0; i < 50; i++) { c.globalAlpha = .4 + .6 * Math.abs(Math.sin(t * 2 + i)); c.fillRect(hash(i) * OW, hash(i + 50) * 260, 1.6, 1.6); } c.globalAlpha = 1;
+  c.fillStyle = GOLD2; c.beginPath(); c.arc(80, 64, 20, 0, 7); c.fill(); c.fillStyle = '#0B0F2C'; c.beginPath(); c.arc(89, 58, 18, 0, 7); c.fill();
+  // fireworks: gold sunbursts, one per beat after the doors open
+  for (let k = 0; k < 10; k++) {
+    const t0 = b(30.5) + k * BEAT, u = (t - t0) / 1.1; if (u < 0 || u > 1) continue;
+    const x = (k % 2 ? 290 : 40) + hash(k * 3) * 70, y = 70 + hash(k * 5) * 150, r = 20 + 80 * F.easeOut(u), col = k % 3 === 1 ? '#EFA48C' : GOLD2;
+    c.strokeStyle = col; c.globalAlpha = 1 - u; c.lineWidth = 2;
+    for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; line(c, x + Math.cos(a) * r * .45, y + Math.sin(a) * r * .45, x + Math.cos(a) * r, y + Math.sin(a) * r); }
+    c.fillStyle = col; for (let i = 0; i < 16; i++) { const a = (i + .5) / 16 * Math.PI * 2; c.beginPath(); c.arc(x + Math.cos(a) * r * 1.1, y + Math.sin(a) * r * 1.1 + u * u * 20, 2, 0, 7); c.fill(); }
+    c.globalAlpha = 1;
+  }
+  // skyline of stepped towers
+  const towers = [[0, 60, 250], [55, 50, 200], [100, 70, 300], [175, 50, 230], [228, 80, 340], [312, 44, 210], [352, 60, 270]];
+  towers.forEach(([x, w, h], i) => {
+    const y = OH - h + 120; c.fillStyle = '#05060F'; c.fillRect(x, y, w, OH); c.fillRect(x + w * .15, y - 20, w * .7, 22); c.fillRect(x + w * .3, y - 38, w * .4, 20); c.fillRect(x + w / 2 - 2, y - 70, 4, 34);
+    c.fillStyle = 'rgba(243,221,149,.75)'; for (let yy = y + 10; yy < OH; yy += 16) for (let xx = x + 6; xx < x + w - 6; xx += 10) if (hash(xx * 7 + yy + i) > .55) c.fillRect(xx, yy, 4, 7);
+  });
+  // parapet
+  c.fillStyle = '#05060F'; c.fillRect(0, 392, OW, 48); c.strokeStyle = GOLD; c.lineWidth = 2; line(c, 0, 392, OW, 392);
+  for (let x = 10; x < OW; x += 26) { c.beginPath(); c.moveTo(x, 392); c.lineTo(x + 13, 372); c.lineTo(x + 26, 392); c.stroke(); }
+}
+const SCENES = [jazz, champagne, ballroom, roof];
+
+/* ---------- architecture ---------- */
+function frameSteps(c, o) {
+  poly(c, [[OX - o, 680], [OX - o, OY - o], [OX + 60 - o, OY - o], [OX + 60 - o, 150 - o], [OX + 100 - o, 150 - o], [OX + 100 - o, 70 - o], [OX + OW - 100 + o, 70 - o], [OX + OW - 100 + o, 150 - o], [OX + OW - 60 + o, 150 - o], [OX + OW - 60 + o, OY - o], [OX + OW + o, OY - o], [OX + OW + o, 680]]);
+}
+function doorFace(c) { // both doors as one picture; the seam splits the sunburst
+  const g = c.createLinearGradient(OX, 0, OX + OW, 0); g.addColorStop(0, '#12171A'); g.addColorStop(.5, '#262D31'); g.addColorStop(1, '#12171A'); c.fillStyle = g; c.fillRect(OX, OY, OW, OH);
+  c.strokeStyle = GOLD; c.lineWidth = 2; c.strokeRect(OX + 12, OY + 12, OW / 2 - 24, OH - 24); c.strokeRect(OX + OW / 2 + 12, OY + 12, OW / 2 - 24, OH - 24);
+  const cx = OX + OW / 2, cy = OY + 190;
+  c.lineWidth = 2.5; c.beginPath(); c.arc(cx, cy, 130, 0, 7); c.stroke(); c.lineWidth = 1; c.beginPath(); c.arc(cx, cy, 120, 0, 7); c.stroke();
+  c.lineWidth = 1.4; for (let i = 0; i < 36; i++) { const a = i / 36 * Math.PI * 2; line(c, cx + Math.cos(a) * 26, cy + Math.sin(a) * 26, cx + Math.cos(a) * (i % 2 ? 100 : 116), cy + Math.sin(a) * (i % 2 ? 100 : 116)); }
+  c.fillStyle = GOLD; c.beginPath(); c.arc(cx, cy, 16, 0, 7); c.fill();
+  c.lineWidth = 2; for (let k = 0; k < 5; k++) { const y = OY + 360 + k * 13; poly(c, [[OX + 40, y + 30], [cx, y], [OX + OW - 40, y + 30]]); c.stroke(); }
+  for (let k = 0; k < 4; k++) { c.strokeRect(cx - 150 + k * 8, OY + 30 + k * 6, 300 - k * 16, 0.1); }
+  c.fillStyle = '#07090A'; c.fillRect(cx - 1.5, OY, 3, OH);
+}
+function architecture(c, t, F, open, fl, rising) {
+  const { W, H } = F;
+  c.fillStyle = WALL; c.fillRect(-400, -400, W + 800, H + 800);
+  // fluted wall
+  c.strokeStyle = 'rgba(212,175,90,.10)'; c.lineWidth = 1; for (let x = 0; x <= W; x += 22) line(c, x, 0, x, 680);
+  // sunburst behind the dial
+  c.strokeStyle = 'rgba(212,175,90,.35)'; for (let i = 0; i <= 36; i++) { const a = Math.PI + i / 36 * Math.PI; line(c, 640 + Math.cos(a) * 118, 190 + Math.sin(a) * 118, 640 + Math.cos(a) * 640, 190 + Math.sin(a) * 640); }
+  // side panels with fan sconces and a chevron frieze
+  [[70, 270], [1010, 1210]].forEach(([x0, x1]) => {
+    const cx = (x0 + x1) / 2; c.strokeStyle = 'rgba(212,175,90,.55)'; c.lineWidth = 1.5; c.fillStyle = WALL2;
+    c.fillRect(x0, 110, x1 - x0, 560); c.strokeRect(x0, 110, x1 - x0, 560); c.strokeRect(x0 + 12, 122, x1 - x0 - 24, 536);
+    for (let k = 0; k < 4; k++) { const y = 560 + k * 22; poly(c, [[x0 + 24, y + 18], [cx, y], [x1 - 24, y + 18]]); c.stroke(); }
+    const glow = c.createRadialGradient(cx, 300, 10, cx, 300, 190); glow.addColorStop(0, 'rgba(243,221,149,.32)'); glow.addColorStop(1, 'rgba(243,221,149,0)'); c.fillStyle = glow; c.fillRect(x0, 110, x1 - x0, 400);
+    c.fillStyle = 'rgba(243,221,149,.18)'; c.beginPath(); c.moveTo(cx - 60, 320); c.arc(cx, 320, 60, Math.PI, 0); c.closePath(); c.fill();
+    c.strokeStyle = GOLD; c.lineWidth = 2; c.stroke(); for (let i = 1; i < 8; i++) { const a = Math.PI + i / 8 * Math.PI; line(c, cx, 320, cx + Math.cos(a) * 60, 320 + Math.sin(a) * 60); }
+    c.fillStyle = GOLD; c.fillRect(cx - 4, 320, 8, 70); c.fillRect(cx - 18, 386, 36, 6);
+    for (let k = 0; k < 5; k++) { c.strokeStyle = 'rgba(212,175,90,.5)'; line(c, x0 + 30 + k * 8, 160 + k * 8, x1 - 30 - k * 8, 160 + k * 8); }
+  });
+  c.strokeStyle = 'rgba(212,175,90,.6)'; c.lineWidth = 1.5; poly(c, Array.from({ length: 65 }, (_, i) => [i * 20, i % 2 ? 22 : 38])); c.stroke(); line(c, 0, 14, W, 14); line(c, 0, 46, W, 46);
+  c.fillStyle = WALL; frameSteps(c, 48); c.closePath(); c.fill();
+  c.strokeStyle = GOLD; [14, 28, 42].forEach((o, i) => { c.lineWidth = i === 1 ? 3 : 1.5; frameSteps(c, o); c.stroke(); });
+  // pilasters
+  [[330, 380], [900, 950]].forEach(([x0, x1]) => { c.fillStyle = WALL2; c.fillRect(x0, 170, x1 - x0, 510); c.strokeStyle = GOLD; c.lineWidth = 1.5; c.strokeRect(x0, 170, x1 - x0, 510); for (let x = x0 + 10; x < x1; x += 10) line(c, x, 190, x, 660); [0, 1, 2].forEach(k => { c.strokeRect(x0 - 6 - k * 6, 170 - 12 - k * 12, x1 - x0 + 12 + k * 12, 12); }); });
+  // dial
+  c.fillStyle = BRONZE; c.beginPath(); c.arc(640, 190, 100, Math.PI, 0); c.closePath(); c.fill(); c.strokeStyle = GOLD; c.lineWidth = 3; c.stroke();
+  c.lineWidth = 1; c.beginPath(); c.arc(640, 190, 90, Math.PI, 0); c.stroke();
+  c.font = `18px ${DISPLAY}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (let f = 1; f <= 12; f++) { const a = Math.PI + (f - 1) / 11 * Math.PI, on = Math.abs(fl - f) < .5; c.fillStyle = on ? GOLD2 : 'rgba(212,175,90,.45)'; c.fillText(String(f), 640 + Math.cos(a) * 74, 190 + Math.sin(a) * 74 + 4); if (on) { c.save(); c.shadowColor = GOLD2; c.shadowBlur = 12; c.fillText(String(f), 640 + Math.cos(a) * 74, 190 + Math.sin(a) * 74 + 4); c.restore(); } }
+  const na = Math.PI + (fl - 1) / 11 * Math.PI; c.strokeStyle = GOLD2; c.lineWidth = 3; line(c, 640, 190, 640 + Math.cos(na) * 58, 190 + Math.sin(na) * 58); c.fillStyle = GOLD; c.beginPath(); c.arc(640, 190, 8, 0, 7); c.fill();
+  // up-arrow lamp while moving
+  c.save(); if (rising) { c.shadowColor = GOLD2; c.shadowBlur = 16; } c.fillStyle = rising ? GOLD2 : 'rgba(212,175,90,.25)'; poly(c, [[628, 150], [640, 132], [652, 150]]); c.fill(); c.restore();
+  // lintel plaque
+  c.fillStyle = BRONZE; c.fillRect(540, 200, 200, 30); c.strokeStyle = GOLD; c.lineWidth = 1.5; c.strokeRect(540, 200, 200, 30);
+  // floor
+  const fg = c.createLinearGradient(0, 680, 0, 720); fg.addColorStop(0, '#1E2528'); fg.addColorStop(1, '#070A0B'); c.fillStyle = fg; c.fillRect(-400, 680, W + 800, 440);
+  c.strokeStyle = 'rgba(212,175,90,.5)'; c.lineWidth = 1.5; for (let i = -12; i <= 12; i++) line(c, 640 + i * 40, 680, 640 + i * 140, 760); line(c, -400, 681, W + 400, 681);
+}
+
+Film({
+  title: '装饰艺术 · 电梯直达顶楼', DUR: 15, BPM: 144, poster: 7.0,
+  fonts: [['40px "Poiret One"', 'THE ROOF 12'], ['20px Limelight', '0123456789'], ['60px "ZCOOL XiaoWei"', '三楼爵士乐队六楼香槟塔九楼舞会顶楼·']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, ease, easeOut, easeIn, back, keyframes } = F;
+    const fl = keyframes(FLOOR, t)[0];
+    // which stop / how open
+    let open = 0, si = -1;
+    STOPS.forEach(([o, cl], i) => { const u = ease(prog(t, b(o), b(o + 1))) * (1 - ease(prog(t, b(cl), b(cl + 1)))); if (u > 0) { open = u; si = i; } });
+    const rising = FLOOR.some(([t0], i) => i && FLOOR[i][1] !== FLOOR[i - 1][1] && t > FLOOR[i - 1][0] && t < t0);
+    // camera: slight shudder while rising, push through the door at the top
+    const pz = ease(prog(t, PUSH[0], PUSH[1])), z = lerp(1, ZOOM, pz);
+    const shake = rising ? Math.sin(t * 60) * 1.2 : 0;
+    c.save(); c.translate(640, 460); c.scale(z, z); c.translate(-640, -460 + shake);
+    // intro: gold lines draw outward from the centre line (clip wipe)
+    const reveal = easeOut(prog(t, 0, b(4)));
+    c.save(); if (reveal < 1) { c.beginPath(); c.rect(640 - 700 * reveal, 0, 1400 * reveal, H); c.clip(); }
+    architecture(c, t, F, open, fl, rising);
+    // interior + doors
+    c.save(); c.beginPath(); c.rect(OX, OY, OW, OH); c.clip();
+    if (open > 0 && si >= 0) { c.save(); c.translate(OX, OY); SCENES[si](c, t, F); c.restore(); }
+    const d = open * OW / 2;
+    if (d < OW / 2) {
+      c.save(); c.beginPath(); c.rect(OX, OY, OW / 2 - d, OH); c.clip(); c.translate(-d, 0); doorFace(c); c.restore();
+      c.save(); c.beginPath(); c.rect(OX + OW / 2 + d, OY, OW / 2 - d, OH); c.clip(); c.translate(d, 0); doorFace(c); c.restore();
+    }
+    c.restore();
+    // light spilling onto the floor
+    if (open > 0) { const cols = ['120,220,180', '255,170,150', '160,180,255', '255,220,150'][si]; const g = c.createLinearGradient(0, 680, 0, 760); g.addColorStop(0, `rgba(${cols},${.35 * open})`); g.addColorStop(1, `rgba(${cols},0)`); c.fillStyle = g; poly(c, [[OX, 680], [OX + OW, 680], [OX + OW + 160, 760], [OX - 160, 760]]); c.fill(); }
+    // plaque text
+    const nm = si >= 0 && open > .05 ? STOPS[si][3] : fl < 1.5 ? '一楼 · 大堂' : '';
+    if (nm) { c.font = `18px ${CN}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = GOLD2; c.globalAlpha = si >= 0 ? Math.min(1, open * 2) : 1; c.letterSpacing = '4px'; c.fillText(nm, 642, 216); c.letterSpacing = '0px'; c.globalAlpha = 1; }
+    c.restore();
+    c.restore();
+    // title over the roof
+    if (t > TITLE) {
+      const u = easeOut(prog(t, TITLE, TITLE + .5)), w = 260 * u;
+      c.save(); c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.strokeStyle = GOLD; c.lineWidth = 2; line(c, 640 - 150 - w, 250, 640 - 150, 250); line(c, 640 + 150, 250, 640 + 150 + w, 250); line(c, 640 - 150 - w * .8, 258, 640 - 150, 258); line(c, 640 + 150, 258, 640 + 150 + w * .8, 258);
+      c.globalAlpha = u; c.font = `150px ${CN}`; c.letterSpacing = '40px'; c.shadowColor = 'rgba(0,0,0,.6)'; c.shadowBlur = 20; c.fillStyle = goldGrad(c, 180, 320); c.fillText('顶楼', 660, 250); c.shadowColor = 'transparent';
+      c.font = `30px ${DECO}`; c.letterSpacing = '14px'; c.fillStyle = GOLD2; c.fillText('THE ROOF', 647, 350); c.letterSpacing = '0px';
+      c.restore();
+    }
+    F.grain(c, t, .05); F.vignette(c, .55, '0,0,0');
+    const fo = prog(t, 14.5, 15); if (fo > 0) { c.fillStyle = `rgba(6,8,9,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S, sw = beat * 2 / 3;
+    const nz = (w, B, d, peak, type, f, q = 1, f2, a = .002, dst = 'drum') => {
+      const ctx = B.sfx.context, n = Math.ceil(ctx.sampleRate * (d + a + .05)), buf = ctx.createBuffer(1, n, ctx.sampleRate), ar = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) ar[i] = Math.random() * 2 - 1;
+      const s = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain(); s.buffer = buf; fl.type = type; fl.frequency.setValueAtTime(f, w); fl.Q.value = q;
+      if (f2) fl.frequency.exponentialRampToValueAtTime(f2, w + d); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(peak, w + a); g.gain.exponentialRampToValueAtTime(.0001, w + a + d);
+      s.connect(fl); fl.connect(g); g.connect(B[dst]); s.start(w); s.stop(w + a + d + .05);
+    };
+    const ride = (w, B, v = 1) => { nz(w, B, .45, .06 * v, 'highpass', 7500, .6); };
+    const hum = (w, B, d) => { const ctx = B.sfx.context, o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(70, w); o.frequency.linearRampToValueAtTime(130, w + d); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.25, w + .1); g.gain.setValueAtTime(.25, w + d - .1); g.gain.exponentialRampToValueAtTime(.0001, w + d); o.connect(g); g.connect(B.sfx); o.start(w); o.stop(w + d + .05); };
+    const clink = (w, B, f = 2600) => { const ctx = B.sfx.context; [1, 2.7].forEach((k, i) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = f * k; g.gain.setValueAtTime(.08 / (i + 1), w); g.gain.exponentialRampToValueAtTime(.0001, w + .5); o.connect(g); g.connect(B.sfx); o.start(w); o.stop(w + .55); }); };
+    const door = (w, B) => { nz(w, B, BEAT, .14, 'lowpass', 500, .7, 200, .05, 'sfx'); nz(w, B, BEAT * .8, .05, 'bandpass', 2000, 2, 900, .05, 'sfx'); };
+    const stab = (ch, v = 1, d = .2) => (w, B) => ch.forEach(m => I.brass(w, B, m, v, d));
+    // harmony: F6 – D7 – Gm7 – C7, one chord per bar (9 bars ≈ 15 s)
+    const CH = [[53, 57, 60, 62], [54, 57, 60, 62], [55, 58, 62, 65], [52, 55, 58, 60]];
+    const WALK = [[41, 45, 48, 50], [38, 42, 45, 44], [43, 46, 50, 49], [36, 40, 43, 40]];
+    for (let k = 0; k < 9; k++) {
+      const t0 = k * bar, i = k % 4;
+      WALK[i].forEach((m, q) => S.at(t0 + q * beat, I.bass, m, .36, .9));
+      for (let q = 0; q < 4; q++) { S.at(t0 + q * beat, ride, q % 2 ? .8 : 1); if (q % 2) { S.at(t0 + q * beat + sw, ride, .6); S.at(t0 + q * beat, I.snare, .18); } }
+      S.at(t0, I.kick, .4); S.at(t0 + 2 * beat, I.kick, .3);
+      S.at(t0 + beat + sw, (w, B) => CH[i].forEach(m => I.keys(w, B, m + 12, .45, .25)));
+      S.at(t0 + 3 * beat, (w, B) => CH[i].forEach(m => I.keys(w, B, m + 12, .35, .2)));
+    }
+    // lift: hum while rising, ding on arrival, doors slide
+    for (let i = 1; i < FLOOR.length; i++) if (FLOOR[i][1] !== FLOOR[i - 1][1]) { S.at(FLOOR[i - 1][0], hum, FLOOR[i][0] - FLOOR[i - 1][0]); S.at(FLOOR[i][0], (w, B) => { I.bell(w, B, 88, .7); I.bell(w + .18, B, 84, .6); }); }
+    STOPS.forEach(([o, cl], i) => { S.at(b(o), door); if (cl < 99) S.at(b(cl), door); });
+    S.at(0, I.shimmer);
+    // each party: the band swells when the doors are open
+    S.at(b(6), stab([65, 69, 72, 74], 1.2, .3));
+    S.melody([72, 74, 77, 0, 76, 74, 72, 69, 0, 72, 0, 77], b(7), beat / 2, 'brass', 1.0);          // 3F trumpet solo
+    S.at(b(14), I.pop, 1.4); [15, 16, 17, 18].forEach((x, k) => S.at(b(x), clink, 2400 + k * 300));   // 6F cork + clinks
+    S.at(b(14), stab([62, 66, 69, 72], 1.1, .3));
+    for (let x = 23; x < 27; x++) { S.at(b(x), stab([67, 70, 74, 77], .7, .12)); S.at(b(x) + sw, stab([67, 70, 74, 77], .5, .1)); }   // 9F shout chorus
+    for (let x = 23; x < 27; x++) S.at(b(x), I.clap, .6);
+    S.at(b(28), I.riser, b(2));
+    // roof: big band hit + fireworks
+    S.at(b(30), stab([53, 57, 60, 62, 65, 69], 1.4, 1)); S.at(b(30), I.impact);
+    for (let k = 0; k < 10; k++) { S.at(b(30.5) + k * beat, (w, B) => { nz(w, B, .9, .18, 'lowpass', 1800, .7, 300, .003, 'sfx'); }); S.at(b(30.5) + k * beat + .15, I.crackle); }
+    S.melody([77, 76, 74, 72, 74, 77, 81], b(31), beat / 2, 'brass', 1.0);
+    S.at(b(34), stab([53, 57, 60, 62, 67, 72], 1.3, 1.4)); S.at(b(34), I.bell, 96, .5); S.at(b(34), ride, 1.4); S.at(b(34), I.bass, 41, 1.4, 1);
+  }
+});
+</script></body></html>

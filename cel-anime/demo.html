@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>80 年代赛璐璐 · 雨夜天台</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@700&text=雨夜天台咖啡唱片夜光">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Monoton&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+const SERIF = '"Noto Serif SC", "Songti SC", serif', NEON = 'Monoton, sans-serif';
+const LINE = '#2A1840';                                        // 线稿：深紫，不用纯黑
+const PINK = '#FF4FA3', CYAN = '#3FE0FF', AMBER = '#FFC857', VIOLET = '#B07CFF';
+// ---- 时间表（96 BPM，一拍 0.625 秒）----
+const BEAT = .625;
+const CUT1 = 3.75, ON = 5.0, CUT2 = 6.25, CUT3 = 12.5;          // 三个硬切：远景 → 特写 → 远景 → 特写
+const LIFT = [3.9, 4.9];                                       // 双手把耳机举上来
+const ORDER = [4, 6, 2, 8, 0, 5, 9, 3, 7, 1];                  // 十栋楼的亮灯顺序
+const LIGHT = g => CUT2 + ORDER.indexOf(g) * BEAT;            // 第 g 栋楼亮灯的时刻（每拍一栋）
+const SIGNS = [7.5, 10.0], ALL = 11.25, TITLE = 13.0, FADE = 14.5;
+// 中景楼（亮灯的主角）
+const BLD = [[20, 120, 250], [150, 110, 175], [270, 140, 290], [420, 100, 205], [530, 150, 135], [690, 120, 240], [820, 105, 165], [935, 150, 280], [1095, 95, 200], [1195, 110, 150]];
+const COLS = [PINK, CYAN, AMBER, VIOLET];
+const bloom = document.createElement('canvas'); bloom.width = 480; bloom.height = 270; const bl = bloom.getContext('2d');
+Film({
+  title: '80 年代赛璐璐 · 雨夜天台', DUR: 15, BPM: 96, poster: 11.6,
+  fonts: [['700 64px "Noto Serif SC"', '雨夜天台咖啡唱片夜光'], ['40px Monoton', 'NEON RAIN']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, ease, easeOut, easeIn, back, hash, rrect } = F;
+    const ph = t / BEAT, onBeat = Math.pow(Math.max(0, 1 - (ph % 1) * 3), 2) * (t > ON ? 1 : 0);   // 拍点脉冲
+    const lit = g => t >= LIGHT(g) ? 1 : 0;
+    const allK = t > ALL ? Math.exp(-(t - ALL) * 3) : 0;
+
+    if (t < CUT1) wide(lerp(-40, 0, t / CUT1), 1.0, 0);
+    else if (t < CUT2) closeUp(false);
+    else if (t < CUT3) { const u = (t - CUT2) / (CUT3 - CUT2); wide(lerp(10, -30, u), lerp(1.14, 1.24, ease(u)), 1); }
+    else closeUp(true);
+    // 统一：颗粒 + 暗角 + 淡出（泛光只在远景里做，见 wide()）
+    F.grain(c, t, .06); F.vignette(c, .5, '10,5,25');
+    const fo = prog(t, FADE, 15); if (fo > 0) { c.fillStyle = `rgba(6,4,14,${fo})`; c.fillRect(0, 0, W, H); }
+
+    // ======================= 远景：天台 + 城市 =======================
+    function wide(px, zoom, shot) {
+      c.save(); c.translate(640, 400); c.scale(zoom, zoom); c.translate(-640 + px, -400 + (zoom - 1) * 180);
+      // 天空（背景画可以有渐变）
+      const sky = c.createLinearGradient(0, -100, 0, 520); sky.addColorStop(0, '#07061A'); sky.addColorStop(.55, '#1E1242'); sky.addColorStop(1, '#5A1E5C'); c.fillStyle = sky; c.fillRect(-200, -200, W + 400, 760);
+      // 远处楼群（剪影 + 零星灯）
+      for (let i = 0; i < 22; i++) { const x = -150 + i * 72 + hash(i) * 30, w = 50 + hash(i + 3) * 50, top = 300 + hash(i + 7) * 90; c.fillStyle = '#2A1F55'; c.fillRect(x, top, w, 260); for (let k = 0; k < 8; k++) if (hash(i * 13 + k) > .6 || allK > .05) { c.fillStyle = `rgba(255,190,230,${.35 + .5 * allK})`; c.fillRect(x + 6 + (k % 3) * 14, top + 12 + Math.floor(k / 3) * 20, 5, 7); } }
+      // 中景楼：每拍亮一栋
+      BLD.forEach(([x, w, top], g) => {
+        c.fillStyle = '#17123A'; c.fillRect(x, top, w, 560 - top);
+        c.fillStyle = '#231B4F'; c.fillRect(x + w - 12, top, 12, 560 - top);          // 一道硬阴影面
+        c.fillStyle = '#0E0B26'; c.fillRect(x - 4, top - 6, w + 8, 8);
+        const col = COLS[g % 4], cols = Math.floor((w - 16) / 20), rows = Math.floor((500 - top - 16) / 24), on = lit(g);
+        for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+          const id = g * 400 + r * 20 + q, pre = hash(id) > .9, want = hash(id * 1.7) > .32;
+          const cascade = on && t > LIGHT(g) + (1 - r / rows) * .28;                     // 从下往上亮
+          const wx = x + 10 + q * 20, wy = top + 14 + r * 24;
+          if ((cascade && want) || pre || (allK > .1 && want)) { c.fillStyle = hash(id * 3.1) > .8 ? '#FFF3E0' : col; c.fillRect(wx, wy, 11, 14); c.fillStyle = 'rgba(0,0,0,.25)'; c.fillRect(wx, wy + 9, 11, 5); }
+          else { c.fillStyle = '#241D4A'; c.fillRect(wx, wy, 11, 14); }
+        }
+      });
+      // 霓虹招牌
+      sign(300, 330, '咖啡', PINK, SIGNS[0]); sign(1000, 300, '唱片', CYAN, SIGNS[1]);
+      // 天台地面（湿的，有倒影）
+      c.fillStyle = '#120E26'; c.fillRect(-200, 520, W + 400, 400);
+      BLD.forEach(([x, w], g) => { if (!lit(g)) return; const gr = c.createLinearGradient(0, 526, 0, 720); gr.addColorStop(0, COLS[g % 4] + '90'); gr.addColorStop(1, COLS[g % 4] + '00'); c.fillStyle = gr; for (let k = 0; k < 7; k++) c.fillRect(x + w * (.08 + .84 * hash(g * 7 + k)), 526, 2 + 4 * hash(g * 5 + k), 60 + 130 * hash(g * 3 + k)); });
+      c.strokeStyle = 'rgba(18,14,38,.8)'; c.lineWidth = 2; for (let k = 0; k < 16; k++) { const y = 532 + k * 12 + (k % 3) * 2; c.beginPath(); for (let xx = -200; xx < W + 200; xx += 30) c.lineTo(xx, y + Math.sin(xx * .05 + t * 3 + k) * 1.5); c.stroke(); }   // 波纹把倒影切碎
+      // 水洼 + 雨滴涟漪
+      c.fillStyle = 'rgba(80,60,150,.25)'; [[300, 610, 160, 18], [700, 680, 220, 22], [1100, 600, 140, 14]].forEach(([x, y, rx, ry]) => { c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, 7); c.fill(); });
+      for (let k = 0; k < 14; k++) { const cyc = Math.floor(t * 2 + hash(k) * 3), u = (t * 2 + hash(k) * 3) % 1, x = hash(k * 7 + cyc) * 1400 - 60, y = 560 + hash(k * 3 + cyc) * 160; c.strokeStyle = `rgba(160,200,255,${.4 * (1 - u)})`; c.lineWidth = 1.2; c.beginPath(); c.ellipse(x, y, 4 + 22 * u, (4 + 22 * u) * .25, 0, 0, 7); c.stroke(); }
+      // 栏杆
+      c.fillStyle = '#0B0820'; c.fillRect(-200, 468, W + 400, 10); for (let x = -180; x < W + 200; x += 64) c.fillRect(x, 468, 7, 58); c.fillRect(-200, 506, W + 400, 5);
+      c.fillStyle = 'rgba(63,224,255,.65)'; c.fillRect(-200, 468, W + 400, 2);
+      // 空调外机 + 水箱（前景剪影）
+      c.fillStyle = '#0A0719'; rrect(c, 60, 560, 200, 110, 6); c.fill(); c.strokeStyle = 'rgba(63,224,255,.4)'; c.lineWidth = 2; c.beginPath(); c.moveTo(62, 562); c.lineTo(258, 562); c.stroke();
+      c.strokeStyle = '#1C1540'; c.lineWidth = 4; c.beginPath(); c.arc(160, 615, 38, 0, 7); c.stroke();
+      // 少女（背影）
+      girlBack(900, 652, shot);
+      c.restore();
+      // 泛光：把画面缩到 480×270，压暗 + 拉对比只留亮灯，再模糊叠回去（离屏每帧先清空）
+      bl.setTransform(1, 0, 0, 1, 0, 0); bl.clearRect(0, 0, 480, 270); bl.filter = 'brightness(.7) contrast(3.2)'; bl.drawImage(c.canvas, 0, 0, 480, 270); bl.filter = 'none';
+      c.save(); c.globalCompositeOperation = 'lighter'; c.globalAlpha = .55; c.filter = 'blur(10px)'; c.drawImage(bloom, 0, 0, W, H); c.filter = 'none'; c.restore();
+      rain(1);
+      // 镜头光晕：从右上角的大招牌灯出来
+      const fk = shot ? clamp(prog(t, 8.75, 10.5) + allK, 0, 1.4) : .25;
+      flare(1150, 150, fk);
+    }
+    function sign(x, y, s, col, tOn) {
+      const on = t > tOn ? 1 : 0, flick = t > tOn && t < tOn + .5 ? (hash(Math.floor(t * 20)) > .4 ? 1 : .15) : on;
+      c.save(); c.fillStyle = '#0E0A22'; rrect(c, x - 30, y - 10, 60, 130, 6); c.fill(); c.strokeStyle = flick > .5 ? col : '#3A2F66'; c.lineWidth = 3; c.stroke();
+      c.font = `700 40px ${SERIF}`; c.textAlign = 'center'; c.fillStyle = flick > .5 ? '#FFFFFF' : '#3A2F66';
+      if (flick > .5) { c.shadowColor = col; c.shadowBlur = 24; }
+      c.fillText(s[0], x, y + 42); c.fillText(s[1], x, y + 98); c.restore();
+    }
+    function girlBack(x, y, shot) {
+      const bob = t > ON ? Math.pow(Math.abs(Math.sin(Math.PI * ph)), 3) * 5 : 0, sway = Math.sin(t * 2.2);
+      c.save(); c.translate(x, y); c.lineJoin = 'round';
+      const ink = w => { c.strokeStyle = LINE; c.lineWidth = w; c.stroke(); };
+      // 腿
+      [[-16, 1], [14, -1]].forEach(([lx, s]) => { c.beginPath(); c.moveTo(lx - 9, -150); c.lineTo(lx - 6, -8); c.lineTo(lx + 6, -8); c.lineTo(lx + 9, -150); c.closePath(); c.fillStyle = '#E9B7AE'; c.fill(); ink(2.5); c.save(); c.clip(); c.fillStyle = '#B77E90'; c.fillRect(lx - 12, -150, 9, 150); c.restore(); c.fillStyle = '#1B1330'; c.beginPath(); c.ellipse(lx, -6, 12, 7, 0, 0, 7); c.fill(); });
+      // 裙子
+      c.beginPath(); c.moveTo(-34, -205); c.lineTo(34, -205); c.lineTo(50 + sway * 3, -140); c.lineTo(-50 + sway * 3, -140); c.closePath(); c.fillStyle = '#3B2B63'; c.fill(); ink(2.5);
+      c.save(); c.clip(); c.fillStyle = '#261B45'; c.beginPath(); c.moveTo(-34, -205); c.lineTo(-6, -205); c.lineTo(-14, -140); c.lineTo(-52, -140); c.fill(); c.restore();
+      c.strokeStyle = LINE; c.lineWidth = 1.5; [-24, -8, 8, 24].forEach(k => { c.beginPath(); c.moveTo(k * .7, -200); c.lineTo(k * 1.4 + sway * 3, -142); c.stroke(); });
+      // 外套（宽大，蓝绿）
+      c.beginPath(); c.moveTo(-40, -318 + bob); c.quadraticCurveTo(-70, -300 + bob, -66, -250); c.lineTo(-62, -185); c.lineTo(62, -185); c.lineTo(66, -250); c.quadraticCurveTo(70, -300 + bob, 40, -318 + bob); c.closePath();
+      c.fillStyle = '#2F8C9A'; c.fill(); ink(3);
+      c.save(); c.clip(); c.fillStyle = '#1C566A'; c.beginPath(); c.moveTo(-80, -330); c.lineTo(-8, -330); c.lineTo(-18, -180); c.lineTo(-80, -180); c.fill(); c.fillStyle = CYAN; c.fillRect(58, -310, 10, 130); c.restore();   // 硬阴影 + 右侧青色轮廓光
+      c.strokeStyle = LINE; c.lineWidth = 2; c.beginPath(); c.moveTo(0, -300 + bob); c.lineTo(0, -190); c.moveTo(-40, -230); c.quadraticCurveTo(-50, -215, -46, -195); c.moveTo(40, -230); c.quadraticCurveTo(50, -215, 46, -195); c.stroke();
+      // 手（袖口里伸出）
+      [-1, 1].forEach(s => { c.beginPath(); c.ellipse(s * 62, -178, 9, 12, 0, 0, 7); c.fillStyle = '#E9B7AE'; c.fill(); ink(2); });
+      // 头 + 波波头
+      c.save(); c.translate(0, bob); c.rotate(t > ON ? Math.sin(Math.PI * ph) * .04 : 0);
+      c.fillStyle = '#E9B7AE'; c.fillRect(-10, -330, 20, 22);
+      c.beginPath(); c.moveTo(-44, -318); c.quadraticCurveTo(-54, -380, 0, -392); c.quadraticCurveTo(54, -380, 44, -318);
+      for (let k = 0; k <= 6; k++) { const xx = 44 - k * 88 / 6; c.lineTo(xx + Math.sin(t * 3 + k) * 2, -312 + (k % 2 ? -8 : 0)); }
+      c.closePath(); c.fillStyle = '#2B2350'; c.fill(); ink(3);
+      c.save(); c.clip(); c.strokeStyle = '#6B5BB5'; c.lineWidth = 7; c.beginPath(); c.arc(0, -330, 42, Math.PI * 1.15, Math.PI * 1.6); c.stroke(); c.fillStyle = 'rgba(63,224,255,.9)'; c.fillRect(38, -380, 8, 70); c.restore();   // 天使光圈 + 轮廓光
+      // 耳机：第一镜挂在脖子上，第三镜戴在头上
+      if (shot) { c.strokeStyle = '#2A2A3A'; c.lineWidth = 7; c.beginPath(); c.arc(0, -352, 46, Math.PI * 1.05, Math.PI * 1.95); c.stroke(); [-1, 1].forEach(s => { c.beginPath(); c.ellipse(s * 46, -345, 11, 17, 0, 0, 7); c.fillStyle = '#FF7A3D'; c.fill(); ink(2.5); }); }
+      c.restore();
+      if (!shot) { c.strokeStyle = '#2A2A3A'; c.lineWidth = 6; c.beginPath(); c.arc(0, -318, 34, Math.PI * .1, Math.PI * .9); c.stroke(); [-1, 1].forEach(s => { c.beginPath(); c.ellipse(s * 34, -306, 12, 15, 0, 0, 7); c.fillStyle = '#FF7A3D'; c.fill(); ink(2.5); }); }
+      c.restore();
+    }
+    // ======================= 特写：戴上耳机 =======================
+    function closeUp(after) {
+      // 背景：虚焦的城市灯光
+      const bg = c.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#0B0822'); bg.addColorStop(1, '#2A1146'); c.fillStyle = bg; c.fillRect(0, 0, W, H);
+      c.save(); c.globalCompositeOperation = 'lighter';
+      for (let k = 0; k < 34; k++) {
+        const x = hash(k * 3.3) * W, y = 80 + hash(k * 5.1) * 560, r = 18 + hash(k * 7.7) * 50, col = COLS[k % 4];
+        const on = after ? 1 : t > ON + (k % 6) * BEAT * .5 ? 1 : hash(k) > .8 ? .5 : 0;
+        if (!on) continue;
+        const g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, col + '66'); g.addColorStop(.75, col + '33'); g.addColorStop(1, col + '00'); c.fillStyle = g; c.globalAlpha = on * (.8 + .2 * Math.sin(t * 2 + k)); c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+      }
+      c.restore();
+      rain(.6);
+      // 头部（朝左的四分之三侧脸）：用朝右的坐标画，再水平翻转
+      const bob = after || t > ON ? Math.pow(Math.abs(Math.sin(Math.PI * ph)), 3) * 6 : 0;
+      c.save(); c.translate(after ? 700 : 740, 400 + bob); c.scale(-1.35, 1.35); c.rotate(after ? -.04 + Math.sin(Math.PI * ph) * .02 : .02);
+      face(after);
+      c.restore();
+      if (after) {
+        flare(260, 170, .9 + .3 * onBeat);
+        const k = easeOut(prog(t, TITLE, TITLE + .8));
+        c.save(); c.globalAlpha = k; c.font = `700 64px ${SERIF}`; c.fillStyle = '#FFFFFF'; c.shadowColor = PINK; c.shadowBlur = 26; c.fillText('雨夜天台', 90, 600 + (1 - k) * 12);
+        c.shadowBlur = 0; c.font = `22px ${NEON}`; c.fillStyle = CYAN; c.fillText('NEON RAIN', 94, 640); c.restore();
+      } else flare(1180, 120, .35 + .5 * clamp((t - ON) * 2, 0, 1));
+    }
+    function face(after) {
+      const ink = (w = 3) => { c.strokeStyle = LINE; c.lineWidth = w; c.lineJoin = 'round'; c.lineCap = 'round'; c.stroke(); };
+      const SKIN = '#F2C4C0', SHADE = '#B77FA8';
+      // 外套 + 脖子
+      c.beginPath(); c.moveTo(-260, 420); c.quadraticCurveTo(-200, 200, -40, 190); c.lineTo(90, 205); c.quadraticCurveTo(220, 230, 250, 420); c.closePath(); c.fillStyle = '#2F8C9A'; c.fill(); ink(3.5);
+      c.save(); c.clip(); c.fillStyle = '#1C566A'; c.fillRect(-270, 180, 220, 260); c.restore();
+      c.beginPath(); c.moveTo(-20, 95); c.lineTo(-24, 215); c.quadraticCurveTo(20, 230, 50, 212); c.lineTo(46, 110); c.closePath(); c.fillStyle = SKIN; c.fill(); ink();
+      c.save(); c.clip(); c.fillStyle = SHADE; c.beginPath(); c.moveTo(-30, 90); c.lineTo(60, 120); c.lineTo(60, 150); c.lineTo(-30, 175); c.fill(); c.restore();
+      // 耳机：3.9–4.9 从画外举上来，5.0 扣上。整副耳机（两个耳罩 + 一整条头梁）共用一个变换：平移 + 轻微倾斜，扣上时回正
+      const k = after ? 1 : t < LIFT[0] ? 0 : easeOut(prog(t, LIFT[0], LIFT[1]));
+      const snap = !after && t > ON && t < ON + .15 ? 1 - (t - ON) / .15 : 0;
+      const hy = lerp(-330, 0, k) - (!after && t > LIFT[1] && t < ON ? 6 : 0);
+      const tilt = -(1 - k) * .14;
+      const hp = () => { c.translate(0, hy); c.translate(-44, -4); c.rotate(tilt); c.scale(1 + snap * .06, 1 - snap * .06); c.translate(44, 4); };
+      const band = () => { c.lineCap = 'butt'; c.strokeStyle = LINE; c.lineWidth = 26; c.stroke(); c.strokeStyle = '#4A4268'; c.lineWidth = 20; c.stroke(); c.strokeStyle = '#FF7A3D'; c.lineWidth = 8; c.stroke(); };
+      // 头梁在头顶正中 (8,-168) 一分为二：远侧半边 + 远侧耳罩画在整颗头后面，戴上后被后脑和脸挡住，只在头顶露出弧线
+      c.save(); hp();
+      c.beginPath(); c.moveTo(8, -168); c.bezierCurveTo(38, -168, 50, -128, 42, -38); band();
+      c.beginPath(); c.ellipse(40, -4, 20, 54, -.12, 0, 7); c.fillStyle = "#C9502A"; c.fill(); ink(3.5);
+      c.save(); c.clip(); c.fillStyle = '#FF7A3D'; c.fillRect(36, -70, 30, 140); c.restore();
+      c.restore();
+      // 后脑头发
+      c.beginPath(); c.moveTo(10, -175); c.bezierCurveTo(-120, -185, -175, -80, -165, 20); c.bezierCurveTo(-160, 80, -150, 110, -120, 130);
+      for (let k = 0; k < 5; k++) c.lineTo(-120 + k * 22 + Math.sin(t * 2.4 + k) * 3, 118 + (k % 2 ? 22 : 0));
+      c.lineTo(-20, 100); c.lineTo(20, -60); c.closePath(); c.fillStyle = '#2B2350'; c.fill(); ink(3.5);
+      c.save(); c.clip(); c.fillStyle = '#1A1538'; c.beginPath(); c.moveTo(-170, 0); c.quadraticCurveTo(-100, 40, -60, 140); c.lineTo(-180, 140); c.fill(); c.strokeStyle = '#6B5BB5'; c.lineWidth = 12; c.beginPath(); c.arc(-30, -40, 120, Math.PI * 1.1, Math.PI * 1.45); c.stroke(); c.restore();
+      // 脸
+      const facePath = () => { c.beginPath(); c.moveTo(-30, -110); c.bezierCurveTo(20, -140, 70, -110, 80, -50); c.quadraticCurveTo(82, -20, 96, 22); c.quadraticCurveTo(100, 34, 88, 38); c.quadraticCurveTo(94, 50, 88, 56); c.quadraticCurveTo(92, 66, 84, 74); c.quadraticCurveTo(76, 104, 50, 116); c.quadraticCurveTo(10, 130, -30, 96); c.lineTo(-50, 20); c.closePath(); };
+      facePath(); c.fillStyle = SKIN; c.fill();
+      c.save(); facePath(); c.clip();
+      c.fillStyle = SHADE; c.beginPath(); c.moveTo(-60, -120); c.lineTo(-2, -120); c.quadraticCurveTo(-10, 0, 20, 118); c.lineTo(-60, 130); c.fill();   // 一层硬阴影
+      c.fillStyle = 'rgba(160,110,170,.9)'; c.beginPath(); c.moveTo(-40, -118); c.lineTo(90, -118); c.lineTo(90, -80); c.quadraticCurveTo(30, -60, -40, -80); c.fill();       // 刘海投影
+      c.restore();
+      facePath(); ink(3.5);
+      // 前侧青色轮廓光（硬边）
+      c.save(); facePath(); c.clip(); c.strokeStyle = CYAN; c.lineWidth = 7; c.beginPath(); c.moveTo(80, -50); c.quadraticCurveTo(82, -20, 96, 22); c.moveTo(84, 74); c.quadraticCurveTo(76, 104, 50, 116); c.stroke(); c.restore();
+      // 腮红排线
+      c.strokeStyle = '#E26A8E'; c.lineWidth = 2.5; for (let k = 0; k < 4; k++) { c.beginPath(); c.moveTo(30 + k * 9, 30); c.lineTo(22 + k * 9, 44); c.stroke(); }
+      // 眼睛
+      const open = after ? 0 : t < ON ? .55 : Math.min(1, .55 + (t - ON) * 3);
+      if (open <= 0) {
+        c.beginPath(); c.moveTo(18, -20); c.quadraticCurveTo(45, -2, 72, -18); ink(4.5);
+        c.beginPath(); c.moveTo(66, -16); c.lineTo(78, -24); ink(3);
+      } else {
+        const top = -46 + (1 - open) * 26;
+        c.save(); c.beginPath(); c.moveTo(20, -14); c.quadraticCurveTo(24, top, 50, top - 2); c.quadraticCurveTo(70, top, 76, -30); c.quadraticCurveTo(66, 0, 40, 4); c.closePath(); c.fillStyle = '#FFFFFF'; c.fill(); c.clip();
+        c.fillStyle = '#4A2A7A'; c.beginPath(); c.ellipse(50, -14, 17, 26, 0, 0, 7); c.fill();
+        c.fillStyle = '#B05AC8'; c.beginPath(); c.ellipse(50, -2, 14, 13, 0, 0, 7); c.fill();       // 虹膜下半：亮一档（硬边）
+        c.fillStyle = '#1E0F36'; c.beginPath(); c.ellipse(52, -14, 7, 12, 0, 0, 7); c.fill();
+        c.fillStyle = '#FFFFFF'; c.beginPath(); c.arc(44, -26, 6.5, 0, 7); c.fill(); c.beginPath(); c.arc(58, 0, 3, 0, 7); c.fill();
+        if (t > ON) { c.fillStyle = COLS[Math.floor(ph) % 4]; c.beginPath(); c.arc(56, -22, 2.5, 0, 7); c.fill(); }   // 眼里反射的霓虹，随拍换色
+        c.restore();
+        c.beginPath(); c.moveTo(16, -12); c.quadraticCurveTo(22, top - 2, 50, top - 4); c.quadraticCurveTo(72, top - 2, 80, -32); ink(5);
+        c.beginPath(); c.moveTo(78, -32); c.lineTo(88, -40); ink(3);
+        c.beginPath(); c.moveTo(34, 4); c.quadraticCurveTo(52, 8, 66, 0); ink(2);
+      }
+      // 眉 + 鼻 + 嘴
+      c.beginPath(); c.moveTo(26, -66); c.quadraticCurveTo(52, -78, 76, -64); ink(3);
+      c.beginPath(); c.moveTo(86, 12); c.lineTo(92, 26); ink(2.5);
+      if (after) { c.beginPath(); c.moveTo(70, 62); c.quadraticCurveTo(80, 70, 88, 58); ink(3); } else { c.beginPath(); c.moveTo(72, 64); c.lineTo(86, 62); ink(3); }
+      // 头梁近侧半边：从近侧耳罩越过头顶正中，再沿远侧曲线多走一小段（重合处盖住后脑头发的收口线，接缝不露），画在刘海下面
+      c.save(); hp(); c.beginPath(); c.moveTo(-48, -62); c.bezierCurveTo(-58, -136, -30, -168, 8, -168); c.bezierCurveTo(15.5, -168, 21.9, -165.5, 27.1, -160.2); band(); c.restore();
+      // 刘海
+      c.beginPath(); c.moveTo(-40, -100); c.bezierCurveTo(-20, -190, 90, -180, 104, -90);
+      [[96, -30], [78, -78], [66, -24], [48, -80], [26, -36], [14, -90], [-12, -60]].forEach(([x, y], k) => c.lineTo(x + Math.sin(t * 2.6 + k) * 2, y));
+      c.closePath(); c.fillStyle = '#2B2350'; c.fill(); ink(3.5);
+      c.save(); c.clip(); c.strokeStyle = '#6B5BB5'; c.lineWidth = 10; c.beginPath(); c.arc(30, -40, 120, Math.PI * 1.3, Math.PI * 1.7); c.stroke(); c.fillStyle = CYAN; c.beginPath(); c.moveTo(96, -120); c.lineTo(110, -120); c.lineTo(104, -30); c.lineTo(92, -30); c.fill(); c.restore();
+      // 侧发（盖住耳朵前面）
+      c.beginPath(); c.moveTo(-26, -70); c.quadraticCurveTo(0, 20, -12, 120); c.lineTo(-30, 96); c.lineTo(-40, 120); c.quadraticCurveTo(-50, 20, -40, -60); c.closePath(); c.fillStyle = '#2B2350'; c.fill(); ink(3);
+      // 近侧耳罩（压在头梁末端之上）
+      c.save(); hp();
+      c.beginPath(); c.ellipse(-44, -4, 52, 64, -.12, 0, 7); c.fillStyle = '#FF7A3D'; c.fill(); ink(3.5);
+      c.save(); c.clip(); c.fillStyle = '#C9502A'; c.fillRect(-110, -80, 50, 160); c.restore();
+      c.beginPath(); c.ellipse(-40, -4, 30, 40, -.12, 0, 7); c.fillStyle = '#3A2A55'; c.fill(); ink(2.5);
+      c.beginPath(); c.ellipse(-40, -4, 14, 20, -.12, 0, 7); c.fillStyle = '#FF9B63'; c.fill();
+      c.strokeStyle = '#FFFFFF'; c.lineWidth = 4; c.beginPath(); c.arc(-44, -4, 44, -1.2, -.6); c.stroke();
+      c.restore();
+      // 捏着耳机的手：前臂从画面下方伸上来，手掌托住耳罩，四根手指扣在耳罩前沿（扣上后放下）
+      if (!after && t > LIFT[0] - .1 && t < ON + .5) {
+        const down = easeIn(prog(t, ON + .05, ON + .5));
+        c.save(); c.translate(0, hy + down * 320);
+        c.beginPath(); c.moveTo(-150, 330); c.quadraticCurveTo(-120, 150, -70, 62); c.lineTo(-30, 70); c.quadraticCurveTo(-70, 170, -80, 330); c.closePath(); c.fillStyle = SKIN; c.fill(); ink(3);   // 前臂
+        c.save(); c.clip(); c.fillStyle = SHADE; c.fillRect(-160, 40, 40, 300); c.restore();
+        c.beginPath(); c.moveTo(-170, 330); c.lineTo(-150, 250); c.lineTo(-70, 262); c.lineTo(-66, 330); c.closePath(); c.fillStyle = '#2F8C9A'; c.fill(); ink(3);   // 袖口
+        c.beginPath(); c.ellipse(-52, 58, 30, 22, -.5, 0, 7); c.fillStyle = SKIN; c.fill(); ink(3);                                                   // 手掌
+        [[-16, 40, -.9], [-8, 20, -1.1], [-4, -2, -1.3], [-6, -22, -1.5]].forEach(([fx, fy, a]) => { c.save(); c.translate(fx, fy); c.rotate(a); c.beginPath(); c.ellipse(0, 0, 16, 7.5, 0, 0, 7); c.fillStyle = SKIN; c.fill(); ink(2.5); c.restore(); });   // 手指
+        c.restore();
+      }
+    }
+    // ======================= 雨 + 光晕 =======================
+    function rain(k) {
+      c.save(); c.lineCap = 'round';
+      for (let layer = 0; layer < 2; layer++) {
+        const n = layer ? 60 : 120, sp = layer ? 1700 : 1100, len = layer ? 70 : 34;
+        c.strokeStyle = layer ? `rgba(200,225,255,${.45 * k})` : `rgba(170,190,255,${.3 * k})`; c.lineWidth = layer ? 2 : 1.1;
+        c.beginPath();
+        for (let i = 0; i < n; i++) { const s = i + layer * 500, y = ((hash(s) * (H + 200) + t * sp) % (H + 200)) - 100, x = ((hash(s * 1.7) * (W + 200) - t * sp * .18) % (W + 200) + W + 200) % (W + 200) - 100; c.moveTo(x, y); c.lineTo(x - len * .18, y + len); }
+        c.stroke();
+      }
+      c.restore();
+    }
+    function flare(x, y, k) {
+      if (k <= 0) return;
+      c.save(); c.globalCompositeOperation = 'lighter';
+      const g = c.createRadialGradient(x, y, 0, x, y, 220); g.addColorStop(0, `rgba(255,240,255,${.9 * Math.min(1, k)})`); g.addColorStop(.15, `rgba(255,110,200,${.45 * k})`); g.addColorStop(1, 'rgba(120,40,160,0)'); c.fillStyle = g; c.fillRect(x - 220, y - 220, 440, 440);
+      // 横向拉丝（变形镜头）
+      const s = c.createLinearGradient(x - 700, 0, x + 700, 0); s.addColorStop(0, 'rgba(63,224,255,0)'); s.addColorStop(.5, `rgba(150,240,255,${.55 * k})`); s.addColorStop(1, 'rgba(63,224,255,0)'); c.fillStyle = s; c.fillRect(x - 700, y - 2.5, 1400, 5);
+      // 沿对角线的鬼影
+      [[.35, 26, PINK], [.6, 14, CYAN], [.95, 50, VIOLET], [1.25, 20, AMBER], [1.6, 70, CYAN]].forEach(([p, r, col]) => {
+        const gx = lerp(x, 640, p) + (640 - x) * (p - 1) * 0, gy = lerp(y, 360, p);
+        c.globalAlpha = .22 * Math.min(1, k); c.fillStyle = col; c.beginPath(); for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; c.lineTo(gx + Math.cos(a) * r, gy + Math.sin(a) * r); } c.closePath(); c.fill();
+      });
+      c.restore();
+    }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    // 雨声：自己搭噪声源（整片持续）
+    S.at(0, (w, B) => {
+      const ctx = B.sfx.context, len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7000;
+      const g = ctx.createGain(); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.09, w + .8); g.gain.setValueAtTime(.09, w + 4.9); g.gain.linearRampToValueAtTime(.045, w + 5.2); g.gain.setValueAtTime(.045, w + 14.3); g.gain.linearRampToValueAtTime(.0001, w + 15.3);
+      src.connect(hp); hp.connect(lp); lp.connect(g); g.connect(B.out); src.start(w); src.stop(w + 15.5);
+    });
+    // 王道进行：Fmaj7 – G7 – Em7 – Am7（city-pop）
+    const PR = [[53, 57, 60, 64], [55, 59, 62, 65], [52, 55, 59, 62], [57, 60, 64, 67]], RT = [41, 43, 40, 45];
+    // 戴耳机前：闷闷的 pad；5.0 之后全开
+    S.at(0, I.pad, PR[0], bar * 2, .45); S.at(bar * 2, I.pad, PR[2], bar, .45);
+    S.at(ON, I.click); S.at(ON, I.pop, .8);
+    S.padBars(PR, 2, 6, 'pad', .8);
+    const b0 = ON;                                             // 5.0 = 第 8 拍，从这里开始八分音符合成贝斯
+    for (let e = 0; b0 + e * beat / 2 < 15; e++) { const tt = b0 + e * beat / 2, bi = Math.floor((tt) / bar) % 4; S.at(tt, I.bass, RT[bi] + (e % 2 ? 12 : 0), .2, .75); }
+    // 鼓：底鼓四拍 + 2、4 拍军鼓（进混响）
+    for (let x = b0; x < 14.9; x += beat) { S.at(x, I.kick, .9); S.at(x + beat / 2, I.hat, .7); }
+    for (let x = b0 + beat; x < 14.9; x += beat * 2) { S.at(x, I.snare, 1.1); S.at(x, I.clap, .6); S.at(x, (w, B) => {   // 军鼓尾巴：一段衰减噪声送进混响
+      const ctx = B.sfx.context, n = ctx.createBufferSource(), len = ctx.sampleRate * .3, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2); n.buffer = buf; const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1800; const g = ctx.createGain(); g.gain.value = .25; n.connect(f); f.connect(g); g.connect(B.sfx); n.start(w); }); }
+    // 每亮一栋楼 = 一个琶音音符
+    const ARP = [72, 76, 79, 83, 84, 83, 79, 76, 77, 81];
+    ORDER.forEach((g, i) => S.at(LIGHT(g), I.bell, ARP[i], .7));
+    SIGNS.forEach(x => { S.at(x, I.shimmer); for (let k = 0; k < 4; k++) S.at(x + k * .05, I.tick, .4); });
+    // 主旋律（合成器 lead）
+    const MEL = [76, 0, 79, 0, 81, 79, 76, 0, 74, 0, 76, 79, 0, 76, 74, 72];
+    S.melody(MEL, CUT2 + bar, beat / 2, 'lead', .8);
+    S.at(ALL - 1.2, I.riser, 1.2); S.at(ALL, I.impact); S.at(ALL, I.chime);
+    S.at(CUT3, I.whoosh, .7); S.at(CUT3, (w, B) => [65, 69, 72, 76, 79].forEach(m => I.keys(w, B, m, 1, 2.4)));
+    S.at(TITLE, I.shimmer);
+  }
+});
+</script></body></html>

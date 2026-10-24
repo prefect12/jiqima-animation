@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>浮世绘 · 屋檐四季</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@700;900&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 浮世绘：木版套色。先印墨线版，再一块一块套色；平涂色块、顶部“一文字暈し”、粗墨线、套色错位、和纸纹。
+   时间表（BPM 75，一拍 0.8 秒 = 猫走一个步态周期，一小节 3.2 秒 = 一季）——draw() 和 score() 共用。 */
+const BPM = 75, BEAT = 60 / BPM, BAR = BEAT * 4;
+const SEASON = [0, BAR, 2 * BAR, 3 * BAR];            // 春 0 / 夏 3.2 / 秋 6.4 / 冬 9.6
+const PRINT = [.35, .7];                               // 墨线版 → 蓝灰版 → 其余色版
+const V = 330, STOP = [11.0, 11.8], CATX = 440;        // 卷轴速度 px/s，猫在屏幕上的位置
+const SIT = [11.9, 12.5], LOOKUP = [13.0, 13.8], FADE = [14.45, 15];
+const scrollAt = t => t < STOP[0] ? V * t : V * STOP[0] + V * (STOP[1] - STOP[0]) * (1 - Math.pow(1 - Math.min(1, (t - STOP[0]) / (STOP[1] - STOP[0])), 2)) / 2;
+const LANTERN_X = scrollAt(15) + 700, LY = 20;        // 灯笼挂在猫停下的地方右边
+const KEY = '#1C1A17', PAPER = '#EDE2C6';
+const SERIF = '"Noto Serif SC", "Songti SC", serif';
+const IX = 18, IY = 18, IW = 1244, IH = 684;           // 画心（四周留纸边）
+const RIDGE = 478, EAVE = 590, CAT_S = 1.45;
+const WIPE = SEASON.slice(1).map(x => x - .35), WSPD = 2600;   // 季节换版：霞云从右往左扫过，约 0.7 秒
+
+/* 和纸纹理：初始化时生成一次 */
+const WASHI = document.createElement('canvas'); WASHI.width = WASHI.height = 512;
+{ const g = WASHI.getContext('2d');
+  for (let i = 0; i < 5000; i++) { g.fillStyle = Math.random() < .5 ? `rgba(90,70,40,${Math.random() * .06})` : `rgba(255,250,235,${Math.random() * .08})`; g.fillRect(Math.random() * 512, Math.random() * 512, 1 + Math.random() * 2, 1 + Math.random() * 2); }
+  for (let i = 0; i < 260; i++) { g.strokeStyle = Math.random() < .55 ? `rgba(255,248,230,${.05 + Math.random() * .1})` : `rgba(110,90,60,${.03 + Math.random() * .05})`; g.lineWidth = .4 + Math.random() * .8; g.beginPath(); let x = Math.random() * 512, y = Math.random() * 512; g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += Math.random() * 16 - 8; y += Math.random() * 16 - 8; g.lineTo(x, y); } g.stroke(); } }
+
+const PAL = [
+  { name: '春', sky: ['#284F7E', '#9DB6C4', '#F1E3C6'], far: '#8792A4', roof: '#5A667C', tile: '#7D8AA2', ridge: '#3A4254', wall: '#EDE2C8', win: '#D9CBA8' },
+  { name: '夏', sky: ['#16457E', '#4F86B8', '#E8E6D2'], far: '#6D7D95', roof: '#4E5C74', tile: '#6E7E98', ridge: '#323B4E', wall: '#EAE0C6', win: '#D4C9A6' },
+  { name: '秋', sky: ['#2A335E', '#C06A4A', '#EFB76A'], far: '#5E5670', roof: '#4E4C62', tile: '#6C6A80', ridge: '#34323F', wall: '#E6D2B0', win: '#D8BE8C' },
+  { name: '冬', sky: ['#0E1530', '#22345E', '#3F5580'], far: '#27304A', roof: '#2C3346', tile: '#48526A', ridge: '#1E2333', wall: '#6E6A62', win: '#F2C66B' }
+];
+// 每块色版各自有一点套色错位
+const REG = { 1: [-1.6, 1.8], 2: [2.6, 1.4], 3: [1.2, -1.8] };
+
+Film({
+  title: '浮世绘 · 屋檐四季', DUR: 15, BPM, poster: 12.9,
+  fonts: [['900 40px "Noto Serif SC"', '屋檐四季春夏秋冬'], ['700 40px "Noto Serif SC"', '屋檐四季春夏秋冬']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, ease, easeOut, hash } = F;
+    const G = t < PRINT[0] ? 0 : t < PRINT[1] ? 1 : 3;      // 已经印上的色版
+    const sc = scrollAt(t);
+    const X = wx => wx - sc;                                  // 世界 → 屏幕
+    // 色块：先按错位填色，再压墨线
+    const blk = (path, fill, grp = 2, lw = 3) => {
+      if (fill && grp <= G) { c.save(); const r = REG[grp] || [0, 0]; c.translate(r[0], r[1]); path(); c.fillStyle = fill; c.fill(); c.restore(); }
+      if (lw) { path(); c.lineWidth = lw; c.strokeStyle = KEY; c.lineJoin = 'round'; c.lineCap = 'round'; c.stroke(); }
+    };
+    const ell = (x, y, rx, ry, a = 0) => () => { c.beginPath(); c.ellipse(x, y, rx, ry, a, 0, Math.PI * 2); };
+    const polyP = pts => () => { c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y)); c.closePath(); };
+    // 霞云：一串横向椭圆拼成，外轮廓一圈墨线（先描所有椭圆，再按错位填色盖掉里面的线）
+    const cloud = (cx, cy, w, h, col, seed) => {
+      const n = Math.max(3, Math.round(w / 70)), L = [];
+      for (let q = 0; q < n; q++) { const u = q / (n - 1), r = h * (.34 + .2 * Math.sin(u * Math.PI)) * (.85 + .3 * hash(seed + q)); L.push([cx - w / 2 + u * w, cy - r * .35 + (hash(seed + q * 3) - .5) * h * .2, r * 1.7, r]); }
+      const path = () => { c.beginPath(); L.forEach(([x, y, rx, ry]) => { c.moveTo(x + rx, y); c.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); }); c.moveTo(cx - w / 2, cy); c.rect(cx - w / 2, cy - h * .12, w, h * .3); };
+      c.save(); L.forEach(([x, y, rx, ry]) => { c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); c.lineWidth = 5; c.strokeStyle = KEY; c.stroke(); }); c.beginPath(); c.rect(cx - w / 2, cy - h * .12, w, h * .3); c.stroke(); c.restore();
+      if (G >= 2) { c.save(); c.translate(...REG[2]); path(); c.fillStyle = col; c.fill(); c.restore(); }
+    };
+
+    c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
+    c.save(); c.beginPath(); c.rect(IX, IY, IW, IH); c.clip();
+
+    // ---------- 分季绘制：每一季只画在自己的窗口里（交界是一条波浪线，外面再压一排霞云） ----------
+    const bnd = k => t < WIPE[k - 1] ? 1e5 : W + 260 - (t - WIPE[k - 1]) * WSPD;
+    const edges = [-1e5, bnd(1), bnd(2), bnd(3), 1e5];
+    for (let k = 0; k < 4; k++) {
+      const x0 = edges[k], x1 = edges[k + 1];
+      if (x1 < IX - 60 || x0 > IX + IW + 60) continue;
+      const p = PAL[k], ls = sc - scrollAt(SEASON[k]);         // 本季内的卷轴偏移
+      c.save(); c.beginPath();
+      const wav = y => 18 * Math.sin(y / 60 + k);
+      c.moveTo(x0 + wav(0), 0); for (let y = 0; y <= H; y += 20) c.lineTo(x0 + wav(y), y);
+      for (let y = H; y >= 0; y -= 20) c.lineTo(x1 + 18 * Math.sin(y / 60 + k + 1), y);
+      c.closePath(); c.clip();
+      // 天空：顶部一文字暈し
+      if (G >= 1) { const gr = c.createLinearGradient(0, IY, 0, 500); gr.addColorStop(0, p.sky[0]); gr.addColorStop(.3, p.sky[1]); gr.addColorStop(.7, p.sky[2]); gr.addColorStop(1, p.sky[2]); c.fillStyle = gr; c.fillRect(IX, IY, IW, 500); }
+      // 远景
+      if (k === 0) {       // 雪山
+        const mx = 900 - ls * .2;
+        blk(polyP([[mx - 420, 490], [mx - 60, 270], [mx - 20, 256], [mx + 20, 258], [mx + 60, 272], [mx + 440, 490]]), '#6F8FB0', 1, 3);
+        blk(polyP([[mx - 60, 270], [mx - 20, 256], [mx + 20, 258], [mx + 60, 272], [mx + 44, 290], [mx + 22, 278], [mx + 4, 300], [mx - 16, 282], [mx - 36, 304], [mx - 50, 282]]), '#F6F0E2', 2, 2.4);
+        // 横向霞云
+        [[mx - 170, 318, 260], [mx + 300, 352, 240]].forEach(([x, y, w], j) => cloud(x, y, w, 44, '#F4D9D2', 10 + j));
+      }
+      if (k === 1) {       // 青海波的海 + 白帆 + 积云
+        const hz = 360;
+        blk(() => { c.beginPath(); c.rect(IX, hz, IW, 140); }, '#2E5E93', 1, 0);
+        c.save(); c.beginPath(); c.rect(IX, hz, IW, 140); c.clip(); c.strokeStyle = '#E9EEF0'; c.lineWidth = 2;
+        for (let r = 0; r < 6; r++) { const y = hz + 14 + r * 18, off = (r % 2) * 22 - ((ls * .35 + t * 12) % 44); for (let x = IX - 44 + off; x < IX + IW + 44; x += 44) [20, 13, 6].forEach(rr => { c.beginPath(); c.arc(x, y, rr, Math.PI, 0); c.stroke(); }); }
+        c.restore(); c.beginPath(); c.moveTo(IX, hz); c.lineTo(IX + IW, hz); c.lineWidth = 3; c.strokeStyle = KEY; c.stroke();
+        [[760, 1], [980, .7]].forEach(([bx, s], i) => { const x = bx - ls * .25 + 10 * Math.sin(t + i); blk(polyP([[x, hz - 4 - 44 * s], [x + 28 * s, hz - 8], [x, hz - 8]]), '#F4EEE0', 2, 2); blk(polyP([[x - 14 * s, hz - 8], [x + 36 * s, hz - 8], [x + 26 * s, hz], [x - 8 * s, hz]]), '#4A3426', 2, 2); });
+        const cx = 420 - ls * .15; blk(() => { c.beginPath(); [[0, 0, 46], [52, -22, 56], [112, -6, 48], [160, 10, 36], [80, 16, 40], [20, 18, 34]].forEach(([dx, dy, r]) => { c.moveTo(cx + dx + r, 150 + dy); c.arc(cx + dx, 150 + dy, r, 0, Math.PI * 2); }); }, '#F7F3EA', 2, 0);
+        c.save(); c.lineWidth = 3; c.strokeStyle = KEY; [[0, 0, 46, 2.2, 5.2], [52, -22, 56, 3.4, 6.1], [112, -6, 48, 4.3, 7.2], [160, 10, 36, 4.9, 7.8]].forEach(([dx, dy, r, a0, a1]) => { c.beginPath(); c.arc(cx + dx, 150 + dy, r, a0, a1); c.stroke(); }); c.restore();
+      }
+      if (k === 2) {       // 满月 + 雁阵
+        const mx = 860 - ls * .18;
+        blk(ell(mx, 220, 118, 118), '#F4E6C0', 2, 3);
+        const u = prog(t, 6.9, 9.6);
+        for (let j = 0; j < 5; j++) { const gx = lerp(560, 1180, u) - Math.abs(j - 2) * 34, gy = 150 + (j - 2) * 22 + Math.abs(j - 2) * 6, fl = Math.sin(t * 9 + j) * 6; c.beginPath(); c.moveTo(gx - 16, gy - fl); c.quadraticCurveTo(gx - 6, gy - 6, gx, gy); c.quadraticCurveTo(gx + 6, gy - 6, gx + 16, gy - fl); c.lineWidth = 3; c.strokeStyle = KEY; c.stroke(); }
+        [[mx - 150, 318, 280], [mx + 190, 290, 240]].forEach(([x, y, w], j) => cloud(x, y, w, 42, '#E9C49A', 20 + j));
+      }
+      if (k === 3) {       // 冬夜：远山积雪
+        const mx = 780 - ls * .15;
+        blk(polyP([[mx - 520, 492], [mx - 200, 330], [mx - 60, 360], [mx + 120, 300], [mx + 520, 492]]), '#3A4A70', 1, 3);
+        blk(polyP([[mx - 200, 330], [mx - 60, 360], [mx + 120, 300], [mx + 190, 333], [mx + 120, 326], [mx + 60, 348], [mx - 50, 376], [mx - 130, 354], [mx - 230, 348]]), '#E8ECF2', 2, 2);
+      }
+      // 中景：远处屋顶剪影（0.5 倍视差）
+      for (let i = Math.floor((sc * .5 - 300) / 230); i < Math.floor((sc * .5 + 1500) / 230); i++) {
+        const x = i * 230 - sc * .5 + 40 * hash(i), w = 150 + 60 * hash(i + 5), h = 38 + 30 * hash(i + 9), y = 490;
+        const pts = [[x - w * .62, y - h * .45], [x - w * .45, y - h], [x + w * .45, y - h], [x + w * .62, y - h * .45], [x + w * .5, y], [x - w * .5, y]];
+        blk(polyP(pts), p.far, 1, 2.4);
+        if (k === 3) blk(polyP([[x - w * .45, y - h], [x + w * .45, y - h], [x + w * .56, y - h * .62], [x + w * .2, y - h * .8], [x - w * .1, y - h * .7], [x - w * .56, y - h * .62]]), '#E8ECF2', 2, 2);
+        if (i % 5 === 2 && k === 0) {  // 塔
+          for (let s = 0; s < 3; s++) { const ww = 70 - s * 16, yy = y - h - 20 - s * 28; blk(polyP([[x - ww, yy], [x - ww * .5, yy - 16], [x + ww * .5, yy - 16], [x + ww, yy], [x + ww * .4, yy + 8], [x - ww * .4, yy + 8]]), p.far, 1, 2.4); }
+          c.beginPath(); c.moveTo(x, y - h - 100); c.lineTo(x, y - h - 140); c.lineWidth = 3; c.strokeStyle = KEY; c.stroke();
+        }
+      }
+      // 近景：猫走的这一排屋顶（1 倍）
+      const snowy = k === 3;
+      blk(() => { c.beginPath(); c.rect(IX, RIDGE + 16, IW, EAVE - RIDGE - 16); }, snowy ? '#DCE2EA' : p.roof, 1, 0);
+      const s0 = Math.floor(sc / 18) * 18;
+      if (G >= 1) { c.save(); c.translate(REG[1][0], REG[1][1]); for (let wx = s0; wx < sc + W + 18; wx += 18) { const x = X(wx); c.fillStyle = snowy ? '#B9C3D2' : p.tile; c.fillRect(x, RIDGE + 18, 7, EAVE - RIDGE - 18); if (!snowy) { c.fillStyle = 'rgba(0,0,0,.18)'; c.fillRect(x + 7, RIDGE + 18, 2, EAVE - RIDGE - 18); } } c.restore(); }
+      for (let wx = s0; wx < sc + W + 18; wx += 18) { c.beginPath(); c.moveTo(X(wx) + 8, RIDGE + 18); c.lineTo(X(wx) + 8, EAVE - 4); c.lineWidth = 1.3; c.strokeStyle = snowy ? 'rgba(28,26,23,.25)' : 'rgba(28,26,23,.55)'; c.stroke(); }
+      // 瓦当（冬天被雪檐盖住）
+      if (!snowy) for (let wx = s0; wx < sc + W + 18; wx += 18) blk(ell(X(wx) + 8, EAVE + 2, 8, 8), p.ridge, 1, 2);
+      else blk(() => { c.beginPath(); c.moveTo(IX - 10, EAVE - 8); for (let x = IX - 10 - (sc % 26); x <= IX + IW + 30; x += 26) c.quadraticCurveTo(x + 13, EAVE + 14 + 5 * hash(Math.floor((x + sc) / 26)), x + 26, EAVE - 2); c.lineTo(IX + IW + 30, EAVE - 8); c.closePath(); }, '#F2F4F6', 2, 2.6);
+      // 墙、柱、格子窗
+      blk(() => { c.beginPath(); c.rect(IX, EAVE + 10, IW, 120); }, p.wall, 2, 0);
+      c.fillStyle = 'rgba(20,18,16,.55)'; c.fillRect(IX, EAVE + 10, IW, 10);
+      for (let i = Math.floor(sc / 150) - 1; i < Math.floor((sc + W) / 150) + 2; i++) {
+        const x = X(i * 150);
+        if (i % 2) { blk(() => { c.beginPath(); c.rect(x + 30, 626, 90, 60); }, p.win, 2, 2.4); c.beginPath(); for (let q = 1; q < 6; q++) { c.moveTo(x + 30 + q * 15, 626); c.lineTo(x + 30 + q * 15, 686); } c.moveTo(x + 30, 656); c.lineTo(x + 120, 656); c.lineWidth = 1.6; c.strokeStyle = KEY; c.stroke(); }
+        blk(() => { c.beginPath(); c.rect(x - 6, EAVE + 10, 12, 120); }, '#4A3426', 2, 2);
+      }
+      // 屋脊
+      blk(() => { c.beginPath(); c.rect(IX - 10, RIDGE, IW + 20, 18); }, p.ridge, 1, 3);
+      if (k === 3) blk(() => { c.beginPath(); c.moveTo(IX - 10, RIDGE + 2); for (let x = IX - 10; x <= IX + IW + 10; x += 30) c.quadraticCurveTo(x + 15, RIDGE - 10 - 4 * hash(Math.floor((x + sc) / 30)), x + 30, RIDGE + 2); c.lineTo(IX + IW + 10, RIDGE + 8); c.lineTo(IX - 10, RIDGE + 8); c.closePath(); }, '#F2F4F6', 2, 2.4);
+      c.restore();
+    }
+    // ---------- 冬：灯笼（挂在猫停下的地方） ----------
+    const lx = X(LANTERN_X);
+    if (lx < W + 100) {
+      c.save(); c.beginPath(); c.rect(edges[3], 0, 1e5, H); c.clip();
+      const sw = .06 * Math.sin(t * 1.6) + .05 * Math.sin(Math.PI * prog(t, 12.4, 13.4)) * Math.sin(t * 7);
+      const glow = G >= 2 ? .9 + .1 * Math.sin(t * 13) * Math.sin(t * 5.3) : 0;
+      if (glow) [150, 105, 70].forEach((r, i) => { c.beginPath(); c.arc(lx, 318 + LY, r, 0, Math.PI * 2); c.fillStyle = `rgba(246,196,98,${.1 * glow + i * .03})`; c.fill(); });
+      blk(() => { c.beginPath(); c.rect(lx + 70, 170 + LY, 12, RIDGE - 170 - LY); }, '#3A2A20', 2, 2.4);
+      blk(() => { c.beginPath(); c.rect(lx - 10, 176 + LY, 92, 10); }, '#3A2A20', 2, 2.4);
+      c.save(); c.translate(lx, 186 + LY); c.rotate(sw);
+      c.beginPath(); c.moveTo(0, 0); c.lineTo(0, 76); c.lineWidth = 2; c.strokeStyle = KEY; c.stroke();
+      blk(() => { c.beginPath(); c.roundRect(-18, 72, 36, 12, 3); }, '#1E1B18', 2, 2);
+      blk(ell(0, 132, 44, 52), '#D0452B', 2, 3);
+      c.save(); c.beginPath(); c.ellipse(0, 132, 44, 52, 0, 0, Math.PI * 2); c.clip(); c.strokeStyle = 'rgba(28,26,23,.55)'; c.lineWidth = 1.4; for (let y = 88; y < 184; y += 9) { c.beginPath(); c.moveTo(-50, y); c.lineTo(50, y); c.stroke(); } c.fillStyle = `rgba(255,214,120,${.35 * glow})`; c.fillRect(-12, 80, 28, 110); c.restore();
+      blk(ell(0, 132, 16, 16), '#F4E6C0', 2, 2.4);
+      c.font = `900 22px ${SERIF}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = KEY; if (G >= 2) c.fillText('福', 0, 133);
+      blk(() => { c.beginPath(); c.roundRect(-18, 180, 36, 12, 3); }, '#1E1B18', 2, 2);
+      c.restore(); c.restore();
+    }
+    // ---------- 猫 ----------
+    const sit = ease(prog(t, ...SIT)), walkPh = scrollAt(t) / (V * BEAT);
+    const look = Math.sin(Math.PI * prog(t, ...LOOKUP)) * .9 + (t > LOOKUP[1] ? 0 : 0);
+    drawCat(c, CATX, RIDGE, walkPh, sit, look, t, blk, F, G);
+    // ---------- 前景：花枝 / 红叶 / 松枝（1.3 倍视差） ----------
+    const branch = (ax, ay, dir, col, leaf) => {
+      const x = ax - sc * 1.3;
+      if (x < -500 || x > W + 500) return;
+      c.save(); c.translate(x, ay); c.scale(dir, 1);
+      blk(() => { c.beginPath(); c.moveTo(-40, -30); c.bezierCurveTo(80, 10, 180, 40, 330, 30); c.lineTo(334, 40); c.bezierCurveTo(180, 56, 80, 30, -40, -8); c.closePath(); }, '#3B2A20', 2, 2.6);
+      blk(() => { c.beginPath(); c.moveTo(120, 30); c.quadraticCurveTo(170, 90, 230, 110); c.lineTo(232, 118); c.quadraticCurveTo(160, 98, 114, 38); c.closePath(); }, '#3B2A20', 2, 2.2);
+      for (let j = 0; j < 14; j++) { const u = j / 13, px = j < 9 ? lerp(10, 320, u * 1.4) : lerp(130, 230, (j - 9) / 4), py = j < 9 ? 20 + 30 * Math.sin(u * 3) : 40 + (j - 9) * 18; leaf(px + 14 * (hash(j) - .5), py + 20 * (hash(j + 4) - .5), j); }
+      c.restore();
+    };
+    const blossom = (x, y, j) => { blk(() => { c.beginPath(); for (let q = 0; q < 5; q++) { const a = q / 5 * Math.PI * 2 + j; c.moveTo(x, y); c.ellipse(x + Math.cos(a) * 9, y + Math.sin(a) * 9, 8, 6, a, 0, Math.PI * 2); } }, '#F2B8C0', 2, 1.6); blk(ell(x, y, 3, 3), '#C8402A', 3, 0); };
+    const maple = (x, y, j, s = 1) => blk(() => { c.beginPath(); for (let q = 0; q < 10; q++) { const a = q / 10 * Math.PI * 2 - Math.PI / 2 + j * .3, r = (q % 2 ? 6 : 16) * s; q ? c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r) : c.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } c.closePath(); }, j % 3 ? '#C8402A' : '#E07A2E', 2, 1.6);
+    const pine = (x, y, j) => { blk(() => { c.beginPath(); for (let q = -3; q <= 3; q++) { const a = Math.PI / 2 + q * .28; c.moveTo(x, y); c.lineTo(x + Math.cos(a) * 26, y + Math.sin(a) * 26); } }, null, 2, 2.2); blk(ell(x, y - 4, 16, 6), '#F2F4F6', 2, 1.6); };
+    branch(1015, 40, 1, '#F2B8C0', blossom);
+    branch(600 + 1.3 * scrollAt(8.0), 40, -1, '#C8402A', (x, y, j) => maple(x, y, j));
+    branch(1150 + 1.3 * scrollAt(15), 30, -1, '#2E5A3A', pine);
+    // ---------- 飘落物：花瓣 / 夏雨 / 红叶 / 雪（只在本季窗口里） ----------
+    const inWin = (k, x) => x > edges[k] && x < edges[k + 1];
+    if (G >= 2) {
+      for (let i = 0; i < 36; i++) { const x = ((hash(i) * 1500 - t * (70 + 40 * hash(i + 3))) % 1500 + 1500) % 1500 - 100, y = ((hash(i + 7) * 800 + t * (50 + 30 * hash(i + 9))) % 800) - 40; if (!inWin(0, x)) continue; c.save(); c.translate(x, y); c.rotate(t * 2 + i); blk(ell(0, 0, 7, 4.5), '#F2B8C0', 2, 1.4); c.restore(); }
+      const rain = prog(t, 3.8, 4.3) * (1 - prog(t, 5.8, 6.3));
+      if (rain > 0) { c.strokeStyle = 'rgba(28,32,44,.75)'; c.lineWidth = 1.6; for (let i = 0; i < 140 * rain; i++) { const x = hash(i * 1.7) * 1400, y = ((hash(i + 2) * 900 + t * 1300) % 900) - 100, l = 40 + 50 * hash(i + 5); if (!inWin(1, x)) continue; c.beginPath(); c.moveTo(x, y); c.lineTo(x - l * .16, y + l); c.stroke(); } }
+      for (let i = 0; i < 16; i++) { const x = ((hash(i + 20) * 1500 - t * (90 + 40 * hash(i + 23))) % 1500 + 1500) % 1500 - 100, y = ((hash(i + 27) * 800 + t * (70 + 30 * hash(i + 29))) % 800) - 40; if (!inWin(2, x)) continue; c.save(); c.translate(x, y); c.rotate(t * 1.5 + i); maple(0, 0, i, .8); c.restore(); }
+      const snow = .5 + .5 * prog(t, 12.2, 13.2);
+      for (let i = 0; i < 130 * snow; i++) { const s = hash(i + 40), x = ((hash(i + 41) * 1400 + 30 * Math.sin(t * 1.3 + i) - t * 20 * s) % 1400 + 1400) % 1400 - 60, y = ((hash(i + 43) * 820 + t * (40 + 60 * s)) % 820) - 50; if (!inWin(3, x)) continue; c.beginPath(); c.arc(x, y, 2.2 + 4.5 * s, 0, Math.PI * 2); c.fillStyle = '#F7F4EC'; c.fill(); if (s > .7) { c.lineWidth = 1; c.strokeStyle = 'rgba(28,26,23,.5)'; c.stroke(); } }
+    }
+    // ---------- 换季：一簇霞云跟着交界线扫过 ----------
+    [1, 2, 3].forEach(k => {
+      const x = edges[k]; if (x < -400 || x > W + 400) return;
+      [[100, 440, -40], [215, 520, 60], [330, 470, -20], [440, 400, 40]].forEach(([y, w, dx], j) => cloud(x + dx + 18 * Math.sin(y / 60 + k + 1), y, w, 78, j % 2 ? '#F3E7C9' : '#EFD4A0', k * 10 + j));
+    });
+    // ---------- 题签：标题 + 季节 ----------
+    if (G >= 2) {
+      const tx = 1182, ty = 38;
+      blk(() => { c.beginPath(); c.rect(tx, ty, 58, 214); }, '#E9DBA8', 2, 3);
+      c.strokeStyle = '#B8402A'; c.lineWidth = 2; c.strokeRect(tx + 6, ty + 6, 46, 202);
+      c.font = `900 36px ${SERIF}`; c.fillStyle = KEY; c.textAlign = 'center'; c.textBaseline = 'middle';
+      [...'屋檐四季'].forEach((ch, i) => c.fillText(ch, tx + 29, ty + 36 + i * 47));
+      const si = t < SEASON[1] ? 0 : t < SEASON[2] ? 1 : t < SEASON[3] ? 2 : 3;
+      const pop = easeOut(prog(t, SEASON[si] + (si ? .05 : .7), SEASON[si] + (si ? .35 : 1.0)));
+      c.save(); c.translate(tx - 42, ty + 34); c.scale(.6 + .4 * pop, .6 + .4 * pop); c.globalAlpha = pop;
+      blk(() => { c.beginPath(); c.rect(-30, -30, 60, 60); }, '#B8402A', 2, 3);
+      c.font = `900 40px ${SERIF}`; c.fillStyle = '#F4EAD5'; c.fillText(PAL[si].name, 0, 2); c.restore();
+    }
+    c.restore();
+    // 和纸纹 + 纸边
+    c.save(); c.fillStyle = c.createPattern(WASHI, 'repeat'); c.fillRect(0, 0, W, H); c.restore();
+    c.beginPath(); c.rect(0, 0, W, H); c.rect(IX, IY, IW, IH); c.fillStyle = PAPER; c.fill('evenodd');
+    c.save(); c.globalAlpha = .7; c.fillStyle = c.createPattern(WASHI, 'repeat'); c.beginPath(); c.rect(0, 0, W, H); c.rect(IX, IY, IW, IH); c.fill('evenodd'); c.restore();
+    c.lineWidth = 2.4; c.strokeStyle = KEY; c.strokeRect(IX, IY, IW, IH);
+    const fo = prog(t, ...FADE); if (fo > 0) { c.fillStyle = `rgba(237,226,198,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    // 印版三下：刷子擦纸
+    [0, PRINT[0], PRINT[1]].forEach((x, i) => { S.at(x, I.paper); S.at(x + .06, I.paper); S.at(x, I.thud, .25 + i * .1); });
+    // 筝：平调子（D E F A B♭），每季一句，八分音符正好是猫的一步
+    const PH = [
+      [74, 76, 77, 81, 77, 76, 74, 0],
+      [81, 82, 81, 77, 76, 77, 74, 69],
+      [70, 69, 65, 64, 62, 64, 65, 0],
+      [74, 0, 77, 0, 76, 0, 69, 0],
+      [70, 0, 0, 0, 62, 0, 0, 0]];
+    PH.forEach((ph, b) => S.melody(ph, SEASON[0] + b * bar, beat / 2, 'koto', b === 4 ? .8 : 1));
+    [50, 46, 45, 50, 43].forEach((m, b) => { S.at(b * bar, I.koto, m, .7); S.at(b * bar + 2 * beat, I.koto, m + 7, .45); });
+    S.padBars([[62, 65, 69], [58, 62, 65], [57, 60, 64], [62, 65, 69], [55, 58, 62]], 2, 5, 'strings', 1.1);
+    // 每季开头一声木鱼，季节题签盖章
+    SEASON.forEach((x, i) => { if (i) { S.at(x, I.rim, .9); S.at(x + .05, I.paper); S.at(WIPE[i - 1], I.whoosh, .45); } });
+    // 夏：阵雨
+    S.at(3.8, (w, B) => rainNoise(w, B, 2.4));
+    S.at(6.4, I.whoosh, .5);      // 秋风
+    // 冬：猫坐下 → 寺钟；抬头看雪
+    S.at(SIT[1], I.bell, 62, .8); S.at(SIT[1] + .02, I.bell, 50, .6);
+    S.at(LOOKUP[0], I.shimmer);
+    S.at(13.6, (w, B) => [62, 69, 74, 77, 81].forEach((m, i) => I.koto(w + i * .07, B, m, .8)));
+  }
+});
+
+/* ---------- 猫：走路步态 + 坐下 ---------- */
+function drawCat(c, x, y, ph, sit, look, t, blk, F, G) {
+  const { lerp } = F;
+  const CREAM = '#F4EAD5', SHADE = '#D9CDB5', KEYC = '#1C1A17', RG = [2.6, 1.4];
+  c.save(); c.translate(x, y); c.scale(CAT_S, CAT_S);
+  c.translate(0, (1 - sit) * -2.5 * Math.abs(Math.sin(ph * Math.PI * 2)));
+  const pivot = [-38, -14], tilt = -.82 * sit;
+  const R = (px, py) => { const dx = px - pivot[0], dy = py - pivot[1]; return [pivot[0] + dx * Math.cos(tilt) - dy * Math.sin(tilt), pivot[1] + dx * Math.sin(tilt) + dy * Math.cos(tilt)]; };
+  const stroke2 = (path, w, col) => { path(); c.lineWidth = w + 5.5; c.strokeStyle = KEYC; c.lineCap = 'round'; c.lineJoin = 'round'; c.stroke(); if (G >= 2) { c.save(); c.translate(...RG); path(); c.lineWidth = w; c.strokeStyle = col; c.stroke(); c.restore(); } };
+  // 腿：[髋 x, 相位, 颜色]，侧对步；坐下时前腿竖直，后腿收成脚掌
+  const leg = (hx, off, col) => {
+    const front = hx > 0, a = (ph + off) * Math.PI * 2, hip = R(hx, -32);
+    let fx = hx + 13 * Math.sin(a), fy = -Math.max(0, Math.cos(a)) * 8;
+    if (front) { fx = lerp(fx, hip[0] + 3, sit); fy = lerp(fy, 0, sit); }
+    else { fx = lerp(fx, hx + 10, sit); fy = lerp(fy, 0, sit); }
+    const kx = (hip[0] + fx) / 2 + (front ? -4 : 7) * (1 - sit), ky = (hip[1] + fy) / 2;
+    stroke2(() => { c.beginPath(); c.moveTo(hip[0], hip[1]); c.lineTo(kx, ky); c.lineTo(fx, fy - 3); if (sit > .5 && !front) c.lineTo(fx + 12 * sit, fy - 3); }, 8.5, col);
+  };
+  const sway = Math.sin(t * 2.6) * 8;
+  const tw = [[-48, -44], [-78, -70], [-84, -112 + sway * .3], [-62 + sway, -122]], ts = [[-40, -8], [-20, 0], [26, 0], [42, -12]];
+  const tp = tw.map((p, i) => [lerp(p[0], ts[i][0], sit), lerp(p[1], ts[i][1], sit)]);
+  const drawTail = () => stroke2(() => { c.beginPath(); c.moveTo(tp[0][0], tp[0][1]); c.bezierCurveTo(tp[1][0], tp[1][1], tp[2][0], tp[2][1], tp[3][0], tp[3][1]); }, 7.5, '#C8762F');
+  leg(-34, 0, SHADE); leg(30, .5, SHADE);
+  if (sit < .5) drawTail();
+  const body = () => { c.beginPath(); const p = [[46, -44], [30, -60], [-10, -62], [-44, -54], [-54, -36], [-44, -18], [-10, -18], [26, -22], [44, -30]].map(q => R(...q)); const n = p.length, mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; let m = mid(p[n - 1], p[0]); c.moveTo(...m); for (let i = 0; i < n; i++) { m = mid(p[i], p[(i + 1) % n]); c.quadraticCurveTo(p[i][0], p[i][1], m[0], m[1]); } c.closePath(); };
+  blk(body, CREAM, 2, 0);
+  if (G >= 2) { c.save(); c.translate(...RG); body(); c.clip(); const a = R(4, -58), b = R(-38, -42); c.fillStyle = '#C8762F'; c.beginPath(); c.ellipse(a[0], a[1], 26, 13, tilt, 0, Math.PI * 2); c.fill(); c.fillStyle = '#26221E'; c.beginPath(); c.ellipse(b[0], b[1], 18, 15, tilt, 0, Math.PI * 2); c.fill(); c.restore(); }
+  body(); c.lineWidth = 3; c.strokeStyle = KEYC; c.stroke();
+  // 坐下时的大腿（圆鼓鼓的后胯）
+  leg(-26, .25, CREAM);
+  if (sit > .05) { const hc = R(-30, -26); blk(() => { c.beginPath(); c.ellipse(hc[0] + 4 * sit, hc[1] + 6 * sit, 24 * sit, 20 * sit, -.5, 0, Math.PI * 2); }, CREAM, 2, 3); }
+  leg(38, .75, CREAM);
+  if (sit >= .5) drawTail();
+  const hp = R(54, -58), hx = hp[0] + 6 * sit, hy = hp[1] + 4 * sit;
+  c.save(); c.translate(hx, hy); c.rotate(-.35 * look);
+  const head = () => { c.beginPath(); c.moveTo(-18, -8); c.lineTo(-16, -30); c.lineTo(-4, -18); c.lineTo(8, -20); c.lineTo(18, -32); c.lineTo(22, -10); c.quadraticCurveTo(26, 12, 4, 16); c.quadraticCurveTo(-20, 16, -18, -8); c.closePath(); };
+  blk(head, CREAM, 2, 0);
+  if (G >= 2) { c.save(); c.translate(...RG); head(); c.clip(); c.fillStyle = '#C8762F'; c.beginPath(); c.ellipse(-12, -18, 12, 12, 0, 0, Math.PI * 2); c.fill(); c.restore(); }
+  head(); c.lineWidth = 3; c.strokeStyle = KEYC; c.stroke();
+  const blink = t > 13.9 && t < 14.05;
+  c.lineWidth = 2.4; c.beginPath();
+  if (blink) { c.moveTo(6, -4); c.quadraticCurveTo(11, -1, 16, -4); } else { c.moveTo(5, -4); c.quadraticCurveTo(11, -9, 17, -4); c.quadraticCurveTo(11, 0, 5, -4); }
+  c.stroke(); if (!blink && G >= 2) { c.fillStyle = '#C9A227'; c.beginPath(); c.ellipse(11, -4, 3.6, 2.6, 0, 0, Math.PI * 2); c.fill(); c.fillStyle = KEYC; c.fillRect(10.3, -6.5, 1.6, 5); }
+  if (G >= 2) { c.fillStyle = '#D77F86'; c.beginPath(); c.moveTo(21, 3); c.lineTo(25, 3); c.lineTo(23, 6); c.closePath(); c.fill(); }
+  c.lineWidth = 1.2; c.beginPath(); [-3, 0, 3].forEach(a => { c.moveTo(18, 7); c.lineTo(36, 5 + a * 2); }); c.stroke();
+  c.restore();
+  c.restore();
+}
+function rainNoise(w, B, d) { const ctx = B.sfx.context, n = ctx.createBuffer(1, ctx.sampleRate * (d + .5), ctx.sampleRate), a = n.getChannelData(0); for (let i = 0; i < a.length; i++) a[i] = Math.random() * 2 - 1; const s = ctx.createBufferSource(); s.buffer = n; const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 5200; f.Q.value = .6; const g = ctx.createGain(); g.gain.setValueAtTime(.0001, w); g.gain.linearRampToValueAtTime(.08, w + .5); g.gain.setValueAtTime(.08, w + d - .6); g.gain.linearRampToValueAtTime(.0001, w + d); s.connect(f); f.connect(g); g.connect(B.sfx); s.start(w); s.stop(w + d + .1); }
+</script></body></html>
