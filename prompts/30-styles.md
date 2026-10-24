@@ -22,7 +22,17 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 03 中国水墨
+## 03 暗色科技发布
+
+读取 `dark-keynote/STYLE.md` 和 `dark-keynote/demo.html`，复用 `_engine/core.js`。
+
+用暗色科技发布做一支5秒动画：一款虚构笔记App的发布片，一个光标把散落的笔记收成一本书。
+
+表现纯黑背景、流动光带、玻璃质感与大字排版。
+
+完整呈现收拢、成书和亮相的过程，设计相应动作、镜头和声音。
+
+## 04 中国水墨
 
 读取 `ink-wash/STYLE.md` 和 `ink-wash/demo.html`，复用 `_engine/core.js`。
 
@@ -32,7 +42,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 04 油画厚涂
+## 05 油画厚涂
 
 读取 `impasto/STYLE.md` 和 `impasto/demo.html`，复用 `_engine/core.js`。
 
@@ -42,7 +52,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 05 一笔画
+## 06 一笔画
 
 读取 `one-line/STYLE.md` 和 `one-line/demo.html`，复用 `_engine/core.js`。
 
@@ -52,7 +62,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 06 钢笔淡彩
+## 07 钢笔淡彩
 
 读取 `urban-sketch/STYLE.md` 和 `urban-sketch/demo.html`，复用 `_engine/core.js`。
 
@@ -62,7 +72,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 07 皮影戏
+## 08 皮影戏
 
 读取 `shadow-puppet/STYLE.md` 和 `shadow-puppet/demo.html`，复用 `_engine/core.js`。
 
@@ -72,7 +82,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 08 浮世绘
+## 09 浮世绘
 
 读取 `ukiyoe/STYLE.md` 和 `ukiyoe/demo.html`，复用 `_engine/core.js`。
 
@@ -82,7 +92,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 09 红色剪纸
+## 10 红色剪纸
 
 读取 `red-papercut/STYLE.md` 和 `red-papercut/demo.html`，复用 `_engine/core.js`。
 
@@ -92,7 +102,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 10 纸雕灯影
+## 11 纸雕灯影
 
 读取 `paper-lantern/STYLE.md` 和 `paper-lantern/demo.html`，复用 `_engine/core.js`。
 
@@ -102,7 +112,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 11 Risograph 孔版印刷
+## 12 Risograph 孔版印刷
 
 读取 `risograph/STYLE.md` 和 `risograph/demo.html`，复用 `_engine/core.js`。
 
@@ -112,7 +122,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 12 复古半调印刷
+## 13 复古半调印刷
 
 读取 `halftone/STYLE.md` 和 `halftone/demo.html`，复用 `_engine/core.js`。
 
@@ -122,7 +132,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 13 木刻版画
+## 14 木刻版画
 
 读取 `woodcut/STYLE.md` 和 `woodcut/demo.html`，复用 `_engine/core.js`。
 
@@ -132,7 +142,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 14 瑞士国际主义排版
+## 15 瑞士国际主义排版
 
 读取 `swiss-type/STYLE.md` 和 `swiss-type/demo.html`，复用 `_engine/core.js`。
 
@@ -142,7 +152,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 15 60 年代片头
+## 16 60 年代片头
 
 读取 `retro-titles/STYLE.md` 和 `retro-titles/demo.html`，复用 `_engine/core.js`。
 
@@ -152,7 +162,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 16 装饰艺术
+## 17 装饰艺术
 
 读取 `art-deco/STYLE.md` 和 `art-deco/demo.html`，复用 `_engine/core.js`。
 
@@ -162,7 +172,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 17 工程蓝图
+## 18 工程蓝图
 
 读取 `blueprint/STYLE.md` 和 `blueprint/demo.html`，复用 `_engine/core.js`。
 
@@ -172,7 +182,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 18 彩色玻璃窗
+## 19 彩色玻璃窗
 
 读取 `stained-glass/STYLE.md` 和 `stained-glass/demo.html`，复用 `_engine/core.js`。
 
@@ -182,7 +192,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 19 ASCII 终端
+## 20 ASCII 终端
 
 读取 `ascii-crt/STYLE.md` 和 `ascii-crt/demo.html`，复用 `_engine/core.js`。
 
@@ -192,7 +202,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 20 1930s 橡皮管卡通
+## 21 1930s 橡皮管卡通
 
 读取 `rubber-hose/STYLE.md` 和 `rubber-hose/demo.html`，复用 `_engine/core.js`。
 
@@ -202,7 +212,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 21 80 年代赛璐璐
+## 22 80 年代赛璐璐
 
 读取 `cel-anime/STYLE.md` 和 `cel-anime/demo.html`，复用 `_engine/core.js`。
 
@@ -212,7 +222,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 22 情景喜剧卡通
+## 23 情景喜剧卡通
 
 读取 `sitcom-toon/STYLE.md` 和 `sitcom-toon/demo.html`，复用 `_engine/core.js`。
 
@@ -222,7 +232,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 23 像素游戏
+## 24 像素游戏
 
 读取 `pixel-game/STYLE.md` 和 `pixel-game/demo.html`，复用 `_engine/core.js`。
 
@@ -232,7 +242,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 24 HD-2D
+## 25 HD-2D
 
 读取 `hd-2d/STYLE.md` 和 `hd-2d/demo.html`，复用 `_engine/core.js`。
 
@@ -242,7 +252,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 25 1920s 默片
+## 26 1920s 默片
 
 读取 `silent-film/STYLE.md` 和 `silent-film/demo.html`，复用 `_engine/core.js`。
 
@@ -252,7 +262,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 26 阈限空间录像
+## 27 阈限空间录像
 
 读取 `liminal-vhs/STYLE.md` 和 `liminal-vhs/demo.html`，复用 `_engine/core.js`。
 
@@ -262,7 +272,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 27 积木玩具
+## 28 积木玩具
 
 读取 `brick-toy/STYLE.md` 和 `brick-toy/demo.html`，复用 `_engine/core.js`。
 
@@ -272,7 +282,7 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 28 纸片立体书
+## 29 纸片立体书
 
 读取 `popup-book/STYLE.md` 和 `popup-book/demo.html`，复用 `_engine/core.js`。
 
@@ -282,22 +292,12 @@
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
 
-## 29 移轴微缩
+## 30 移轴微缩
 
 读取 `tilt-shift/STYLE.md` 和 `tilt-shift/demo.html`，复用 `_engine/core.js`。
 
 用移轴微缩做一支5秒动画：早高峰的十字路口像玩具模型，红绿灯一变，小车一齐出发。
 
 表现上下虚化、饱和色彩、加速的小人和车，像模型。
-
-完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
-
-## 30 玻璃质感产品
-
-读取 `glass-product/STYLE.md` 和 `glass-product/demo.html`，复用 `_engine/core.js`。
-
-用玻璃质感产品做一支5秒动画：一个虚构的玻璃香水瓶旋转，条形灯扫过，瓶身里的光折成彩虹。
-
-表现透明材质、折射、焦散和条形灯扫过的高光。
 
 完整呈现故事起承转合，设计相应的主体动作、镜头和声音。
