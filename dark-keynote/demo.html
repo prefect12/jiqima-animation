@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>暗色科技发布 · 拾页</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;500;700&text=拾页每天你都写下很多想法条笔记散落在个里把的收成一本书键整理秒翻到任意本地加密概念演示虚构产品会议纪要灵感清单读后感旅行计划待办周报食谱摘抄，。·">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;600;800&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+const CN = '"Noto Sans SC", "PingFang SC", sans-serif', EN = 'Inter, "Helvetica Neue", sans-serif';
+// ---- 时间表（96 BPM，一拍 0.625 秒，一小节 2.5 秒）----
+const BEAT = .625;
+const LINE1 = [.3, 2.3];                           // 开场一句话
+const CARD_IN = i => .9 + i * BEAT / 2;            // 8 张笔记卡依次浮现
+const NUM = [2.5, 5.0], COUNT = [2.5, 3.75];        // 大号数字
+const CUR_IN = 4.7, CLICK = 5.625;                  // 光标入场、点击
+const GATHER = i => 5.9375 + i * BEAT / 4, FLY = .4; // 卡片逐张飞进光标下
+const BOOK = 7.5;                                   // 撞击：合成一本书
+const NAME = 8.125, TAG = 8.75;
+const STATS = [10.0, 10.3125, 10.625], SHIFT = 9.8;
+const END = 12.5, FADE = 14.5;
+const NOTES = [['会议纪要', -410, -170, .9, -.12], ['灵感', 330, -200, 1.15, .09], ['读后感', -120, -250, .7, .05], ['旅行计划', 420, 60, 1.0, -.07],
+  ['待办清单', -470, 90, 1.1, .1], ['周报', 110, 200, .8, -.05], ['食谱', -210, 230, .95, .06], ['摘抄', 210, -40, .65, .13]];
+const band = document.createElement('canvas'); band.width = 640; band.height = 360; const bx = band.getContext('2d');
+Film({
+  title: '暗色科技发布 · 拾页', DUR: 15, BPM: 96, poster: 11.2,
+  fonts: [['700 96px "Noto Sans SC"', '拾页每天你都写下很多想法条笔记散落在个里把的收成一本书键整理秒翻到任意本地加密概念演示虚构产品会议纪要灵感清单读后感旅行计划待办周报食谱摘抄，。·'],
+    ['300 26px "Noto Sans SC"', '每天你都写下很多想法条笔记散落在个里把的收成一本书，。概念演示虚构产品'], ['500 16px "Noto Sans SC"', '会议纪要灵感清单读后感旅行计划待办周报食谱摘抄键整理秒翻到任意页本地加密'],
+    ['800 180px Inter', '0123456789,.%s'], ['300 20px Inter', 'SHIYE']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, ease, easeOut, easeIn, back, hash, rrect } = F;
+    // ---------- 光带（离屏半分辨率，每帧清空重画）----------
+    const flare = Math.exp(-Math.max(0, t - BOOK) * 2.2) * (t > BOOK ? 1 : 0);
+    const bandK = clamp(prog(t, 0, 1.6), 0, 1) * (t > NUM[0] && t < NUM[1] ? .55 : 1) * (1 + 1.4 * flare) * (t > END ? 1.15 : 1);
+    bx.setTransform(1, 0, 0, 1, 0, 0); bx.clearRect(0, 0, 640, 360); bx.globalCompositeOperation = 'lighter';
+    const RIB = [['#6B4CFF', '#2FA8FF', 180, .0, 1.0], ['#FF4FD8', '#7B5CFF', 205, 1.7, .8], ['#2FA8FF', '#39E6C8', 230, 3.1, .6]];
+    RIB.forEach(([a, b, cy, ph, amp], k) => {
+      const reveal = clamp(prog(t, k * .25, 1.6 + k * .25) * 760 - 60, -60, 700);
+      const g = bx.createLinearGradient(0, 0, 640, 0); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(.3, a); g.addColorStop(.7, b); g.addColorStop(1, 'rgba(0,0,0,0)');
+      const path = () => { bx.beginPath(); for (let x = -40; x <= reveal; x += 8) { const y = cy + Math.sin(x * .011 + t * .5 + ph) * 38 * amp + Math.sin(x * .004 - t * .3 + ph) * 30; x === -40 ? bx.moveTo(x, y) : bx.lineTo(x, y); } };
+      bx.strokeStyle = g; bx.lineCap = 'round';
+      [[46, .18, 'blur(14px)'], [14, .45, 'blur(4px)'], [2.2, .95, 'none']].forEach(([lw, al, fl]) => { bx.filter = fl; bx.globalAlpha = al * Math.min(1.6, bandK); bx.lineWidth = lw; path(); bx.stroke(); });
+    });
+    bx.filter = 'none'; bx.globalAlpha = 1; bx.globalCompositeOperation = 'source-over';
+    // ---------- 背景 ----------
+    c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
+    // 慢推镜头：整片 1.00 → 1.07，撞击时轻微回弹
+    const push = 1 + .07 * (t / 15) + .025 * flare;
+    c.save(); c.translate(640, 360); c.scale(push, push); c.translate(-640, -360);
+    c.save(); c.globalCompositeOperation = 'lighter'; c.drawImage(band, 0, 0, W, H); c.restore();
+    // 地面反光
+    const fl = c.createRadialGradient(640, 760, 10, 640, 760, 620); fl.addColorStop(0, `rgba(110,90,255,${.18 + .25 * flare})`); fl.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = fl; c.fillRect(0, 300, W, 460);
+
+    // 毛玻璃：把光带模糊后画进圆角矩形
+    function glass(x, y, w, h, r, a = 1, tint = null, base = .55) {
+      c.save(); c.globalAlpha *= a;
+      c.shadowColor = 'rgba(0,0,0,.6)'; c.shadowBlur = 40; c.shadowOffsetY = 18; c.fillStyle = `rgba(10,10,16,${base})`; rrect(c, x, y, w, h, r); c.fill(); c.shadowColor = 'transparent';
+      c.save(); rrect(c, x, y, w, h, r); c.clip();
+      c.filter = 'blur(18px) saturate(1.4)'; c.globalCompositeOperation = 'lighter'; c.drawImage(band, 0, 0, W, H); c.filter = 'none'; c.globalCompositeOperation = 'source-over';
+      const g = c.createLinearGradient(x, y, x, y + h); g.addColorStop(0, tint ? tint[0] : 'rgba(255,255,255,.13)'); g.addColorStop(1, tint ? tint[1] : 'rgba(255,255,255,.03)'); c.fillStyle = g; c.fillRect(x, y, w, h);
+      c.restore();
+      c.lineWidth = 1.2; const e = c.createLinearGradient(x, y, x + w * .4, y + h); e.addColorStop(0, 'rgba(255,255,255,.55)'); e.addColorStop(.5, 'rgba(255,255,255,.12)'); e.addColorStop(1, 'rgba(255,255,255,.25)');
+      c.strokeStyle = e; rrect(c, x + .5, y + .5, w - 1, h - 1, r); c.stroke();
+      c.restore();
+    }
+    function noteCard(i, x, y, s, rot, a, solid = 0) {
+      const [title] = NOTES[i];
+      c.save(); c.translate(x, y); c.rotate(rot); c.scale(s, s);
+      glass(-110, -70, 220, 140, 16, a, null, lerp(.55, .94, solid));
+      c.globalAlpha *= a;
+      c.font = `500 16px ${CN}`; c.fillStyle = 'rgba(255,255,255,.92)'; c.textBaseline = 'alphabetic'; c.fillText(title, -88, -34);
+      c.fillStyle = ['#8A7BFF', '#FF6FDF', '#4FC3FF', '#39E6C8'][i % 4]; c.beginPath(); c.arc(84, -40, 5, 0, Math.PI * 2); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.28)'; for (let k = 0; k < 3; k++) { rrect(c, -88, -12 + k * 20, 176 * (.55 + .45 * hash(i * 7 + k)), 6, 3); c.fill(); }
+      c.restore();
+    }
+    // ---------- 开场一句 ----------
+    if (t < LINE1[1] + .4) {
+      const a = easeOut(prog(t, LINE1[0], LINE1[0] + .6)) * (1 - prog(t, LINE1[1], LINE1[1] + .4));
+      c.save(); c.globalAlpha = a; c.font = `300 34px ${CN}`; c.fillStyle = '#fff'; c.textAlign = 'center'; c.fillText('每天，你都写下很多想法。', 640, 372 + (1 - a) * 10); c.restore();
+    }
+    // ---------- 散落的笔记卡 / 收拢 ----------
+    const bookK = prog(t, BOOK - .05, BOOK + .1);
+    if (t > CARD_IN(0) && t < BOOK + .1) {
+      const order = NOTES.map((n, i) => i).sort((a, b) => NOTES[a][3] - NOTES[b][3]);   // 远的先画
+      order.forEach(i => {
+        const [, dx, dy, z, rot] = NOTES[i];
+        const inK = easeOut(prog(t, CARD_IN(i), CARD_IN(i) + .8));
+        if (inK <= 0) return;
+        const drift = [Math.sin(t * .6 + i) * 10 * z, Math.cos(t * .5 + i * 2) * 8 * z];
+        let x = 640 + dx * (1 + .04 * t * z) + drift[0], y = 360 + dy * (1 + .04 * t * z) + drift[1] + (1 - inK) * 40, s = .92 * z, r = rot, a = inK * (.45 + .55 * clamp((z - .6) / .5, 0, 1));
+        if (t > NUM[0] && t < NUM[1] + .2) a *= lerp(1, .38, easeOut(prog(t, NUM[0], NUM[0] + .4)) * (1 - prog(t, NUM[1] - .2, NUM[1] + .2)));
+        const g = prog(t, GATHER(i), GATHER(i) + FLY);
+        if (g > 0) { const u = ease(g), sx = 640 + (7 - i) * 1.5, sy = 372 - i * 3; x = lerp(x, sx, u) - Math.sin(Math.PI * u) * 0; y = lerp(y, sy, u) - Math.sin(Math.PI * u) * 40; s = lerp(s, 1.25, u); r = lerp(r, 0, u); a = lerp(a, 1, u); }
+        noteCard(i, x, y, s, r, a * (1 - bookK), ease(g));
+      });
+    }
+    // ---------- 大号数字 ----------
+    if (t > NUM[0] - .1 && t < NUM[1] + .3) {
+      const a = easeOut(prog(t, NUM[0], NUM[0] + .5)) * (1 - prog(t, NUM[1] - .3, NUM[1] + .2));
+      const n = Math.round(2847 * easeOut(prog(t, ...COUNT)));
+      c.save(); c.globalAlpha = a; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+      c.font = `800 180px ${EN}`; const g = c.createLinearGradient(0, 220, 0, 400); g.addColorStop(0, '#FFFFFF'); g.addColorStop(1, '#A99CFF'); c.fillStyle = g;
+      c.shadowColor = 'rgba(120,100,255,.55)'; c.shadowBlur = 40; c.fillText(n.toLocaleString('en-US'), 640, 380 + (1 - a) * 20); c.shadowBlur = 0;
+      c.font = `300 28px ${CN}`; c.fillStyle = 'rgba(255,255,255,.72)'; c.fillText('条笔记，散落在 6 个 App 里', 640, 444);
+      c.restore();
+    }
+    // ---------- 书 ----------
+    const bookX = lerp(640, 400, ease(prog(t, SHIFT, SHIFT + .7))) , bookEnd = 1 - ease(prog(t, END - .3, END + .3));
+    if (t > BOOK - .05 && bookEnd > 0) {
+      const k = back(prog(t, BOOK - .05, BOOK + .35)), tilt = Math.sin((t - BOOK) * .9) * .05 - .04;
+      drawBook(bookX, 372 + Math.sin(t * 1.4) * 6, (.9 + .1 * k) * lerp(1, .8, 1 - bookEnd), tilt, clamp(k, 0, 1) * bookEnd);
+    }
+    // 名称 + 口号
+    if (t > NAME && t < SHIFT + .4) {
+      const a = easeOut(prog(t, NAME, NAME + .6)) * (1 - prog(t, SHIFT - .2, SHIFT + .3)), b = easeOut(prog(t, TAG, TAG + .6)) * (1 - prog(t, SHIFT - .2, SHIFT + .3));
+      c.save(); c.textAlign = 'center';
+      c.globalAlpha = a; c.font = `700 30px ${CN}`; c.fillStyle = '#fff'; c.fillText('拾页', 640, 612);
+      c.globalAlpha = b; c.font = `300 22px ${CN}`; c.fillStyle = 'rgba(255,255,255,.7)'; c.fillText('把散落的想法，收成一本书。', 640, 650);
+      c.restore();
+    }
+    // ---------- 三张数据卡 ----------
+    const ST = [['1', '键', '整理成书'], ['0.3', '秒', '翻到任意一页'], ['100', '%', '本地加密']];
+    STATS.forEach((s0, i) => {
+      if (t < s0) return;
+      const k = easeOut(prog(t, s0, s0 + .6)), out = 1 - ease(prog(t, END - .3, END + .2)), y = 150 + i * 150 + (1 - k) * 40;
+      c.save(); c.globalAlpha = k * out;
+      glass(640, y, 500, 124, 22, 1);
+      c.textBaseline = 'alphabetic'; c.textAlign = 'left';
+      c.font = `800 78px ${EN}`; const g = c.createLinearGradient(0, y + 20, 0, y + 100); g.addColorStop(0, '#FFFFFF'); g.addColorStop(1, ['#A99CFF', '#FF9AE8', '#8FE3FF'][i]); c.fillStyle = g;
+      c.fillText(ST[i][0], 676, y + 92); const nw = c.measureText(ST[i][0]).width;
+      c.font = `500 26px ${CN}`; c.fillStyle = '#fff'; c.fillText(ST[i][1], 684 + nw, y + 90);
+      c.font = `300 24px ${CN}`; c.fillStyle = 'rgba(255,255,255,.72)'; c.textAlign = 'right'; c.fillText(ST[i][2], 1110, y + 74);
+      c.restore();
+    });
+    // ---------- 光标 ----------
+    if (t > CUR_IN && t < BOOK + .3) {
+      const K = [[CUR_IN, 1060, 640], [5.45, 648, 380], [7.2, 648, 380], [BOOK + .3, 700, 470]];
+      let i = K.findIndex(q => q[0] > t); if (i <= 0) i = K.length - 1;
+      const u = ease(prog(t, K[i - 1][0], K[i][0])), cx = lerp(K[i - 1][1], K[i][1], u), cy = lerp(K[i - 1][2], K[i][2], u);
+      const a = easeOut(prog(t, CUR_IN, CUR_IN + .3)) * (1 - prog(t, BOOK - .1, BOOK + .2)), down = t > CLICK && t < CLICK + .14;
+      if (t > CLICK && t < CLICK + .7) { const q = prog(t, CLICK, CLICK + .7); c.save(); c.globalAlpha = (1 - q) * a; c.strokeStyle = '#B7ADFF'; c.lineWidth = 2; c.beginPath(); c.arc(cx, cy, 12 + q * 110, 0, Math.PI * 2); c.stroke(); c.restore(); }
+      c.save(); c.globalAlpha = a; c.translate(cx, cy); c.scale(down ? .85 : 1.1, down ? .85 : 1.1);
+      c.shadowColor = 'rgba(160,140,255,.9)'; c.shadowBlur = 24;
+      c.beginPath(); c.moveTo(0, 0); c.lineTo(0, 28); c.lineTo(7.5, 21); c.lineTo(13, 33); c.lineTo(18, 31); c.lineTo(12.5, 19.5); c.lineTo(22, 19.5); c.closePath();
+      c.fillStyle = '#fff'; c.fill(); c.shadowBlur = 0; c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 1.2; c.stroke(); c.restore();
+    }
+    c.restore();   // 镜头
+    // 撞击闪白
+    if (flare > .02) { c.save(); c.globalCompositeOperation = 'lighter'; const g = c.createRadialGradient(640, 372, 0, 640, 372, 700); g.addColorStop(0, `rgba(200,190,255,${.55 * flare * flare})`); g.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = g; c.fillRect(0, 0, W, H); c.restore(); }
+    // ---------- 片尾 ----------
+    if (t > END) {
+      const a = easeOut(prog(t, END + .1, END + .8)), b = easeOut(prog(t, END + .6, END + 1.2));
+      c.save(); c.textAlign = 'center';
+      // 标志：一本打开的书
+      c.globalAlpha = a; c.save(); c.translate(640, 250 + (1 - a) * 12); c.shadowColor = 'rgba(140,120,255,.9)'; c.shadowBlur = 30;
+      const g = c.createLinearGradient(-40, -30, 40, 30); g.addColorStop(0, '#B7ADFF'); g.addColorStop(1, '#6FD3FF'); c.fillStyle = g;
+      c.beginPath(); c.moveTo(-4, -26); c.quadraticCurveTo(-26, -34, -46, -26); c.lineTo(-46, 26); c.quadraticCurveTo(-26, 18, -4, 26); c.closePath(); c.fill();
+      c.beginPath(); c.moveTo(4, -26); c.quadraticCurveTo(26, -34, 46, -26); c.lineTo(46, 26); c.quadraticCurveTo(26, 18, 4, 26); c.closePath(); c.fill(); c.restore();
+      c.font = `700 104px ${CN}`; c.fillStyle = '#fff'; c.fillText('拾页', 640, 412 + (1 - a) * 12);
+      c.globalAlpha = b; c.font = `300 28px ${CN}`; c.fillStyle = 'rgba(255,255,255,.75)'; c.fillText('把散落的想法，收成一本书。', 640, 470);
+      c.font = `300 15px ${CN}`; c.fillStyle = 'rgba(255,255,255,.38)'; c.fillText('概念演示 · 虚构产品', 640, 650);
+      c.restore();
+    }
+    // 轻微颗粒 + 暗角 + 淡出
+    F.grain(c, t, .035); F.vignette(c, .55, '0,0,0');
+    const fo = prog(t, FADE, 15); if (fo > 0) { c.fillStyle = `rgba(0,0,0,${fo})`; c.fillRect(0, 0, W, H); }
+
+    function drawBook(x, y, s, tilt, a) {
+      c.save(); c.globalAlpha *= a; c.translate(x, y); c.transform(1, tilt, 0, 1, 0, 0); c.scale(s, s);
+      const w = 250, h = 330;
+      // 书页厚度（右、下）
+      c.fillStyle = 'rgba(225,222,250,.9)'; rrect(c, -w / 2 + 14, -h / 2 + 10, w, h, 10); c.fill(); c.fillStyle = '#05050A'; rrect(c, -w / 2, -h / 2, w, h, 12); c.fill();
+      c.strokeStyle = 'rgba(120,110,170,.5)'; c.lineWidth = 1; for (let k = 0; k < 6; k++) { c.beginPath(); c.moveTo(w / 2 + 2, -h / 2 + 22 + k * 2); c.lineTo(w / 2 + 12, -h / 2 + 22 + k * 2); c.stroke(); }
+      glass(-w / 2, -h / 2, w, h, 12, 1, ['rgba(150,130,255,.30)', 'rgba(40,120,255,.10)'], .7);
+      c.save(); rrect(c, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 10); c.strokeStyle = 'rgba(190,180,255,.35)'; c.lineWidth = 2; c.shadowColor = 'rgba(150,130,255,.9)'; c.shadowBlur = 16; c.stroke(); c.restore();
+      // 书脊
+      c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(-w / 2 + 18, -h / 2 + 1, 2, h - 2);
+      // 封面标志
+      c.save(); c.translate(0, -30); c.shadowColor = 'rgba(200,190,255,.9)'; c.shadowBlur = 18; c.fillStyle = '#fff';
+      c.beginPath(); c.moveTo(-3, -22); c.quadraticCurveTo(-20, -28, -36, -22); c.lineTo(-36, 22); c.quadraticCurveTo(-20, 16, -3, 22); c.closePath(); c.fill();
+      c.beginPath(); c.moveTo(3, -22); c.quadraticCurveTo(20, -28, 36, -22); c.lineTo(36, 22); c.quadraticCurveTo(20, 16, 3, 22); c.closePath(); c.fill(); c.restore();
+      c.font = `300 16px ${EN}`; c.fillStyle = 'rgba(255,255,255,.75)'; c.textAlign = 'center'; c.fillText('S H I Y E', 0, 60);
+      c.fillStyle = 'rgba(255,255,255,.25)'; c.fillRect(-40, 80, 80, 1);
+      // 书签丝带
+      c.fillStyle = '#FF6FDF'; c.beginPath(); c.moveTo(70, -h / 2); c.lineTo(90, -h / 2); c.lineTo(90, -h / 2 + 70); c.lineTo(80, -h / 2 + 60); c.lineTo(70, -h / 2 + 70); c.closePath(); c.fill();
+      // 高光扫过
+      const sw = prog(t, BOOK + .1, BOOK + 1.1);
+      if (sw > 0 && sw < 1) { c.save(); rrect(c, -w / 2, -h / 2, w, h, 12); c.clip(); const sx = lerp(-w, w, sw); const g = c.createLinearGradient(sx - 60, 0, sx + 60, 0); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.5, 'rgba(255,255,255,.35)'); g.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = g; c.fillRect(-w / 2, -h / 2, w, h); c.restore(); }
+      c.restore();
+    }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    // D 小调：Dm9 – Bbmaj7 – Gm9 – A7sus
+    const PR = [[50, 57, 60, 64, 65], [46, 53, 57, 62], [43, 50, 53, 57, 62], [45, 52, 55, 59]], RT = [26, 22, 19, 21];
+    S.padBars(PR, 0, 6, 'pad', .9);
+    S.padBars(PR, 3, 6, 'strings', .6);
+    for (let b = 0; b < 6; b++) { S.at(b * bar, I.subbass, RT[b % 4] + 12, bar * .9, .9); }
+    // 开场低频心跳
+    [0, 1.25].forEach(x => S.at(x, I.thud, .6));
+    // 卡片浮现：高音铃
+    NOTES.forEach((n, i) => S.at(CARD_IN(i), I.mbox, [74, 77, 81, 84, 86, 81, 77, 89][i], .45));
+    // 数字滚动
+    for (let x = COUNT[0]; x < COUNT[1]; x += .045) S.at(x, I.tick, .35 * (1 - (x - COUNT[0]) / 1.4));
+    S.at(NUM[0], I.impact); S.at(NUM[0], I.subbass, 26, 1.8, 1);
+    // 光标点击 + 收拢
+    S.at(CLICK, I.click); S.at(CLICK, I.pop2);
+    NOTES.forEach((n, i) => { S.at(GATHER(i), I.swish); S.at(GATHER(i) + FLY, I.blip, i); });
+    S.at(BOOK - 1.9, I.riser, 1.8);
+    // 撞击
+    S.at(BOOK, I.impact); S.at(BOOK, I.kick, 1.2); S.at(BOOK, I.subbass, 26, 2.4, 1.1); S.at(BOOK + .05, I.shimmer);
+    S.drums(3, 5, 'soft', .8);
+    for (let b = 3; b < 5; b++) for (let k = 0; k < 8; k++) S.at(b * bar + k * beat / 2 + beat / 4, I.hat, .5);
+    S.at(NAME, I.bell, 81); S.at(TAG, I.bell, 76);
+    STATS.forEach((x, i) => { S.at(x, I.whip); S.at(x + .05, I.mbox, [81, 84, 88][i], .7); });
+    S.at(END - 1.2, I.riser, 1.2);
+    S.at(END, I.impact); S.at(END, (w, B) => [38, 50, 57, 62, 65, 69].forEach(m => I.keys(w, B, m, 1, 2.6)));
+    S.at(END + .6, I.shimmer);
+  }
+});
+</script></body></html>

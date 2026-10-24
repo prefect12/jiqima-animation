@@ -2,10 +2,10 @@
 
 **30套可运行的代码动画，附画风规范、提示词、合成音效与MP4渲染工具。**
 
-这次视频选取最初的30种画风，每种5秒，合计 **2分30秒**。主画面展示动画，右侧写名称和制作提示词。每种动画保留自己的故事、角色、镜头与构图。
+这次视频精选30种画风，每种5秒，画风部分 **2分30秒**；v1.2.0用暗色科技发布替换玻璃产品，并按用户选择前置到第3种，另附8秒视频工作台开源预告，总长 **2分38秒**。主画面展示动画，右侧写名称和制作提示词。每种动画保留自己的故事、角色、镜头与构图。
 
-- [下载30种完整视频（MP4）](https://github.com/prefect12/jiqima-animation/releases/download/v1.1.0/jiqima-animation-30-styles-150s.mp4)
-- [Release与下载校验](https://github.com/prefect12/jiqima-animation/releases/tag/v1.1.0)
+- [下载30种完整视频（MP4）](https://github.com/prefect12/jiqima-animation/releases/download/v1.2.0/jiqima-animation-30-styles-158s.mp4)
+- [Release与下载校验](https://github.com/prefect12/jiqima-animation/releases/tag/v1.2.0)
 - [30种精选提示词](prompts/30-styles.md)
 - [让Claude、Codex或DeepSeek使用这个库](prompts/USE-WITH-AI.md)
 - [DeepSeek单项复刻实验（不代表全部30种）](experiments/README.md)
@@ -83,3 +83,14 @@ python scripts/compose.py --font /path/to/NotoSansCJK-Regular.ttc
 分享实用AI工具、教程与动画制作。公众号二维码：
 
 <img src="assets/wechat-qr.jpg" alt="机器马玩AI公众号二维码" width="220">
+
+## 发布版片尾
+
+8秒片尾源码在 `compilation/outro/demo.html`，由Codex按作者给定文字制作。它是未来开源视频工作台的预告；当前公开的是30种画风库，不代表整个工作台已开源。
+
+```bash
+ANIMATION_ROOT="$PWD/compilation" node _engine/render.cjs outro
+python scripts/append_outro.py outputs/compilation/animation-30-styles.mp4
+```
+
+附加片尾只拼接，不再次变速。旧v1.1.0的玻璃产品版本和150秒影片仍保留在历史Release。

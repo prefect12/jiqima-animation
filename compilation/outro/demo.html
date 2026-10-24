@@ -1,0 +1,35 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>视频工作台 · 开源预告</title>
+<script src="../../_engine/core.js"></script><body><script>
+// Author-provided announcement, no narration and no release-date promise.
+const clamp = v => Math.max(0, Math.min(1,v));
+const ease = v => 1-Math.pow(1-clamp(v),3);
+Film({title:'我准备开源我的视频工作台',DUR:8,poster:5.8,
+draw(c,t){
+ c.fillStyle='#151710';c.fillRect(0,0,1280,720);
+ const g=c.createRadialGradient(640,340,20,640,340,650);
+ g.addColorStop(0,'#303020');g.addColorStop(1,'#151710');c.fillStyle=g;c.fillRect(0,0,1280,720);
+ c.strokeStyle='#454a32';c.lineWidth=1;c.strokeRect(55,48,1170,624);
+ c.fillStyle='#adb397';c.font='20px "PingFang SC",sans-serif';c.textAlign='left';c.fillText('机器马 Animation',88,90);
+ c.textAlign='right';c.fillText('开源预告',1192,90);c.textAlign='center';
+ function text(s,y,size,start,color,weight='600'){
+  const p=ease((t-start)/.75);c.save();c.globalAlpha=p;c.fillStyle=color;c.font=`${weight} ${size}px "PingFang SC",sans-serif`;c.fillText(s,640,y+24*(1-p));c.restore();
+ }
+ text('我准备开源',210,35,.15,'#d9e5b3');
+ text('我的视频工作台',319,80,.5,'#f6f0de','700');
+ const starts=[1.15,1.9,2.6], labels=['画风','动效','工作流'];
+ labels.forEach((label,i)=>{
+  const p=ease((t-starts[i])/.65),x=360+i*280;
+  c.save();c.globalAlpha=p;c.translate(x,450+24*(1-p));
+  c.fillStyle=i===0?'#343d28':'#473725';c.beginPath();c.roundRect(-118,-54,236,108,18);c.fill();
+  c.strokeStyle=i===0?'#c6d5a0':'#ecae63';c.lineWidth=1.5;c.stroke();
+  c.fillStyle='#f6f0de';c.font='600 46px "PingFang SC",sans-serif';c.fillText(label,0,16);c.restore();
+  if(i){c.save();c.globalAlpha=p;c.fillStyle='#d9ae70';c.font='30px sans-serif';c.fillText('+',x-140,461);c.restore();}
+ });
+ text('除了画风，还有动效、工作流',585,26,3.3,'#c0c6ac','400');
+},score(S,F){
+ const I=S.I;
+ S.at(.15,I.pad,[48,55,60,64],7,.35);
+ [1.15,1.9,2.6].forEach((t,i)=>S.at(t,I.mbox,[60,64,67][i],.35));
+ S.at(3.3,I.bell,72,.2);
+}});
+</script></body></html>
