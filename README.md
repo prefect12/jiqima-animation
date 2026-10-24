@@ -4,11 +4,11 @@
 
 这次视频选取最初的30种画风，每种5秒，合计 **2分30秒**。主画面展示动画，右侧写名称和制作提示词。每种动画保留自己的故事、角色、镜头与构图。
 
-- [下载30种完整视频（MP4）](https://github.com/prefect12/jiqima-animation/releases/download/v1.0.0/jiqima-animation-30-styles-150s.mp4)
-- [Release与下载校验](https://github.com/prefect12/jiqima-animation/releases/tag/v1.0.0)
+- [下载30种完整视频（MP4）](https://github.com/prefect12/jiqima-animation/releases/download/v1.1.0/jiqima-animation-30-styles-150s.mp4)
+- [Release与下载校验](https://github.com/prefect12/jiqima-animation/releases/tag/v1.1.0)
 - [30种精选提示词](prompts/30-styles.md)
 - [让Claude、Codex或DeepSeek使用这个库](prompts/USE-WITH-AI.md)
-- [DeepSeek复刻实验](experiments/README.md)
+- [DeepSeek单项复刻实验（不代表全部30种）](experiments/README.md)
 
 ## 直接运行
 
