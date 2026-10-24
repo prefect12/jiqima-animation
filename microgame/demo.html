@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>微游戏快闪 · 五道指令</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@900&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 微游戏快闪：五个小游戏，每关一个大胆配色 + 一句大字指令 + 倒计时条 + 成功/失败判定；
+   关越往后越短、节拍越快（120 → 180 BPM）。时间表 GAMES 由画面和配乐共用。 */
+const CN = '"Noto Sans SC", "PingFang SC", sans-serif', EN = 'Bungee, Impact, sans-serif', INK = '#15121E';
+const GAMES = [
+  { cmd: '接住！', len: 2.6, bpm: 120, bg: '#FFD23F', bg2: '#FFC000', fg: '#3B1F8C', win: true },
+  { cmd: '躲开！', len: 2.3, bpm: 135, bg: '#23C9FF', bg2: '#12B4EA', fg: '#FF2E88', win: true },
+  { cmd: '按下！', len: 2.0, bpm: 150, bg: '#FF3E7F', bg2: '#F02468', fg: '#FFF23A', win: true },
+  { cmd: '拔出！', len: 1.8, bpm: 165, bg: '#3DDC84', bg2: '#27C56E', fg: '#5A2D0C', win: false },
+  { cmd: '吹灭！', len: 1.6, bpm: 180, bg: '#6B2FD9', bg2: '#5A1FC4', fg: '#FF9F1C', win: true }
+];
+const GAPS = [.55, .5, .45, .4], T_INTRO = 1.0;
+{ let x = T_INTRO; GAMES.forEach((g, i) => { g.t0 = x; x += g.len; if (i < 4) { g.tEnd = x; x += GAPS[i]; } else g.tEnd = x; }); }
+const T_FINAL = GAMES[4].tEnd;                               // 13.2
+const HIT = .62, JUDGE = .66;                                 // 每关：动作在 62% 处完成，66% 处出判定
+const cl = (v, a, b) => Math.max(a, Math.min(b, v)), pr = (t, a, b) => cl((t - a) / (b - a), 0, 1);
+
+Film({
+  title: '微游戏快闪 · 五道指令', DUR: 15, BPM: 120, poster: 5.45,
+  fonts: [['900 100px "Noto Sans SC"', '接住躲开按下拔出吹灭成功失败第关加速准备开始过！'], ['100px Bungee', '0123456789/xX!GO']],
+  draw(c, t, F) {
+    const { W, H, hash, back, easeOut, easeIn, rrect } = F;
+    const P = Math.PI;
+    const fs = (fill, lw = 8) => { c.fillStyle = fill; c.fill(); c.lineWidth = lw; c.strokeStyle = INK; c.lineJoin = 'round'; c.lineCap = 'round'; c.stroke(); };
+    const ell = (x, y, rx, ry, r = 0) => { c.beginPath(); c.ellipse(x, y, Math.max(.5, rx), Math.max(.5, ry), r, 0, P * 2); };
+    // 大字：粗描边 + 硬投影
+    const big = (s, x, y, size, fill, k = 1, rot = 0, font = CN) => {
+      if (k <= 0) return; c.save(); c.translate(x, y); c.rotate(rot); c.scale(k, k);
+      c.font = `900 ${size}px ${font}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+      c.fillStyle = INK; c.fillText(s, size * .06, size * .09); c.lineWidth = size * .16; c.strokeStyle = INK; c.strokeText(s, 0, 0);
+      c.fillStyle = fill; c.fillText(s, 0, 0); c.restore();
+    };
+    const stripes = (col, speed, ang = -.5) => { c.save(); c.translate(W / 2, H / 2); c.rotate(ang); c.fillStyle = col; const o = (t * speed) % 120; for (let x = -1000 - 120 + o; x < 1000; x += 120) c.fillRect(x, -800, 56, 1600); c.restore(); };
+    const hearts = (n, lost) => { for (let k = 0; k < 3; k++) { const x = 1100 + k * 58, y = 60, alive = k < n; c.save(); c.translate(x, y); const s = lost && k === n ? 1 + .4 * Math.sin(t * 30) : 1; c.scale(s, s); c.beginPath(); c.moveTo(0, 16); c.bezierCurveTo(-30, -6, -16, -26, 0, -12); c.bezierCurveTo(16, -26, 30, -6, 0, 16); fs(alive ? '#FF3355' : '#FFFFFF55', 5); c.restore(); } };
+    const shakeAmt = h => t >= h && t < h + .2 ? (1 - (t - h) / .2) : 0;
+
+    /* ---------------- 片头 ---------------- */
+    if (t < T_INTRO) {
+      c.fillStyle = INK; c.fillRect(0, 0, W, H); stripes('#221C33', 240);
+      for (let i = 0; i < 40; i++) { const a = i / 40 * P * 2, r = 300 + 40 * Math.sin(t * 20 + i); c.fillStyle = i % 2 ? '#FFD23F' : '#FF3E7F'; c.fillRect(640 + Math.cos(a) * r - 6, 360 + Math.sin(a) * r - 6, 12, 12); }
+      big('准备', 640, 330, 200, '#FFFFFF', back(pr(t, .02, .2)) * (t < .5 ? 1 : 0));
+      if (t >= .5) { const k = back(pr(t, .5, .64)); big('开始！', 640, 340, 230, '#FFD23F', k, -.06); }
+      return;
+    }
+
+    /* ---------------- 结算 ---------------- */
+    if (t >= T_FINAL) {
+      const u = t - T_FINAL;
+      c.fillStyle = '#FFD23F'; c.fillRect(0, 0, W, H); stripes('#FFC000', 300);
+      for (let i = 0; i < 80; i++) { const x = hash(i) * W, y = ((hash(i * 2.1) * H + u * (200 + hash(i * 3) * 300)) % (H + 40)) - 20, r = u * 6 + i; c.save(); c.translate(x, y); c.rotate(r); c.fillStyle = ['#FF3E7F', '#23C9FF', '#6B2FD9', '#3DDC84', '#FFFFFF'][i % 5]; c.fillRect(-9, -5, 18, 10); c.restore(); }
+      GAMES.forEach((g, i) => { const k = back(pr(u, .05 + i * .07, .25 + i * .07)); if (k <= 0) return; c.save(); c.translate(320 + i * 160, 170); c.scale(k, k); ell(0, 0, 58, 58); fs(g.win ? '#3DDC84' : '#FF3355', 7); c.lineWidth = 14; c.strokeStyle = '#FFFFFF'; c.beginPath(); if (g.win) { c.moveTo(-24, 2); c.lineTo(-6, 20); c.lineTo(26, -18); } else { c.moveTo(-20, -20); c.lineTo(20, 20); c.moveTo(20, -20); c.lineTo(-20, 20); } c.stroke(); c.restore(); });
+      const k = back(pr(u, .45, .65)); big('4/5', 640, 380, 190, '#FFFFFF', k, -.04, EN);
+      big('过关！', 640, 575, 130, '#FF3E7F', back(pr(u, .75, .95)), .04);
+      const fo = pr(t, 14.45, 15); if (fo > 0) { c.fillStyle = `rgba(21,18,30,${fo})`; c.fillRect(0, 0, W, H); }
+      return;
+    }
+
+    /* ---------------- 关与关之间：关卡号 + 加速 ---------------- */
+    const gi = GAMES.findIndex(g => t >= g.t0 && t < g.tEnd);
+    if (gi < 0) {
+      const ni = GAMES.findIndex(g => g.t0 > t), prev = GAMES[ni - 1], g = GAMES[ni], u = pr(t, prev.tEnd, g.t0);
+      c.fillStyle = INK; c.fillRect(0, 0, W, H); stripes('#221C33', 400 + ni * 120, .5);
+      // 上一关的颜色斜着被切走
+      c.save(); c.beginPath(); const cut = easeIn(pr(u, 0, .35)) * 1700; c.moveTo(-200 + cut, 0); c.lineTo(W + 200, 0); c.lineTo(W + 200, H); c.lineTo(-600 + cut, H); c.closePath(); c.clip(); c.fillStyle = prev.bg; c.fillRect(0, 0, W, H); c.restore();
+      big(String(ni + 1), 560, 340, 300, g.bg, back(pr(u, .08, .3)), -.05, EN);
+      big('/5', 760, 380, 110, '#FFFFFF', back(pr(u, .14, .36)), 0, EN);
+      if (ni > 0) { const k = back(pr(u, .25, .45)); big('加速！', 640, 560, 96, '#FFFFFF', k, .05); for (let j = 0; j < 5; j++) { c.save(); c.globalAlpha = j <= ni ? 1 : .25; c.translate(460 + j * 90 + (j <= ni ? Math.sin(t * 30 + j) * 3 : 0), 650); c.beginPath(); c.moveTo(-26, -22); c.lineTo(8, 0); c.lineTo(-26, 22); c.lineTo(-10, 22); c.lineTo(24, 0); c.lineTo(-10, -22); c.closePath(); c.fillStyle = g.bg; c.fill(); c.restore(); } }
+      hearts(ni > 3 ? 2 : 3, false);
+      return;
+    }
+
+    /* ---------------- 游戏本体 ---------------- */
+    const g = GAMES[gi], u = (t - g.t0) / g.len, beatPh = ((t - g.t0) * g.bpm / 60) % 1;
+    const sh = shakeAmt(g.t0 + g.len * HIT) * 14 + shakeAmt(g.t0) * 10;
+    c.save(); c.translate((hash(Math.floor(t * 40)) - .5) * sh, (hash(Math.floor(t * 40) + 3) - .5) * sh);
+    c.fillStyle = g.bg; c.fillRect(-30, -30, W + 60, H + 60); stripes(g.bg2, 160 + gi * 90);
+    // 节拍脉冲：背景中心一圈随拍放大
+    c.save(); c.globalAlpha = .18 * (1 - beatPh); c.strokeStyle = '#FFFFFF'; c.lineWidth = 30; ell(640, 380, 200 + 300 * beatPh, 200 + 300 * beatPh); c.stroke(); c.restore();
+    const hitT = HIT, a = u < hitT;
+    if (gi === 0) {                                             // 接住：苹果掉下来，碗滑过去接
+      const ax = 900, ay = 150 + 370 * easeIn(pr(u, .14, hitT)), bx = 380 + 520 * back(pr(u, .22, .52));
+      c.fillStyle = '#C9A12B'; c.fillRect(-30, 600, W + 60, 200); c.lineWidth = 8; c.strokeStyle = INK; c.beginPath(); c.moveTo(-30, 600); c.lineTo(W + 30, 600); c.stroke();
+      const land = !a ? Math.sin(P * pr(u, hitT, hitT + .1)) * 14 : 0;
+      c.save(); c.translate(bx, 560 + land);
+      c.beginPath(); c.moveTo(-120, -40); c.quadraticCurveTo(-110, 50, 0, 50); c.quadraticCurveTo(110, 50, 120, -40); c.closePath(); fs('#23C9FF'); c.beginPath(); c.moveTo(-100, -18); c.lineTo(100, -18); c.lineWidth = 6; c.strokeStyle = '#FFFFFF'; c.stroke(); c.restore();
+      const apx = a ? ax : bx, apy = a ? ay : 522 + land;
+      c.save(); c.translate(apx, apy); c.rotate(a ? u * 6 : 0); ell(0, 0, 48, 44); fs('#FF3355'); ell(-16, -14, 10, 7, -.6); c.fillStyle = '#FFFFFF99'; c.fill(); c.beginPath(); c.moveTo(0, -42); c.lineTo(4, -66); c.lineWidth = 7; c.strokeStyle = INK; c.stroke(); ell(22, -58, 20, 10, -.4); fs('#3DDC84', 5); c.restore();
+      if (a) for (let k = 0; k < 3; k++) { c.fillStyle = INK; c.fillRect(ax - 30 + k * 30, ay - 120 - k * 10, 6, 40); }
+    } else if (gi === 1) {                                      // 躲开：铁球飞过来，小家伙跳起来
+      c.fillStyle = '#0E8FBF'; c.fillRect(-30, 590, W + 60, 200); c.lineWidth = 8; c.strokeStyle = INK; c.beginPath(); c.moveTo(-30, 590); c.lineTo(W + 30, 590); c.stroke();
+      const jump = pr(u, .44, .74), jy = -230 * Math.sin(P * jump), sq = u > .74 && u < .82 ? .8 : jump > 0 && jump < .08 ? .85 : 1;
+      c.save(); c.translate(560, 590 + jy); c.scale(1 / sq, sq);
+      ell(0, -70, 72, 70); fs('#FFFFFF'); const scared = u > .3 && u < .74;
+      [-26, 26].forEach(dx => { ell(dx, -84, scared ? 16 : 11, scared ? 20 : 13); fs('#FFFFFF', 5); ell(dx + 4, -82, 6, 6); c.fillStyle = INK; c.fill(); });
+      if (scared) { ell(0, -42, 14, 16); fs('#7A1E1E', 5); } else { c.beginPath(); c.arc(0, -52, 18, .2, P - .2); c.lineWidth = 7; c.strokeStyle = INK; c.stroke(); }
+      c.restore();
+      ell(560, 596, 70 * (1 - jump * .5 * Math.sin(P * jump)), 12); c.fillStyle = 'rgba(0,0,0,.2)'; c.fill();
+      const bxp = 1420 - 1600 * pr(u, .24, .8);
+      if (u > .24 && u < .8) { for (let k = 0; k < 4; k++) { c.fillStyle = '#FFFFFF'; c.fillRect(bxp + 70 + k * 30, 500 + k * 22, 90 - k * 10, 8); } ell(bxp, 530, 56, 56); fs(INK); ell(bxp - 18, 512, 14, 10, -.5); c.fillStyle = '#FFFFFF88'; c.fill(); }
+    } else if (gi === 2) {                                      // 按下：手指从天而降按大红钮
+      const press = u >= hitT ? 1 - pr(u, hitT + .12, hitT + .3) * .6 : 0;
+      c.fillStyle = '#B81E52'; c.fillRect(-30, 600, W + 60, 200); c.save(); c.translate(200, 0);   // 按钮放在右边，给顶部指令让位
+      ell(640, 560, 250, 70); fs('#2A2438'); c.fillStyle = '#2A2438'; c.fillRect(390, 520, 500, 40); ell(640, 520, 250, 70); fs('#3A3350');
+      const cap = 20 * press;
+      c.beginPath(); c.ellipse(640, 470 + cap, 180, 55, 0, 0, P); c.lineTo(460, 430 + cap); c.ellipse(640, 430 + cap, 180, 55, 0, P, 0, true); c.closePath(); fs('#C8102E');
+      ell(640, 430 + cap, 180, 55); fs(u >= hitT ? '#FF6B6B' : '#FF2E3E'); ell(590, 415 + cap, 50, 14, -.1); c.fillStyle = '#FFFFFF77'; c.fill();
+      if (u >= hitT && u < hitT + .25) for (let k = 0; k < 12; k++) { const aa = k / 12 * P * 2, r0 = 230, r1 = 230 + 120 * pr(u, hitT, hitT + .15); c.beginPath(); c.moveTo(640 + Math.cos(aa) * r0, 430 + Math.sin(aa) * r0 * .5); c.lineTo(640 + Math.cos(aa) * r1, 430 + Math.sin(aa) * r1 * .5); c.lineWidth = 10; c.strokeStyle = '#FFF23A'; c.stroke(); }
+      const fy = 170 + (210 + cap) * easeIn(pr(u, .25, hitT)) - (u > hitT + .15 ? 300 * easeIn(pr(u, hitT + .15, 1)) : 0);
+      c.save(); c.translate(660, fy);
+      c.beginPath(); rrect(c, -38, -300, 76, 300, 36); fs('#FFD9B8'); c.beginPath(); rrect(c, -90, -420, 180, 170, 60); fs('#FFD9B8'); c.beginPath(); rrect(c, -100, -520, 200, 110, 20); fs('#23C9FF');
+      c.beginPath(); c.moveTo(-18, -34); c.quadraticCurveTo(0, -14, 18, -34); c.lineWidth = 5; c.strokeStyle = INK; c.stroke(); c.restore(); c.restore();
+    } else if (gi === 3) {                                      // 拔出：拽住萝卜叶使劲拔——叶子断了（失败）
+      c.fillStyle = '#7A4A26'; c.fillRect(-30, 480, W + 60, 300); c.lineWidth = 8; c.strokeStyle = INK; c.beginPath(); c.moveTo(-30, 480); c.lineTo(W + 30, 480); c.stroke();
+      for (let k = 0; k < 14; k++) { ell(hash(k) * W, 540 + hash(k * 2) * 160, 14, 8); c.fillStyle = '#5E3719'; c.fill(); }
+      c.save(); c.translate(210, 0);                          // 萝卜放在右边，手不挡指令
+      const strain = u > .38 && u < hitT ? Math.sin(t * 70) * 5 : 0, snapped = u >= hitT;
+      const wob = snapped ? Math.sin((u - hitT) * 60) * 10 * (1 - pr(u, hitT, 1)) : strain;
+      c.save(); c.translate(640 + wob, 480 - (u > .38 && !snapped ? 16 * pr(u, .38, hitT) : 0));
+      c.beginPath(); c.moveTo(-70, -40); c.quadraticCurveTo(0, -60, 70, -40); c.lineTo(0, 200); c.closePath(); fs('#FF8A1F');
+      for (let k = 0; k < 3; k++) { c.beginPath(); c.moveTo(-40 + k * 12, 10 + k * 40); c.lineTo(-10 + k * 12, 14 + k * 40); c.lineWidth = 5; c.strokeStyle = INK; c.stroke(); }
+      if (snapped) { c.beginPath(); c.moveTo(-14, -50); c.lineTo(-6, -62); c.lineTo(2, -52); c.lineTo(10, -64); c.lineTo(16, -50); c.lineWidth = 6; c.strokeStyle = '#2E9E5B'; c.stroke(); }
+      c.restore();
+      const hy = snapped ? 330 - 700 * easeOut(pr(u, hitT, hitT + .2)) : 60 + 270 * easeOut(pr(u, .12, .38)) - (u > .38 ? 16 * pr(u, .38, hitT) : 0);
+      const leaves = (x, y) => { [[-50, -150, -.4], [0, -170, 0], [50, -150, .4]].forEach(([dx, dy, r]) => { ell(x + dx * .7, y + dy * .6, 26, 70, r); fs('#3DDC84', 6); }); };
+      if (!snapped) leaves(640 + wob, 440 - (u > .38 ? 16 * pr(u, .38, hitT) : 0));
+      c.save(); c.translate(640 + wob, hy - 60 + (snapped ? 0 : 0));
+      if (snapped) leaves(0, 150);
+      c.beginPath(); rrect(c, -80, -120, 160, 130, 50); fs('#FFD9B8'); c.beginPath(); rrect(c, -90, -260, 180, 150, 20); fs('#FF3E7F');
+      c.restore();
+      if (u > .38 && !snapped) for (let k = 0; k < 2; k++) { const d = (t * 3 + k * .5) % 1; ell(760 + k * 40, 180 + d * 60, 8, 12); c.fillStyle = '#23C9FF'; c.fill(); }
+      c.restore();
+    } else {                                                     // 吹灭：鼓起腮帮一口气吹灭蜡烛
+      c.fillStyle = '#4A1AA3'; c.fillRect(-30, 590, W + 60, 200);
+      c.beginPath(); rrect(c, 700, 420, 320, 170, 24); fs('#FF9ED2'); c.beginPath(); rrect(c, 740, 320, 240, 110, 20); fs('#FFE3F1');
+      for (let k = 0; k < 6; k++) { ell(760 + k * 44, 432, 16, 12); c.fillStyle = '#FF9ED2'; c.fill(); }
+      c.beginPath(); c.rect(846, 210, 28, 110); fs('#23C9FF', 6); for (let k = 0; k < 3; k++) { c.fillStyle = '#FFFFFF'; c.fillRect(848, 222 + k * 32, 24, 10); }
+      const out = u >= hitT, blow = pr(u, .32, hitT);
+      if (!out) { const lean = -blow * .9, fl = 1 + .12 * Math.sin(t * 40); c.save(); c.translate(860, 208); c.rotate(-lean * .5); c.scale(1 + blow * .3, fl * (1 - blow * .35)); c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(-26, -30, 0, -80); c.quadraticCurveTo(26, -30, 0, 0); fs('#FFB800', 6); c.beginPath(); c.moveTo(0, -6); c.quadraticCurveTo(-11, -24, 0, -46); c.quadraticCurveTo(11, -24, 0, -6); c.fillStyle = '#FFF6B0'; c.fill(); c.restore(); }
+      else for (let k = 0; k < 3; k++) { const s = pr(u, hitT + k * .04, 1); c.save(); c.globalAlpha = 1 - s; c.beginPath(); c.arc(860 + Math.sin(s * 8 + k) * 20, 200 - s * 220, 14 + s * 20, 0, P * 2); c.fillStyle = '#E6DDF5'; c.fill(); c.restore(); }
+      const puff = u > .2 ? 1 : pr(u, .05, .2), cheek = u < .32 ? puff : 1 - pr(u, .32, hitT) * .7;
+      c.save(); c.translate(330, 330); ell(0, 0, 150 + 26 * cheek, 140); fs('#FFD9B8');
+      [-50, 50].forEach(dx => { ell(dx - 20, -40, 14, 18); fs('#FFFFFF', 5); ell(dx - 16, -36, 6, 6); c.fillStyle = INK; c.fill(); });
+      ell(90 + 20 * cheek, 40, 30 + 10 * cheek, 30 + 10 * cheek); c.fillStyle = '#FF7FA0'; c.fill();
+      ell(150 + 20 * cheek, 30, 16 - 6 * cheek, 14 - 4 * cheek); fs('#7A1E1E', 6);
+      c.restore();
+      if (blow > 0 && !out) for (let k = 0; k < 5; k++) { const ph = (t * 4 + k / 5) % 1, x = 520 + ph * 300, y = 360 - k * 18 + Math.sin(ph * 8 + k) * 12 - ph * 120; c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + 40, y - 20, x + 80, y); c.lineWidth = 8; c.strokeStyle = '#FFFFFF'; c.stroke(); }
+    }
+    // 指令：先整屏砸下来，再缩到顶部横幅
+    const sIn = back(pr(u, 0, .08)), toTop = easeOut(pr(u, .2, .32));
+    const ix = 640, iy = 330 + (92 - 330) * toTop, isz = 220 - 120 * toTop;
+    if (toTop < 1) { c.save(); c.globalAlpha = .55 * (1 - toTop); c.fillStyle = g.bg; c.fillRect(0, 0, W, H); c.restore(); }
+    big(g.cmd, ix, iy, isz, g.fg === '#FFF23A' || g.fg === '#FF9F1C' ? g.fg : '#FFFFFF', sIn * (1 - easeOut(pr(u, JUDGE - .02, JUDGE + .04))), -.04 + .04 * toTop);
+    // HUD：关卡号 + 生命
+    c.save(); c.translate(40, 34); c.fillStyle = INK; rrect(c, 0, 0, 170, 56, 28); c.fill(); c.font = `900 34px ${CN}`; c.fillStyle = '#FFFFFF'; c.textBaseline = 'middle'; c.fillText(`第 ${gi + 1} 关`, 26, 30); c.restore();
+    hearts(gi === 3 && u >= JUDGE ? 2 : gi > 3 ? 2 : 3, gi === 3 && u >= JUDGE && u < JUDGE + .15);
+    // 倒计时条：10 格，剩下 3 格时闪
+    const rem = 1 - pr(u, .12, HIT), cells = Math.ceil(rem * 10);
+    c.save(); c.translate(240, 650); c.fillStyle = INK; rrect(c, -10, -10, 820, 52, 26); c.fill();
+    for (let k = 0; k < 10; k++) { if (k >= cells) break; c.fillStyle = cells <= 3 && Math.floor(t * 12) % 2 ? '#FFFFFF' : g.fg === '#FFF23A' || g.fg === '#FF9F1C' ? g.fg : '#FFFFFF'; rrect(c, 6 + k * 80, 0, 72, 32, 12); c.fill(); }
+    c.restore();
+    // 判定
+    if (u >= JUDGE) {
+      const k = back(pr(u, JUDGE, JUDGE + .08)), fl = 1 - pr(u, JUDGE, JUDGE + .1);
+      c.fillStyle = `rgba(255,255,255,${.7 * fl})`; c.fillRect(-30, -30, W + 60, H + 60);
+      c.save(); c.translate(640, 320); c.rotate(g.win ? -.08 : .08); c.scale(k, k);
+      ell(0, 0, 220, 220); c.fillStyle = g.win ? '#3DDC84' : '#FF3355'; c.fill(); c.lineWidth = 16; c.strokeStyle = INK; c.stroke();
+      c.lineWidth = 34; c.strokeStyle = '#FFFFFF'; c.lineCap = 'round'; c.beginPath(); if (g.win) { c.moveTo(-100, -20); c.lineTo(-28, 52); c.lineTo(108, -84); } else { c.moveTo(-80, -100); c.lineTo(80, 60); c.moveTo(80, -100); c.lineTo(-80, 60); } c.stroke();
+      c.restore();
+      big(g.win ? '成功！' : '失败！', 640, 545, 130, g.win ? '#FFF23A' : '#FFFFFF', k, g.win ? -.08 : .08);
+    }
+    c.restore();
+  },
+  score(S, F) {
+    const { I } = S, hash = F.hash;
+    const tone = (B, type, pts, peak, d, out) => { const ctx = B.sfx.context, o = ctx.createOscillator(), g = ctx.createGain(); o.type = type; const w = pts[0][0]; o.frequency.setValueAtTime(pts[0][1], w); pts.slice(1).forEach(([tt, f]) => o.frequency.linearRampToValueAtTime(f, tt)); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(peak, w + .01); g.gain.setValueAtTime(peak, w + d - .05); g.gain.exponentialRampToValueAtTime(.0001, w + d); o.connect(g); g.connect(out || B.sfx); o.start(w); o.stop(w + d + .02); };
+    const buzzer = (w, B) => { tone(B, 'sawtooth', [[w, 98], [w + .5, 92]], .16, .5); tone(B, 'square', [[w, 104], [w + .5, 97]], .08, .5); };
+    const wahwah = (w, B) => [[67, .0], [66, .22], [65, .44]].forEach(([m, dt]) => { const f = 440 * Math.pow(2, (m - 69) / 12); tone(B, 'square', [[w + dt, f], [w + dt + .18, f * .97]], .05, .2); });
+    const fanfare = (w, B, root) => [0, 4, 7, 12].forEach((k, i) => I.chip(w + i * .06, B, root + k, 1.1, i === 3 ? .35 : .08));
+    const stab = (w, B, root) => [0, 7, 12, 16].forEach(k => I.chip(w, B, root + k, .8, .12));
+    const ups = (w, B, d) => tone(B, 'square', [[w, 200], [w + d, 1600]], .04, d);
+    // 片头
+    S.at(.02, I.impact); S.at(.02, stab, 60); S.at(.5, I.kick); S.at(.5, stab, 67); S.at(.5, I.pop);
+    for (let k = 0; k < 4; k++) S.at(.75 + k * .0625, I.snare, .5 + k * .15);
+    GAMES.forEach((g, i) => {
+      const bt = 60 / g.bpm, root = 48 + i * 2, n = Math.floor(g.len / bt + .01);
+      // 指令砸下：重音 + 短旋律钩子
+      S.at(g.t0, I.kick, 1.1); S.at(g.t0, stab, root + 12); S.at(g.t0, I.whip);
+      for (let b = 0; b < n; b++) {
+        const tb = g.t0 + b * bt, after = tb >= g.t0 + g.len * JUDGE;
+        S.at(tb, I.kick, after ? .6 : .85); if (b % 2) S.at(tb, I.snare, .55);
+        S.at(tb + bt / 2, I.hat, .8); S.at(tb, I.hat, .5);
+        S.at(tb, I.chipTri, root + [0, 12, 7, 12][b % 4], bt * .8);
+        if (!after) { const m = root + 24 + [0, 3, 7, 10, 7, 3, 12, 10][(b + i) % 8]; S.at(tb + bt / 2, I.chip, m, .6, bt * .35); }
+        // 倒计时滴答（计时条走的那一段）
+        if (tb > g.t0 + g.len * .12 && tb < g.t0 + g.len * HIT) S.at(tb, I.tick, 1.2);
+      }
+      const hitAt = g.t0 + g.len * HIT, jud = g.t0 + g.len * JUDGE;
+      // 每关自己的动作音效
+      if (i === 0) { S.at(g.t0 + g.len * .14, (w, B) => tone(B, 'sine', [[w, 1200], [w + g.len * .48, 300]], .05, g.len * .48)); S.at(hitAt, I.thud); S.at(hitAt, I.pop); }
+      if (i === 1) { S.at(g.t0 + g.len * .24, I.whoosh, .8); S.at(g.t0 + g.len * .44, I.jump); S.at(g.t0 + g.len * .74, I.thud, .5); }
+      if (i === 2) { S.at(g.t0 + g.len * .3, I.whoosh, .5); S.at(hitAt, I.click); S.at(hitAt, I.thud, 1); S.at(hitAt + .01, I.pop2); }
+      if (i === 3) { S.at(g.t0 + g.len * .38, (w, B) => tone(B, 'sawtooth', [[w, 180], [w + g.len * .24, 260]], .03, g.len * .24)); S.at(hitAt, I.whip); S.at(hitAt, I.pop, .6); }
+      if (i === 4) { S.at(g.t0 + g.len * .32, I.whoosh, 1); S.at(hitAt, I.swish); }
+      // 判定
+      if (g.win) { S.at(jud, I.coin); S.at(jud + .12, fanfare, 72 + i * 2); } else { S.at(jud, buzzer); S.at(jud + .3, wahwah); }
+      // 过场：鼓滚 + 上行扫频
+      if (i < 4) { const t1 = g.tEnd, gp = GAPS[i]; S.at(t1, ups, gp); const rolls = Math.floor(gp / .05); for (let k = 0; k < rolls; k++) S.at(t1 + k * .05, I.snare, .25 + .5 * k / rolls); S.at(t1 + .05, I.tom, 45 + i * 2); }
+    });
+    // 结算：号角式芯片旋律
+    const T = T_FINAL;
+    S.at(T, I.impact); S.at(T, I.kick, 1.2);
+    [72, 76, 79, 84, 79, 84, 88].forEach((m, k) => S.at(T + .05 + k * .12, I.chip, m, 1, k === 6 ? .8 : .1));
+    [0, 1, 2, 3, 4].forEach(k => S.at(T + .05 + k * .07, I.blip, k));
+    for (let b = 0; b < 6; b++) { S.at(T + .5 + b * .25, I.kick, .8); S.at(T + .5 + b * .25 + .125, I.hat, .8); S.at(T + .5 + b * .25, I.chipTri, [48, 55, 52, 55, 48, 60][b], .2); }
+    S.at(T + .95, I.coin); S.at(T + 1.2, (w, B) => [60, 64, 67, 72].forEach(m => I.chip(w, B, m, .9, .9)));
+    void hash;
+  }
+});
+</script></body></html>

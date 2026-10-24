@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>红色剪纸 · 双虎抱福</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 红色剪纸：一张大红纸 → 对折 → 剪刀沿着轮廓走、一刀一刀掏镂空 → 展开，对称的一对小老虎抱着圆，最后在圆心剪出“福”。
+   时间表（BPM 120，一拍 0.5 秒）——draw() 和 score() 共用。 */
+const BPM = 120, BEAT = 60 / BPM;
+const T = {
+  drop: [0, 1.0], fold: [1.0, 2.0], shift: [2.0, 2.4],
+  cut1: [2.4, 5.0], fall: 5.0, cut2: [5.0, 6.0], cut3: [6.0, 7.0], cut4: [7.0, 8.0], exit: [8.0, 8.5],
+  back: [8.5, 9.0], unfold: [9.0, 10.0], glow: [10.0, 11.0], fu: [11.0, 11.5], party: [11.6, 14.4], fade: [14.45, 15]
+};
+const RED = '#C8161D', GOLD = '#E7B442';
+const FONT = '"Ma Shan Zheng", "STKaiti", "Kaiti SC", serif';
+const PW = 300, PH = 260, SS = 2;                    // 半张纸：x ∈ [-300, 0]（0 是折线），y ∈ [-260, 260]
+
+/* ---------- 初始化：纸纹、桌面纹理（只有这里用 Math.random） ---------- */
+function paperTex(base, dark) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 256; const g = cv.getContext('2d');
+  g.fillStyle = base; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 3000; i++) { g.fillStyle = Math.random() < .5 ? `rgba(90,0,0,${Math.random() * .12})` : `rgba(255,120,110,${Math.random() * .08})`; g.fillRect(Math.random() * 256, Math.random() * 256, 1 + Math.random() * 2, 1 + Math.random() * 2); }
+  for (let i = 0; i < 120; i++) { g.strokeStyle = `rgba(${dark ? '60,0,0' : '255,150,140'},${.04 + Math.random() * .08})`; g.lineWidth = .5 + Math.random(); g.beginPath(); let x = Math.random() * 256, y = Math.random() * 256; g.moveTo(x, y); for (let k = 0; k < 3; k++) { x += Math.random() * 20 - 10; y += Math.random() * 20 - 10; g.lineTo(x, y); } g.stroke(); }
+  return cv;
+}
+const TEX_F = paperTex(RED, true), TEX_B = paperTex('#A80F16', true);
+const DESK = document.createElement('canvas'); DESK.width = DESK.height = 400;
+{ const g = DESK.getContext('2d'); g.fillStyle = '#F3E6D0'; g.fillRect(0, 0, 400, 400);
+  for (let i = 0; i < 4000; i++) { g.fillStyle = `rgba(${Math.random() < .5 ? '140,110,70' : '255,255,245'},${Math.random() * .06})`; g.fillRect(Math.random() * 400, Math.random() * 400, 1 + Math.random() * 2, 1); }
+  for (let i = 0; i < 200; i++) { g.strokeStyle = `rgba(150,120,80,${Math.random() * .07})`; g.lineWidth = .6; g.beginPath(); let x = Math.random() * 400, y = Math.random() * 400; g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += Math.random() * 14 - 7; y += Math.random() * 14 - 7; g.lineTo(x, y); } g.stroke(); } }
+const mk = (w, h) => { const cv = document.createElement('canvas'); cv.width = w * SS; cv.height = h * SS; return cv; };
+const PC = mk(320, 540), TF = mk(320, 540), PF = mk(640, 540);   // 半张（每帧清空重画）/ 翻页用 / 展开后的整张
+
+/* ---------- 图样：一条轮廓 + 四刀镂空 ---------- */
+function Path() {
+  const P = []; let cx = 0, cy = 0;
+  const o = {
+    pts: P,
+    M(x, y) { P.push([x, y]); cx = x; cy = y; return o; }, L(x, y) { return o.M(x, y); },
+    Q(qx, qy, x, y, n = 8) { for (let i = 1; i <= n; i++) { const u = i / n; P.push([(1 - u) * (1 - u) * cx + 2 * u * (1 - u) * qx + u * u * x, (1 - u) * (1 - u) * cy + 2 * u * (1 - u) * qy + u * u * y]); } cx = x; cy = y; return o; },
+    ARC(ox, oy, r, a0, a1, n = 30, sc = 0, k = 10) { for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n, rr = r + sc * Math.abs(Math.sin(a * k)); P.push([ox + rr * Math.cos(a), oy + rr * Math.sin(a)]); } [cx, cy] = P[P.length - 1]; return o; }
+  };
+  return o;
+}
+const MC = [0, -40], MR = 112;                         // 圆（福）的中心和半径
+const FC = [-180, -180], FR = 62;                      // 老虎脸
+const OUT_A = Path().M(0, -152).ARC(0, -40, MR, -Math.PI / 2, -2.25, 26, 6)
+  .Q(-84, -146, -100, -138).Q(-108, -146, -116, -136).Q(-124, -142, -130, -130)
+  .ARC(FC[0], FC[1], FR, .62, -.95, 16, 3, 9)                           // 圆脸右侧（布老虎式正脸）
+  .ARC(-141, -238, 21, .5, -2.75, 14).ARC(FC[0], FC[1], FR, -1.42, -1.72, 4)   // 右耳、头顶
+  .ARC(-219, -238, 21, -.39, -3.64, 14).ARC(FC[0], FC[1], FR, -2.2, -3.95, 16, 3, 9)   // 左耳、左脸
+  .L(-246, -128).L(-238, -116).L(-258, -106).L(-246, -94).L(-262, -84)   // 颈后锯齿毛
+  .Q(-264, -62, -266, -40).L(-272, -24).Q(-280, -40, -292, -46).Q(-308, -44, -306, -24).Q(-300, -12, -290, -18)
+  .Q(-312, -10, -312, 30).Q(-312, 90, -296, 130).Q(-300, 160, -284, 180).L(-276, 200).L(-300, 200).L(-300, 258).L(0, 258).pts;
+const OUT_B = Path().M(0, 200)
+  .Q(-10, 188, -20, 200).Q(-30, 188, -40, 200).Q(-50, 188, -60, 200).Q(-70, 188, -80, 200).Q(-90, 188, -100, 200).Q(-110, 188, -118, 200)
+  .Q(-124, 186, -136, 188).Q(-142, 178, -152, 182).Q(-172, 160, -172, 110).Q(-172, 60, -156, 36)
+  .Q(-140, 24, -128, 28).Q(-120, 18, -112, 26).Q(-106, 16, -100, 10)
+  .ARC(0, -40, MR, Math.PI - Math.asin(50 / MR), Math.PI / 2, 20, 6).pts;
+const SIL = [...OUT_A, ...OUT_B];
+// 刀口形状（都返回点列）
+const lens = (x1, y1, x2, y2, w, n = 10) => { const a = Math.atan2(y2 - y1, x2 - x1), l = Math.hypot(x2 - x1, y2 - y1), P = [], R = (u, v) => [x1 + Math.cos(a) * u - Math.sin(a) * v, y1 + Math.sin(a) * u + Math.cos(a) * v]; for (let i = 0; i <= n; i++) { const u = i / n; P.push(R(u * l, -w * 4 * u * (1 - u))); } for (let i = n - 1; i > 0; i--) { const u = i / n; P.push(R(u * l, w * 4 * u * (1 - u))); } return P; };
+const cres = (x, y, r, a, n = 12) => { const P = []; for (let i = 0; i <= n; i++) { const q = a - 1.25 + 2.5 * i / n; P.push([x + r * Math.cos(q), y + r * Math.sin(q)]); } const ox = x - Math.cos(a) * r * .38, oy = y - Math.sin(a) * r * .38; for (let i = n; i >= 0; i--) { const q = a - 1.02 + 2.04 * i / n; P.push([ox + r * .82 * Math.cos(q), oy + r * .82 * Math.sin(q)]); } return P; };
+const tri = (x, y, s, a) => [[x + Math.cos(a) * s, y + Math.sin(a) * s], [x + Math.cos(a + 2.3) * s * .8, y + Math.sin(a + 2.3) * s * .8], [x + Math.cos(a - 2.3) * s * .8, y + Math.sin(a - 2.3) * s * .8]];
+const circ = (x, y, r, n = 16) => Array.from({ length: n }, (_, i) => [x + r * Math.cos(i / n * Math.PI * 2), y + r * Math.sin(i / n * Math.PI * 2)]);
+const petals = (x, y, r, n = 6) => Array.from({ length: n }, (_, k) => { const a = k / n * Math.PI * 2; return lens(x + Math.cos(a) * r * .18, y + Math.sin(a) * r * .18, x + Math.cos(a) * r, y + Math.sin(a) * r, r * .22, 6); });
+const one = shape => ({ trace: [...shape, shape[0]], shapes: [shape] });
+const group = (shapes, trace) => ({ trace, shapes });
+// 胸口和圆之间的缝（让手臂和圆分开）
+const GAP = (() => { const Q = []; for (let i = 0; i <= 16; i++) { const a = -2.42 - i / 16 * 1.03; Q.push([118 * Math.cos(a), -40 + 118 * Math.sin(a)]); } return [...Q, [-140, -6], [-154, -40], [-150, -90], [-128, -116]]; })();
+const STAGES = [
+  // 第二刀：脸（月牙眼、三角鼻、ω 嘴、额头“王”、胡须、耳心）
+  [group([cres(-202, -186, 12, -Math.PI / 2), cres(-158, -186, 12, -Math.PI / 2)], [[-214, -186], [-202, -198], [-190, -186], [-170, -186], [-158, -198], [-146, -186]]),
+   group([tri(-180, -162, 9, Math.PI / 2), lens(-197, -146, -181, -139, 3.2, 8), lens(-179, -139, -163, -146, 3.2, 8)], [[-186, -168], [-174, -168], [-180, -154], [-197, -146], [-181, -139], [-163, -146]]),
+   group([lens(-196, -230, -164, -230, 3), lens(-194, -219, -166, -219, 3), lens(-198, -208, -162, -208, 3.4), lens(-180, -234, -180, -204, 3)], [[-196, -230], [-164, -230], [-180, -219], [-198, -208], [-162, -208]]),
+   group([lens(-214, -160, -240, -154, 2.4), lens(-214, -153, -238, -144, 2.4), lens(-146, -160, -126, -156, 2.4), lens(-146, -153, -128, -146, 2.4)], [[-214, -160], [-240, -154], [-238, -144], [-146, -153], [-128, -146]]),
+   group([circ(-141, -238, 8, 12), circ(-219, -238, 8, 12)], [...circ(-141, -238, 8, 8), ...circ(-219, -238, 8, 8)])],
+  // 第三刀：身上的月牙纹、团花、肚子上的锯齿、手臂和尾巴的缝
+  [group([-66, -26, 14, 54].map((y, i) => cres(-240 - (i === 2 ? 4 : 0), y, 15, 0)), [[-240, -80], [-242, -26], [-246, 14], [-240, 70]]),
+   group([-50, -10, 30, 70].map(y => cres(-205, y + 20, 11, 0)), [[-205, -30], [-205, 90]]),
+   group(petals(-236, 130, 26), circ(-236, 130, 28, 20)),
+   group([0, 1, 2, 3, 4].map(i => tri(-186, 64 + i * 22, 8, 0)), [[-190, 60], [-186, 160]]),
+   one(GAP), one(lens(-284, -12, -292, 108, 5, 14)), one(circ(-297, -30, 5, 10))],
+  // 第四刀：圆边一圈三角、底座云纹、尾巴条纹
+  [group([...Array.from({ length: 5 }, (_, i) => tri(98 * Math.cos(-Math.PI / 2 - i * .13), -40 + 98 * Math.sin(-Math.PI / 2 - i * .13), 7, -Math.PI / 2 - i * .13)), ...Array.from({ length: 7 }, (_, i) => tri(98 * Math.cos(Math.PI / 2 + i * .13), -40 + 98 * Math.sin(Math.PI / 2 + i * .13), 7, Math.PI / 2 + i * .13))],
+     [...Array.from({ length: 5 }, (_, i) => [98 * Math.cos(-Math.PI / 2 - i * .13), -40 + 98 * Math.sin(-Math.PI / 2 - i * .13)]), ...Array.from({ length: 7 }, (_, i) => [98 * Math.cos(Math.PI / 2 + i * .13), -40 + 98 * Math.sin(Math.PI / 2 + i * .13)])]),
+   group(Array.from({ length: 8 }, (_, i) => cres(-24 - i * 36, 232, 10, -Math.PI / 2)), [[-24, 226], [-276, 226]]),
+   group([10, 50, 90].map(y => lens(-309, y, -299, y + 3, 2.5, 6)), [[-309, 10], [-309, 90]])]
+];
+// 剪的时间表：每一项 { t0, t1, trace, shapes }
+const CUTS = [];
+{ const len = P => P.reduce((s, p, i) => i ? s + Math.hypot(p[0] - P[i - 1][0], p[1] - P[i - 1][1]) : 0, 0);
+  const la = len(OUT_A), lb = len(OUT_B), span = T.cut1[1] - T.cut1[0] - .2, ta = span * la / (la + lb);
+  CUTS.push({ t0: T.cut1[0], t1: T.cut1[0] + ta, trace: OUT_A, shapes: [], outline: true });
+  CUTS.push({ t0: T.cut1[0] + ta + .2, t1: T.cut1[1], trace: OUT_B, shapes: [], outline: true });
+  [T.cut2, T.cut3, T.cut4].forEach(([a, b], s) => { const L = STAGES[s], slot = (b - a) / L.length; L.forEach((e, i) => CUTS.push({ t0: a + i * slot + slot * .22, t1: a + (i + 1) * slot, trace: e.trace, shapes: e.shapes })); });
+  CUTS.forEach(c => { const L = [0]; for (let i = 1; i < c.trace.length; i++) L.push(L[i - 1] + Math.hypot(c.trace[i][0] - c.trace[i - 1][0], c.trace[i][1] - c.trace[i - 1][1])); c.cum = L; c.len = L[L.length - 1]; });
+}
+function along(cut, u) { const d = u * cut.len, L = cut.cum; let i = 1; while (i < L.length - 1 && L[i] < d) i++; const a = cut.trace[i - 1], b = cut.trace[i], f = (d - L[i - 1]) / Math.max(1e-6, L[i] - L[i - 1]); return { x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f, ang: Math.atan2(b[1] - a[1], b[0] - a[0]), i, f }; }
+const poly = (g, P) => { g.moveTo(P[0][0], P[0][1]); for (let i = 1; i < P.length; i++) g.lineTo(P[i][0], P[i][1]); g.closePath(); };
+
+// 半张纸的当前状态画进 PC（每帧先清空）
+function renderHalf(t) {
+  const g = PC.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, PC.width, PC.height);
+  g.setTransform(SS, 0, 0, SS, 310 * SS, 270 * SS);
+  g.fillStyle = g.createPattern(TEX_F, 'repeat'); g.fillRect(-PW, -PH, PW, PH * 2);
+  g.save(); g.globalCompositeOperation = 'destination-out'; g.fillStyle = '#000';
+  if (t >= T.fall) { g.beginPath(); g.rect(-PW - 20, -PH - 20, PW + 20, PH * 2 + 40); poly(g, SIL); g.fill('evenodd'); }
+  CUTS.forEach(c => { if (!c.outline && t >= c.t1) { g.beginPath(); c.shapes.forEach(s => poly(g, s)); g.fill(); } });
+  g.restore();
+  // 正在剪的刀口
+  const cur = CUTS.find(c => t >= c.t0 && t < c.t1);
+  CUTS.forEach(c => { if (!(c.outline && t >= c.t0 && t < T.fall) && c !== cur) return; const u = Math.min(1, (t - c.t0) / (c.t1 - c.t0)); const p = along(c, u); g.beginPath(); g.moveTo(c.trace[0][0], c.trace[0][1]); for (let i = 1; i < p.i; i++) g.lineTo(c.trace[i][0], c.trace[i][1]); g.lineTo(p.x, p.y); g.strokeStyle = 'rgba(50,0,0,.85)'; g.lineWidth = 1.8; g.stroke(); });
+}
+function scissorsAt(t) {
+  if (t < T.cut1[0] - .4 || t > T.exit[1]) return null;
+  if (t < T.cut1[0]) { const u = (t - (T.cut1[0] - .4)) / .4, s = CUTS[0].trace[0]; return { x: s[0] + 420 * (1 - u) * (1 - u), y: s[1] - 120 * (1 - u), ang: Math.PI * .75, cutting: false }; }
+  for (let i = 0; i < CUTS.length; i++) {
+    const c = CUTS[i];
+    if (t >= c.t0 && t < c.t1) { const p = along(c, (t - c.t0) / (c.t1 - c.t0)); return { ...p, cutting: true }; }
+    const n = CUTS[i + 1];
+    if (n && t >= c.t1 && t < n.t0) { const a = c.trace[c.trace.length - 1], b = n.trace[0], u = (t - c.t1) / (n.t0 - c.t1), e = u * u * (3 - 2 * u); return { x: a[0] + (b[0] - a[0]) * e, y: a[1] + (b[1] - a[1]) * e - 30 * Math.sin(Math.PI * u), ang: Math.atan2(b[1] - a[1], b[0] - a[0]), cutting: false }; }
+  }
+  const last = CUTS[CUTS.length - 1].trace, e = last[last.length - 1], u = (t - T.exit[0]) / (T.exit[1] - T.exit[0]);
+  return { x: e[0] + 500 * u * u, y: e[1] + 300 * u * u, ang: .6, cutting: false };
+}
+function drawScissors(c, x, y, ang, open) {
+  c.save(); c.translate(x, y); c.rotate(ang + Math.PI);
+  c.shadowColor = 'rgba(60,20,10,.35)'; c.shadowBlur = 12; c.shadowOffsetX = 12; c.shadowOffsetY = 16;
+  const blade = s => { c.save(); c.translate(62, 0); c.rotate(s * open / 2); c.beginPath(); c.moveTo(0, -6 * s); c.quadraticCurveTo(-30, -6 * s, -62, 0); c.lineTo(-60, 2 * s); c.quadraticCurveTo(-30, 3 * s, 0, 4 * s); c.closePath(); const gr = c.createLinearGradient(0, -6, 0, 6); gr.addColorStop(0, '#EEF1F4'); gr.addColorStop(1, '#9BA3AD'); c.fillStyle = gr; c.fill(); c.lineWidth = 1.4; c.strokeStyle = '#4B5059'; c.stroke();
+    c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(24, 6 * s, 40, 16 * s); c.lineWidth = 7; c.strokeStyle = '#2A2A2E'; c.stroke();
+    c.beginPath(); c.ellipse(62, 22 * s, 22, 14, .25 * s, 0, Math.PI * 2); c.lineWidth = 7; c.strokeStyle = '#1C1C20'; c.stroke(); c.restore(); };
+  blade(1); blade(-1);
+  c.shadowColor = 'transparent'; c.fillStyle = '#C9A24A'; c.beginPath(); c.arc(62, 0, 4.5, 0, Math.PI * 2); c.fill();
+  c.restore();
+}
+
+Film({
+  title: '红色剪纸 · 双虎抱福', DUR: 15, BPM, poster: 12.6,
+  fonts: [['120px "Ma Shan Zheng"', '福']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, ease, easeOut, easeIn, back, hash } = F;
+    // 背景：桌面 → 金色光
+    c.fillStyle = c.createPattern(DESK, 'repeat'); c.fillRect(0, 0, W, H);
+    const gm = ease(prog(t, ...T.glow));
+    if (gm > 0) {
+      c.save(); c.globalAlpha = gm;
+      const gr = c.createRadialGradient(640, 360, 40, 640, 360, 760); gr.addColorStop(0, '#FFE7A8'); gr.addColorStop(.55, '#F2B955'); gr.addColorStop(1, '#C9762A'); c.fillStyle = gr; c.fillRect(0, 0, W, H);
+      c.globalAlpha = gm * .16; c.fillStyle = '#FFF6D8'; c.translate(640, 360); c.rotate(t * .08);
+      for (let k = 0; k < 16; k++) { c.rotate(Math.PI / 8); c.beginPath(); c.moveTo(0, 0); c.lineTo(900, -70); c.lineTo(900, 70); c.closePath(); c.fill(); }
+      c.restore();
+    }
+    const vg = c.createRadialGradient(640, 360, 300, 640, 360, 820); vg.addColorStop(0, 'rgba(90,40,10,0)'); vg.addColorStop(1, 'rgba(90,40,10,.28)'); c.fillStyle = vg; c.fillRect(0, 0, W, H);
+
+    // 纸的位置：对折后往右挪半张、放大一点，展开前挪回来
+    const sh = ease(prog(t, ...T.shift)) * (1 - ease(prog(t, ...T.back)));
+    const Z = 1 + .12 * sh, fx = 640 + 150 * Z * sh, cy = 360;
+    const dropU = easeOut(prog(t, ...T.drop)), dropY = lerp(-420, 0, dropU), dropR = (1 - dropU) * -.12;
+    const shadowed = (fn, lift = 0) => { c.save(); c.shadowColor = `rgba(70,15,5,${.32 + lift * .1})`; c.shadowBlur = 6 + lift * 16; c.shadowOffsetX = 3 + lift * 10; c.shadowOffsetY = 5 + lift * 16; fn(); c.restore(); };
+
+    if (t < T.fold[1]) {
+      // ---- 落纸 + 对折（还没剪，纯色纸） ----
+      c.save(); c.translate(640, cy + dropY); c.rotate(dropR);
+      const th = Math.PI * ease(prog(t, ...T.fold)), sx = Math.cos(th);
+      shadowed(() => { c.fillStyle = c.createPattern(TEX_F, 'repeat'); c.fillRect(-PW, -PH, PW, PH * 2); });
+      if (sx > -.999) {
+        const lift = Math.sin(th);
+        shadowed(() => { c.fillStyle = c.createPattern(sx > 0 ? TEX_F : TEX_B, 'repeat'); c.fillRect(Math.min(0, PW * sx), -PH, Math.abs(PW * sx), PH * 2); }, lift);
+        const gr = c.createLinearGradient(0, 0, PW * sx, 0); gr.addColorStop(0, `rgba(40,0,0,${.35 * lift})`); gr.addColorStop(1, `rgba(255,200,190,${.12 * lift})`); c.fillStyle = gr; c.fillRect(Math.min(0, PW * sx), -PH, Math.abs(PW * sx), PH * 2);
+      }
+      if (t > T.fold[0]) { c.strokeStyle = 'rgba(60,0,0,.35)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(0, -PH); c.lineTo(0, PH); c.stroke(); }
+      c.restore();
+    } else if (t < T.unfold[0]) {
+      // ---- 折着剪 ----
+      renderHalf(t);
+      c.save(); c.translate(fx, cy); c.scale(Z, Z);
+      const fu = prog(t, T.fall, T.fall + .7);   // 外轮廓剪下来的一大块废纸：从纸后面滑落
+      if (fu > 0 && fu < 1) { c.save(); c.translate(-60 * fu, 640 * fu * fu); c.rotate(-.3 * fu); c.beginPath(); c.rect(-PW, -PH, PW, PH * 2); poly(c, SIL); c.fillStyle = c.createPattern(TEX_B, 'repeat'); shadowed(() => c.fill('evenodd'), .6); c.restore(); }
+      c.save(); c.globalAlpha = .9; c.filter = 'brightness(.62)'; c.drawImage(PC, -310 + 1.6, -270 + 2.2, 320, 540); c.restore();   // 下面那一层（纸的厚度）
+      shadowed(() => c.drawImage(PC, -310, -270, 320, 540));
+      // 纸屑掉落：外轮廓大块 + 每个小洞的小块
+      CUTS.forEach((ct, k) => { if (ct.outline) return; ct.shapes.forEach((sp, j) => { const u = prog(t, ct.t1 + hash(k * 7 + j) * .15, ct.t1 + .55); if (u <= 0 || u >= 1) return; const [px, py] = sp[0]; c.save(); c.translate(px + (hash(k + j * 3) - .5) * 60 * u, py + 240 * u * u); c.rotate((hash(j + k) - .5) * 6 * u); c.translate(-px, -py); c.globalAlpha = 1 - u * u; c.beginPath(); poly(c, sp); c.fillStyle = RED; c.fill(); c.restore(); }); });
+      const sc = scissorsAt(t);
+      if (sc) drawScissors(c, sc.x, sc.y, sc.ang, sc.cutting ? .26 * (.5 + .5 * Math.cos(t * Math.PI * 8)) : .45);
+      c.restore();
+    } else {
+      renderHalf(T.exit[1]);
+      if (t < T.unfold[1]) {
+        // ---- 展开：右半张绕折线翻过来 ----
+        const th = Math.PI * (1 - ease(prog(t, ...T.unfold))), sx = Math.cos(th), lift = Math.sin(th);
+        c.save(); c.translate(640, cy);
+        shadowed(() => c.drawImage(PC, -310, -270, 320, 540));
+        const g = TF.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, TF.width, TF.height); g.drawImage(PC, 0, 0);
+        g.globalCompositeOperation = 'source-atop'; g.fillStyle = sx < 0 ? `rgba(60,0,0,${.25 + .2 * lift})` : `rgba(60,0,0,${.3 * lift})`; g.fillRect(0, 0, TF.width, TF.height); g.globalCompositeOperation = 'source-over';
+        c.save(); c.scale(-sx, 1); shadowed(() => c.drawImage(TF, -310, -270, 320, 540), lift); c.restore();
+        c.restore();
+      } else {
+        // ---- 整张：对称的双虎，圆心剪出“福” ----
+        const g = PF.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, PF.width, PF.height);
+        g.setTransform(SS, 0, 0, SS, 320 * SS, 270 * SS); g.drawImage(PC, -310, -270, 320, 540); g.save(); g.scale(-1, 1); g.drawImage(PC, -310, -270, 320, 540); g.restore();
+        g.save(); g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(70,0,0,.28)'; g.fillRect(-1.2, -270, 1.6, 540); g.fillStyle = 'rgba(255,170,160,.22)'; g.fillRect(.4, -270, 1.4, 540); g.restore();   // 折痕
+        const fuU = prog(t, ...T.fu);
+        if (fuU > 0) { g.save(); g.beginPath(); g.rect(-100, -150, 200, 220 * fuU); g.clip(); g.globalCompositeOperation = 'destination-out'; g.font = `124px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('福', 0, MC[1] + 6); g.restore(); }
+        const zs = lerp(1, 1.08, ease(prog(t, ...T.glow))), rot = t > T.party[0] ? .02 * Math.sin((t - T.party[0]) * 1.8) : 0, lift = ease(prog(t, ...T.glow));
+        // 身后的纸屑彩片
+        const confetti = front => { for (let i = 0; i < 72; i++) { if ((i % 3 === 0) !== front) continue; const u = t - T.party[0] - hash(i) * 2.2; if (u < 0) continue; const x = 80 + hash(i + 3) * 1120 + 40 * Math.sin(u * 2 + i), y = -40 + u * (150 + 90 * hash(i + 5)), s = front ? 9 : 7 + 5 * hash(i + 7); c.save(); c.translate(x, y); c.rotate(u * (2 + hash(i + 9) * 3)); c.scale(1, Math.cos(u * 4 + i)); c.fillStyle = i % 2 ? RED : GOLD; c.beginPath(); if (i % 4 === 0) { for (let q = 0; q < 4; q++) { c.ellipse(Math.cos(q * Math.PI / 2) * s * .5, Math.sin(q * Math.PI / 2) * s * .5, s * .55, s * .28, q * Math.PI / 2, 0, Math.PI * 2); } } else { c.moveTo(0, -s); c.lineTo(s * .7, 0); c.lineTo(0, s); c.lineTo(-s * .7, 0); c.closePath(); } c.fill(); c.restore(); } };
+        confetti(false);
+        c.save(); c.translate(640, cy); c.rotate(rot); c.scale(zs, zs);
+        c.save(); c.filter = 'brightness(.6)'; c.drawImage(PF, -320 + 1.6, -270 + 2.2, 640, 540); c.restore();
+        shadowed(() => c.drawImage(PF, -320, -270, 640, 540), lift);
+        // 剪福那一下：剪刀快速走一个之字
+        if (t > T.fu[0] - .3 && t < T.fu[1] + .4) { const u = prog(t, T.fu[0], T.fu[1]), zx = 46 * Math.sin(u * Math.PI * 5), zy = -150 + 220 * u; const ent = prog(t, T.fu[0] - .3, T.fu[0]), ex = prog(t, T.fu[1], T.fu[1] + .4); drawScissors(c, zx + 300 * (1 - ent) + 400 * ex * ex, zy - 60 * (1 - ent) + 200 * ex * ex, -.9, .26 * (.5 + .5 * Math.cos(t * Math.PI * 16))); }
+        c.restore();
+        confetti(true);
+        // 福剪出来那一刻的金光
+        const fl = prog(t, T.fu[1], T.fu[1] + .6);
+        if (fl > 0 && fl < 1) { c.save(); c.globalCompositeOperation = 'lighter'; c.globalAlpha = (1 - fl) * .55; const rg = c.createRadialGradient(640, 360 + MC[1] * zs, 10, 640, 360 + MC[1] * zs, 60 + 260 * fl); rg.addColorStop(0, '#FFF4C8'); rg.addColorStop(1, 'rgba(255,210,120,0)'); c.fillStyle = rg; c.fillRect(0, 0, W, H); c.restore(); }
+      }
+    }
+    const fo = prog(t, ...T.fade); if (fo > 0) { c.fillStyle = `rgba(120,20,12,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    S.at(0, I.whoosh, .6); S.at(T.drop[1] - .05, I.paper); S.at(T.drop[1], X.dagu, .7);
+    S.at(T.fold[0] + .1, I.paper); S.at(T.fold[0] + .5, I.swish); S.at(T.fold[1], X.dagu, .8); S.at(T.fold[1], X.cymbal, .45, .3); S.at(T.fold[1] + .05, I.paper);
+    // 剪：刀口一开一合 = 每个八分音符一“咔嚓”
+    CUTS.forEach(c => { for (let x = Math.ceil(c.t0 / (beat / 2)) * beat / 2; x < c.t1; x += beat / 2) S.at(x, X.snip, .9); });
+    S.at(T.fall, I.whoosh, .5); S.at(T.fall + .6, I.paper);
+    // 剪纸时的伴奏：木鱼 + 小锣，轻
+    for (let b = 4; b < 16; b++) { S.at(b * beat, X.bangzi, b % 2 ? .45 : .8); if (b % 4 === 2) S.at(b * beat, X.xiaoluo, .35); }
+    for (let b = 4; b < 16; b += 2) S.at(b * beat, I.pizz, [50, 57, 54, 57][(b / 2) % 4], .6);
+    const OST = [74, 78, 81, 78, 76, 78, 74, 71];            // 剪纸时的拨弦小循环（D 宫五声）
+    for (let e = 8; e < 36; e++) S.at(e * beat / 2, I.pluck, OST[e % 8] - (e >= 24 ? 2 : 0), .55);
+    for (let b = 4; b < 18; b++) S.at(b * beat + beat / 2, I.shaker, .8);
+    // 展开：一串板鼓推上去 → 大锣 + 钹
+    for (let i = 0; i < 8; i++) S.at(T.unfold[0] + i * beat / 4, X.bangu, .5 + i * .06);
+    S.at(T.unfold[0], I.riser, 1.0);
+    S.at(T.unfold[1], X.gong, 130, 1.2, 2.6, .93); S.at(T.unfold[1], X.cymbal, 1); S.at(T.unfold[1], X.dagu, 1);
+    // 剪福：四下快剪 → 亮
+    for (let i = 0; i < 4; i++) S.at(T.fu[0] + i * beat / 4, X.snip, 1);
+    S.at(T.fu[1], I.chime); S.at(T.fu[1], X.cymbal, .6, .4);
+    // 喜庆段：唢呐 + 锣鼓 + 鞭炮
+    const MEL = [[0, 74, .5], [.5, 76, .5], [1, 78, .5], [1.5, 81, .5], [2, 83, 1], [3, 81, .5], [3.5, 78, .5], [4, 81, 1], [5, 78, .5], [5.5, 76, .5], [6, 74, 1.5], [7.5, 76, .5], [8, 78, 1], [9, 81, .5], [9.5, 83, .5], [10, 86, 2]];
+    const m0 = T.unfold[1] + beat;
+    MEL.forEach(([b, m, d]) => S.at(m0 + b * beat, X.suona, m, d * beat));
+    for (let b = 0; b < 9; b++) { const x = T.unfold[1] + b * beat; S.at(x, X.dagu, b % 2 ? .5 : .9); S.at(x + beat / 2, X.cymbal, .3, .15); if (b % 2) S.at(x, X.xiaoluo, .5); }
+    for (let k = 0; k < 3; k++) S.at(T.party[0] + .2 + k * .8, X.crackers, 10 + k * 3);
+    S.at(14.0, X.gong, 110, 1, 2.2, .93); S.at(14.0, X.cymbal, .8);
+  }
+});
+
+/* ---------- 自己合成的：剪刀、锣、钹、鼓、梆子、唢呐、鞭炮 ---------- */
+const NB = new WeakMap();
+function nbuf(ctx) { let b = NB.get(ctx); if (!b) { b = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate); const d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; NB.set(ctx, b); } return b; }
+function tone(ctx, out, type, f0, w, a, d, peak, f1) { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = type; o.frequency.setValueAtTime(f0, w); if (f1) o.frequency.exponentialRampToValueAtTime(f1, w + a + d * .7); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(peak, w + a); g.gain.exponentialRampToValueAtTime(.0001, w + a + d); o.connect(g); g.connect(out); o.start(w); o.stop(w + a + d + .05); return o; }
+function hiss(ctx, out, w, d, peak, type, f, q, f1) { const s = ctx.createBufferSource(); s.buffer = nbuf(ctx); const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.setValueAtTime(f, w); fl.Q.value = q; if (f1) fl.frequency.exponentialRampToValueAtTime(f1, w + d * .8); const g = ctx.createGain(); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(peak, w + .003); g.gain.exponentialRampToValueAtTime(.0001, w + d); s.connect(fl); fl.connect(g); g.connect(out); s.start(w, Math.random() * .4); s.stop(w + d + .05); }
+const X = {
+  snip: (w, B, v = 1) => { const ctx = B.sfx.context; hiss(ctx, B.sfx, w, .045, .28 * v, 'bandpass', 5200, 2.5); tone(ctx, B.sfx, 'sine', 3400, w, .001, .03, .06 * v, 2600); hiss(ctx, B.sfx, w + .05, .03, .12 * v, 'highpass', 6000, 1); },
+  gong: (w, B, f = 120, v = 1, d = 2.4, rise = .94) => { const ctx = B.sfx.context; [1, 1.52, 2.18, 2.73, 3.41, 4.3].forEach((k, i) => tone(ctx, B.sfx, 'sine', f * k, w, .006, d / (1 + i * .35), .16 * v / (1 + i * .5), f * k * rise)); hiss(ctx, B.sfx, w, .6, .07 * v, 'bandpass', f * 8, 1.2); },
+  xiaoluo: (w, B, v = 1) => X.gong(w, B, 560, .75 * v, .8, 1.12),
+  cymbal: (w, B, v = 1, d = .7) => { const ctx = B.sfx.context; hiss(ctx, B.sfx, w, d, .22 * v, 'highpass', 4200, .7); hiss(ctx, B.sfx, w, d * .6, .12 * v, 'bandpass', 2600, 3); },
+  bangzi: (w, B, v = 1) => { const ctx = B.drum.context; tone(ctx, B.drum, 'sine', 1180, w, .001, .07, .3 * v); tone(ctx, B.drum, 'square', 2360, w, .001, .02, .04 * v); },
+  bangu: (w, B, v = 1) => { const ctx = B.drum.context; tone(ctx, B.drum, 'sine', 720, w, .001, .09, .35 * v, 380); hiss(ctx, B.drum, w, .04, .12 * v, 'bandpass', 3000, 2); },
+  dagu: (w, B, v = 1) => { const ctx = B.drum.context; tone(ctx, B.drum, 'sine', 110, w, .003, .4, .7 * v, 55); hiss(ctx, B.drum, w, .08, .12 * v, 'lowpass', 900, 1); },
+  suona: (w, B, m, d = .5, v = 1) => {
+    const ctx = B.lead.context, f = 440 * Math.pow(2, (m - 69) / 12), g = ctx.createGain(), bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1900; bp.Q.value = 1.1;
+    const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 6.5; lg.gain.setValueAtTime(0, w); lg.gain.linearRampToValueAtTime(f * .02, w + Math.min(.3, d * .7)); lfo.connect(lg);
+    [['sawtooth', 1], ['square', 1.004]].forEach(([ty, k]) => { const o = ctx.createOscillator(); o.type = ty; o.frequency.setValueAtTime(f * k * .96, w); o.frequency.exponentialRampToValueAtTime(f * k, w + .05); lg.connect(o.frequency); o.connect(bp); o.start(w); o.stop(w + d + .15); });
+    g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.12 * v, w + .03); g.gain.linearRampToValueAtTime(.1 * v, w + Math.max(.05, d - .05)); g.gain.exponentialRampToValueAtTime(.0001, w + d + .1);
+    bp.connect(g); g.connect(B.lead); lfo.start(w); lfo.stop(w + d + .15);
+  },
+  crackers: (w, B, n = 10) => { const ctx = B.sfx.context; for (let i = 0; i < n; i++) { const x = w + i * .055 + Math.random() * .04; hiss(ctx, B.sfx, x, .05, .35, 'bandpass', 1800 + Math.random() * 2500, 1.2); tone(ctx, B.sfx, 'sine', 180, x, .001, .04, .15, 80); } }
+};
+</script></body></html>

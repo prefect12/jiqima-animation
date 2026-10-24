@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>综艺节奏扁平 · 一周节奏秀</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=ZCOOL+QingKe+HuangYou&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 综艺节奏扁平：扁平舞台 + 顶部音符轨道和判定圈 + 判定字弹出 + 评委举分牌。
+   时间全部按拍（120 BPM，一拍 0.5 秒），DAYS 表同时驱动画面和音效。 */
+const BPM = 120, BEAT = 60 / BPM;
+const EN = 'Bungee, Impact, sans-serif', CN = '"ZCOOL QingKe HuangYou", "PingFang SC", sans-serif', INK = '#1B0F33';
+const DAYS = [
+  { name: '周一', col: '#5B8CFF', enter: 4, notes: [5, 6], judge: ['MISS', 'GOOD'], card: 7, scores: [3, 4, 3], face: 'sleepy' },
+  { name: '周二', col: '#2EC4A0', enter: 8, notes: [9, 10], judge: ['GOOD', 'GOOD'], card: 11, scores: [6, 6, 7], face: 'meh' },
+  { name: '周三', col: '#FF9F1C', enter: 12, notes: [13, 14], judge: ['GOOD', 'GREAT'], card: 15, scores: [7, 7, 8], face: 'focus' },
+  { name: '周四', col: '#FF4F9A', enter: 16, notes: [17, 18], judge: ['GREAT', 'GREAT'], card: 19, scores: [8, 9, 8], face: 'happy' },
+  { name: '周五', col: '#FFC21A', enter: 20, notes: [21, 21.5, 22, 22.5, 23, 23.5, 24, 24.5], judge: Array(8).fill('PERFECT'), card: 26, scores: [10, 10, 10], face: 'star' }
+];
+const B_BIG = 25, B_END = 26;                                // 第 25 拍“PERFECT!!”大字，第 26 拍满分
+const JC = { PERFECT: '#FFE14D', GREAT: '#4DE8FF', GOOD: '#7CFF6B', MISS: '#B7B0C8' };
+const NOTES = DAYS.flatMap((d, di) => d.notes.map((b, k) => ({ b, t: b * BEAT, j: d.judge[k], col: d.col, di })));
+{ let combo = 0; NOTES.forEach(n => { combo = n.j === 'MISS' ? 0 : combo + 1; n.combo = combo; }); }
+const RING_X = 170, TRACK_Y = 196, SPEED = 520;               // 音符从右往左，每秒 520 像素
+const cl = (v, a, b) => Math.max(a, Math.min(b, v)), pr = (t, a, b) => cl((t - a) / (b - a), 0, 1);
+
+Film({
+  title: '综艺节奏扁平 · 一周节奏秀', DUR: 15, BPM, poster: 12.75,
+  fonts: [['100px Bungee', 'PERFECTGRADOMISC0123456789x!'], ['100px "ZCOOL QingKe HuangYou"', '一周节奏秀二三四五']],
+  draw(c, t, F) {
+    const { W, H, hash, back, easeOut, easeIn, rrect } = F;
+    const P = Math.PI, b = t / BEAT, ph = b % 1, pulse = Math.pow(1 - ph, 3);
+    const ell = (x, y, rx, ry) => { c.beginPath(); c.ellipse(x, y, Math.max(.5, rx), Math.max(.5, ry), 0, 0, P * 2); };
+    const fs = (fill, lw = 6, col = INK) => { c.fillStyle = fill; c.fill(); if (lw) { c.lineWidth = lw; c.strokeStyle = col; c.lineJoin = 'round'; c.lineCap = 'round'; c.stroke(); } };
+    const word = (s, x, y, size, fill, k = 1, rot = 0, font = EN, out = INK) => { if (k <= 0) return; c.save(); c.translate(x, y); c.rotate(rot); c.scale(k, k); c.font = `${size}px ${font}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round'; c.fillStyle = out; c.fillText(s, size * .05, size * .08); c.lineWidth = size * .14; c.strokeStyle = out; c.strokeText(s, 0, 0); c.fillStyle = fill; c.fillText(s, 0, 0); c.restore(); };
+    const fri = b >= DAYS[4].enter;
+
+    /* ---- 背景：扁平放射条 + 舞台灯 ---- */
+    c.fillStyle = fri ? '#4A1C7A' : '#35195F'; c.fillRect(0, 0, W, H);
+    c.save(); c.translate(640, 760); c.rotate(t * .12);
+    for (let i = 0; i < 24; i++) { c.beginPath(); c.moveTo(0, 0); c.arc(0, 0, 1400, i / 24 * P * 2, (i + .5) / 24 * P * 2); c.fillStyle = fri ? '#5A2690' : '#40206F'; c.fill(); }
+    c.restore();
+    [[260, .5], [1020, -.5]].forEach(([x, dir], i) => { const a = dir * (.25 + .2 * Math.sin(t * 1.6 + i * 2)); c.save(); c.translate(x, 250); c.rotate(a); c.beginPath(); c.moveTo(-22, 0); c.lineTo(22, 0); c.lineTo(150, 560); c.lineTo(-150, 560); c.closePath(); c.fillStyle = `rgba(255,236,150,${.1 + .08 * pulse})`; c.fill(); c.restore(); });
+    // 舞台
+    ell(560, 640, 520, 120); fs('#C23A7E', 0); c.fillStyle = '#C23A7E'; c.fillRect(40, 640, 1040, 100);
+    ell(560, 610, 520, 110); fs('#FF5FA2', 6);
+    ell(560, 610, 420, 80); c.lineWidth = 5; c.strokeStyle = '#FF9CC8'; c.stroke();
+    for (let i = 0; i < 17; i++) { const a = P * (.08 + i / 16 * .84), x = 560 - Math.cos(a) * 500, y = 610 + Math.sin(a) * 104; ell(x, y + 14, 9, 9); fs((i + Math.floor(b)) % 2 ? '#FFE14D' : '#FFF6D0', 3); }
+
+    /* ---- 评委席（右侧），举分牌 ---- */
+    const judges = [[900, '#2EC4A0', 'bob'], [1030, '#FFB36B', 'bald'], [1160, '#8C6BFF', 'bun']];
+    const curDay = [...DAYS].reverse().find(d => b >= d.enter - .5) || null;
+    const jy = j => 430 - 6 * pulse * (j % 2 ? 1 : .6) + 200 * (1 - back(pr(b, 2 + j * .33, 2.6 + j * .33)));   // 评委第 2 拍起依次冒出来
+    judges.forEach(([x], j) => {
+      const y = jy(j), d = curDay;
+      if (d && b >= d.card - .1) {
+        const k = back(pr(b, d.card + j * .12, d.card + j * .12 + .5)), drop = d === DAYS[4] ? 0 : easeIn(pr(b, d.card + 1.3, d.card + 1.6));
+        if (k > 0 && drop < 1) {
+          c.save(); c.translate(x, y - 120 + 200 * drop); c.scale(1, k); c.rotate((j - 1) * .06);
+          c.beginPath(); c.rect(-6, 40, 12, 90); fs('#8A5A36', 4);
+          c.beginPath(); rrect(c, -56, -52, 112, 104, 12); fs('#FFFFFF', 6);
+          c.font = `${d.scores[j] === 10 ? 58 : 70}px ${EN}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = d.scores[j] >= 8 ? '#E0245E' : INK; c.fillText(String(d.scores[j]), 0, 6);
+          c.restore();
+        }
+      }
+    });
+    c.save(); c.beginPath(); c.rect(820, 0, 460, 545); c.clip();   // 评委从桌子后面冒出来
+    judges.forEach(([x, skin, hair], j) => {
+      const y = jy(j);
+      c.beginPath(); rrect(c, x - 50, y + 40, 100, 110, 30); fs(['#23233A', '#3A2A5C', '#1F3A5C'][j]);
+      ell(x, y, 46, 50); fs(skin);
+      if (hair === 'bob') { c.beginPath(); c.arc(x, y - 6, 52, P * .95, P * 2.05); c.lineTo(x + 50, y + 26); c.lineTo(x + 36, y + 26); c.lineTo(x + 36, y - 10); c.lineTo(x - 36, y - 10); c.lineTo(x - 36, y + 26); c.lineTo(x - 50, y + 26); c.closePath(); fs('#1B0F33', 5); }
+      if (hair === 'bun') { ell(x, y - 58, 20, 18); fs('#FF4F9A', 5); c.beginPath(); c.arc(x, y - 10, 48, P * 1.05, P * 1.95); c.closePath(); fs('#FF4F9A', 5); }
+      if (hair === 'bald') { [-18, 18].forEach(dx => { ell(x + dx, y - 2, 14, 12); c.lineWidth = 5; c.strokeStyle = INK; c.stroke(); }); c.beginPath(); c.moveTo(x - 4, y - 2); c.lineTo(x + 4, y - 2); c.stroke(); }
+      [-16, 16].forEach(dx => { ell(x + dx, y - 2, 5, 6); c.fillStyle = INK; c.fill(); });
+      const d = curDay, shown = d && b >= d.card && (d === DAYS[4] || b < d.card + 1.5 + .0), happy = d && shown && d.scores[j] >= 8;
+      c.beginPath(); if (happy) c.arc(x, y + 16, 16, .1, P - .1); else if (shown && d.scores[j] < 5) c.arc(x, y + 32, 14, P + .3, -.3); else { c.moveTo(x - 12, y + 22); c.lineTo(x + 12, y + 22); } c.lineWidth = 5; c.strokeStyle = INK; c.stroke();
+    });
+    c.restore();
+    c.beginPath(); rrect(c, 830, 490, 420, 110, 18); fs('#FFB400');
+    for (let i = 0; i < 5; i++) { const x = 870 + i * 85, y = 545; c.beginPath(); for (let k = 0; k < 10; k++) { const a = -P / 2 + k * P / 5, r = k % 2 ? 9 : 22; c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } c.closePath(); fs((i + Math.floor(b)) % 2 ? '#FFFFFF' : '#FF4F9A', 4); }
+
+    /* ---- 表演者：日历纸小人（周一到周五轮流上台） ---- */
+    function dayGuy(d, x, y, sc, pose, alpha = 1) {
+      c.save(); c.globalAlpha = alpha; c.translate(x, y); c.scale(sc, sc);
+      const sq = 1 - .08 * pose.squash, up = pose.armsUp;
+      c.scale(1 / sq, sq);
+      // 腿
+      [[-40, 1], [40, -1]].forEach(([lx, s]) => { c.beginPath(); c.moveTo(lx * .6, -10); c.lineTo(lx + s * pose.kick * 20, 0 + 40); c.lineWidth = 16; c.strokeStyle = INK; c.lineCap = 'round'; c.stroke(); ell(lx + s * pose.kick * 20 + s * 4, 46, 22, 12); fs(INK, 0); });
+      // 手臂
+      [-1, 1].forEach(s => { const hx = s * (110 + 10 * up), hy = -140 - 110 * up * (s === pose.lead ? 1 : .6); c.beginPath(); c.moveTo(s * 70, -120); c.quadraticCurveTo(s * 110, -120 - 30 * up, hx, hy + 60 * (1 - up)); c.lineWidth = 16; c.strokeStyle = INK; c.stroke(); ell(hx, hy + 60 * (1 - up), 16, 16); fs('#FFFFFF', 6); });
+      // 纸身体
+      c.beginPath(); rrect(c, -80, -230, 160, 225, 18); fs('#FFFFFF');
+      c.save(); c.beginPath(); rrect(c, -80, -230, 160, 225, 18); c.clip(); c.fillStyle = d.col; c.fillRect(-80, -230, 160, 66); c.restore();
+      c.beginPath(); rrect(c, -80, -230, 160, 225, 18); c.lineWidth = 6; c.strokeStyle = INK; c.stroke();
+      c.beginPath(); c.moveTo(-80, -164); c.lineTo(80, -164); c.stroke();
+      [-40, 40].forEach(dx => { c.beginPath(); rrect(c, dx - 7, -246, 14, 30, 7); fs('#E6E0F5', 5); });
+      c.font = `46px ${CN}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#FFFFFF'; c.fillText(d.name, 0, -194);
+      // 表情
+      const f = d.face, ey = -110;
+      if (f === 'sleepy') { [-30, 30].forEach(dx => { c.beginPath(); c.moveTo(dx - 16, ey); c.lineTo(dx + 16, ey); c.lineWidth = 7; c.strokeStyle = INK; c.stroke(); c.beginPath(); c.arc(dx, ey, 16, 0, P); c.stroke(); }); ell(0, ey + 52, 12, 16); fs('#7A1E1E', 5); }
+      else if (f === 'star') { [-32, 32].forEach(dx => { c.beginPath(); for (let k = 0; k < 10; k++) { const a = -P / 2 + k * P / 5 + t * 2, r = k % 2 ? 9 : 22; c.lineTo(dx + Math.cos(a) * r, ey + Math.sin(a) * r); } c.closePath(); fs('#FFC21A', 4); }); c.beginPath(); c.moveTo(-34, ey + 34); c.quadraticCurveTo(0, ey + 90, 34, ey + 34); c.closePath(); fs('#7A1E1E', 5); }
+      else { [-30, 30].forEach(dx => { ell(dx, ey, 13, f === 'focus' ? 10 : 16); fs('#FFFFFF', 5); ell(dx + 3, ey + 2, 6, 6); c.fillStyle = INK; c.fill(); if (f === 'focus') { c.beginPath(); c.moveTo(dx - 18, ey - 22 + (dx < 0 ? -4 : 4)); c.lineTo(dx + 18, ey - 22 + (dx < 0 ? 4 : -4)); c.lineWidth = 7; c.strokeStyle = INK; c.stroke(); } });
+        c.beginPath(); if (f === 'meh') { c.moveTo(-20, ey + 50); c.lineTo(20, ey + 46); c.lineWidth = 7; c.strokeStyle = INK; c.stroke(); } else if (f === 'focus') { c.moveTo(-18, ey + 50); c.quadraticCurveTo(0, ey + 40, 18, ey + 50); c.lineWidth = 7; c.strokeStyle = INK; c.stroke(); } else { c.arc(0, ey + 36, 24, .15, P - .15); c.closePath(); fs('#7A1E1E', 5); } }
+      c.restore();
+    }
+    const STAGE_X = 480, STAGE_Y = 606;
+    if (b >= DAYS[0].enter - .5) {
+      DAYS.forEach((d, i) => {
+        const next = DAYS[i + 1], outB = next ? next.enter - .5 : 99;
+        if (b < d.enter - .5 || b >= outB + .5) return;
+        let x = STAGE_X, y = STAGE_Y;
+        if (b < d.enter) { const u = pr(b, d.enter - .5, d.enter); x = 1400 - (1400 - STAGE_X) * u; y -= 160 * Math.sin(P * u); }
+        if (b >= outB) { const u = pr(b, outB, outB + .5); x = STAGE_X - 700 * easeIn(u); y -= 120 * Math.sin(P * u); }
+        const hitNow = d.notes.some(nb => b >= nb && b < nb + .5) || (i === 4 && b >= B_BIG);
+        const pose = { squash: b >= d.enter ? pulse : 0, armsUp: i === 4 ? (b >= d.notes[0] ? .6 + .4 * Math.abs(Math.sin(P * b)) : .3) : hitNow ? 1 : .15 + .2 * pulse, lead: Math.floor(b) % 2 ? 1 : -1, kick: Math.floor(b) % 2 ? 1 : -1 };
+        if (d.face === 'sleepy' && b >= 5 && b < 5.6) { pose.armsUp = 0; y += 16; }   // 周一 MISS：踉跄一下
+        dayGuy(d, x, y - 14 * pulse * (b >= d.enter ? 1 : 0), 1, pose);
+      });
+    }
+    // 结尾：周一到周四在后排一起蹦
+    if (b >= B_END + .5) DAYS.slice(0, 4).forEach((d, i) => { const k = back(pr(b, B_END + .5 + i * .12, B_END + 1 + i * .12)); if (k <= 0) return; const xs = [200, 320, 640, 760][i]; dayGuy(d, xs, 560 - 30 * Math.abs(Math.sin(P * (b + i * .5))), .55 * k, { squash: pulse, armsUp: 1, lead: i % 2 ? 1 : -1, kick: 0 }); });
+
+    /* ---- 顶部：节目标志 + COMBO ---- */
+    c.save(); c.translate(40, 22); c.beginPath(); rrect(c, 0, 0, 290, 84, 42); fs('#FF4F9A', 6);
+    c.font = `54px ${CN}`; c.textBaseline = 'middle'; c.fillStyle = '#FFFFFF'; c.textAlign = 'center'; c.fillText('一周节奏秀', 145, 46); c.restore();
+    const last = [...NOTES].reverse().find(n => t >= n.t), combo = last ? last.combo : 0;
+    if (combo >= 2) { const k = 1 + .25 * Math.pow(1 - pr(t - last.t, 0, .2), 2); c.save(); c.translate(1150, 62); c.scale(k, k); c.font = `26px ${EN}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#FFFFFF'; c.fillText('COMBO', 0, -18); c.font = `44px ${EN}`; c.fillStyle = '#FFE14D'; c.fillText(String(combo), 0, 20); c.restore(); }
+
+    /* ---- 音符轨道 + 判定圈 ---- */
+    c.beginPath(); rrect(c, 60, TRACK_Y - 46, 1160, 92, 46); fs('rgba(20,8,40,.75)', 5, '#FFFFFF');
+    for (let k = 0; k < 24; k++) { const x = RING_X + ((k * 120 - (t * SPEED) % 120) + 2400) % 2400; if (x < 1200 && x > RING_X + 40) { c.fillStyle = 'rgba(255,255,255,.12)'; c.fillRect(x, TRACK_Y - 30, 4, 60); } }
+    const lastHit = [...NOTES].reverse().find(n => t >= n.t && t < n.t + .2 && n.j !== 'MISS');
+    const flash = lastHit ? 1 - (t - lastHit.t) / .2 : 0;
+    ell(RING_X, TRACK_Y, 40 + 8 * flash, 40 + 8 * flash); c.lineWidth = 7; c.strokeStyle = flash > 0 ? JC[lastHit.j] : '#FFFFFF'; c.stroke();
+    ell(RING_X, TRACK_Y, 26, 26); c.fillStyle = `rgba(255,255,255,${.12 + .5 * flash})`; c.fill();
+    NOTES.forEach(n => {
+      const dt = n.t - t, x = RING_X + dt * SPEED;
+      if (n.j === 'MISS') { if (x > 1210 || x < 0) return; c.save(); c.globalAlpha = dt < 0 ? Math.max(0, 1 + dt * 3) : 1; ell(x, TRACK_Y + (dt < 0 ? -dt * 80 : 0), 30, 30); fs(n.col, 6, '#FFFFFF'); c.restore(); return; }
+      if (dt < 0 || x > 1210) return;
+      ell(x, TRACK_Y, 30, 30); fs(n.col, 6, '#FFFFFF'); ell(x, TRACK_Y, 10, 10); c.fillStyle = '#FFFFFF'; c.fill();
+    });
+    // 命中爆点
+    NOTES.forEach(n => { const u = (t - n.t) / .35; if (u < 0 || u > 1 || n.j === 'MISS') return; for (let k = 0; k < 8; k++) { const a = k / 8 * P * 2, r = 40 + 70 * easeOut(u); c.save(); c.translate(RING_X + Math.cos(a) * r, TRACK_Y + Math.sin(a) * r); c.rotate(a); c.fillStyle = JC[n.j]; c.globalAlpha = 1 - u; c.fillRect(-10, -4, 20, 8); c.restore(); } });
+    // 判定字：弹出、上浮、消失（同一时刻只留最新一个）
+    const pop = [...NOTES].reverse().find(n => t >= n.t && t < n.t + .45);
+    if (pop && b < B_BIG) { const u = pr(t, pop.t, pop.t + .45), k = back(pr(t, pop.t, pop.t + .1)); c.save(); c.globalAlpha = 1 - pr(u, .7, 1); word(pop.j, 330, 300 - 24 * u, pop.j === 'PERFECT' ? 58 : 52, JC[pop.j], k, -.06); c.restore(); }
+
+    /* ---- 周五：PERFECT!! 大字 + 满分 + 彩纸 ---- */
+    if (b >= B_BIG) {
+      const k = back(pr(b, B_BIG, B_BIG + .35));
+      c.save(); c.translate(480, 318); c.rotate(-.05);
+      for (let i = 0; i < 16; i++) { const a = i / 16 * P * 2 + t; c.beginPath(); c.moveTo(0, 0); c.arc(0, 0, Math.max(0, 420 * k), a, a + P / 16); c.fillStyle = 'rgba(255,225,77,.22)'; c.fill(); }
+      c.restore();
+      word('PERFECT!!', 480, 318, 108, '#FFE14D', k, -.05, EN, '#E0245E');
+      for (let i = 0; i < 90; i++) { const u = t - B_BIG * BEAT, x = hash(i) * W, y = -30 + ((hash(i * 1.7) * 200 + u * (260 + hash(i * 3) * 260)) % (H + 60)), r = u * 7 + i; c.save(); c.translate(x + Math.sin(u * 3 + i) * 20, y); c.rotate(r); c.fillStyle = ['#FFE14D', '#4DE8FF', '#FF4F9A', '#7CFF6B', '#FFFFFF'][i % 5]; c.fillRect(-10, -5, 20, 10); c.restore(); }
+    }
+    // 片头：节目名砸入
+    if (b < 4) { const k = back(pr(b, .4, 1.1)), o = 1 - pr(b, 3.2, 3.9); c.save(); c.globalAlpha = o; word('一周节奏秀', 560, 305, 130, '#FFFFFF', k, -.04, CN, '#E0245E'); c.restore(); }
+    const fin = 1 - pr(t, 0, .35); if (fin > 0) { c.fillStyle = `rgba(27,15,51,${fin})`; c.fillRect(0, 0, W, H); }
+    const fo = pr(t, 14.5, 15); if (fo > 0) { c.fillStyle = `rgba(27,15,51,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S, F) {
+    const { I, beat } = S, hash = F.hash;
+    const NB = new WeakMap();
+    const nbuf = ctx => { let b = NB.get(ctx); if (!b) { b = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate); const d = b.getChannelData(0); let s = 4242; for (let i = 0; i < d.length; i++) { s = (s * 16807) % 2147483647; d[i] = s / 1073741823.5 - 1; } NB.set(ctx, b); } return b; };
+    const tone = (B, type, pts, peak, d) => { const ctx = B.sfx.context, o = ctx.createOscillator(), g = ctx.createGain(); o.type = type; const w = pts[0][0]; o.frequency.setValueAtTime(pts[0][1], w); pts.slice(1).forEach(([tt, f]) => o.frequency.linearRampToValueAtTime(f, tt)); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(peak, w + .01); g.gain.setValueAtTime(peak, w + d - .05); g.gain.exponentialRampToValueAtTime(.0001, w + d); o.connect(g); g.connect(B.sfx); o.start(w); o.stop(w + d + .02); };
+    // 观众欢呼：带通噪声起伏 + 几声“呜——”
+    const cheer = (w, B, d = 1.2, v = 1) => { const ctx = B.sfx.context, s = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain(); s.buffer = nbuf(ctx); s.loop = true; bp.type = 'bandpass'; bp.frequency.value = 1500; bp.Q.value = .7; g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.2 * v, w + .15); g.gain.exponentialRampToValueAtTime(.0001, w + d); s.connect(bp); bp.connect(g); g.connect(B.sfx); s.start(w); s.stop(w + d + .05); for (let k = 0; k < 5; k++) { const f = 520 + hash(w * 3 + k) * 380, st = w + hash(k * 7 + w) * .3; tone(B, 'triangle', [[st, f], [st + .25, f * 1.35], [st + .6, f * 1.1]], .025 * v, .6); } };
+    const clapCrowd = (w, B, d, v = 1) => { for (let k = 0; k < d * 40; k++) { const x = w + k / 40 + (hash(k * 1.3) - .5) * .02; I.clap(x, B, .25 * v * (.5 + hash(k))); } };
+    const bwomp = (w, B) => { tone(B, 'sine', [[w, 330], [w + .35, 110]], .22, .38); tone(B, 'square', [[w, 165], [w + .35, 55]], .04, .38); };
+    const judgeSfx = { PERFECT: (w, B) => { I.chime(w, B); I.shimmer(w + .02, B); }, GREAT: (w, B) => [0, 1, 2].forEach(k => I.blip(w + k * .05, B, 4 + k)), GOOD: (w, B) => I.ding(w, B), MISS: bwomp };
+    // 流行鼓点 + 合成贝斯 + 和弦
+    const PR = [[57, 60, 64, 67], [53, 57, 60, 64], [48, 52, 55, 59], [55, 59, 62, 65]], RT = [45, 41, 36, 43];
+    S.drums(1, 7, 'four', .9);
+    for (let bb = 4; bb < 28; bb++) { const tb = bb * beat, r = RT[Math.floor(bb / 4) % 4]; S.at(tb, I.bass, r, .2, .9); S.at(tb + beat / 2, I.bass, r + 12, .15, .7); }
+    for (let bar = 1; bar < 7; bar++) { const ch = PR[bar % 4]; [.5, 1.5, 2.5, 3.5].forEach(o => S.at(bar * 4 * beat + o * beat, (w, B) => ch.forEach(m => I.keys(w, B, m + 12, .6, .2)))); }
+    // 片头
+    S.at(.2, I.riser, 1.0); S.at(1.1 * beat / .5 * .5 + .05, I.impact); S.at(.55, I.clap); [2, 3].forEach(k => S.at(k * beat, I.pop));
+    S.at(.6, cheer, 1.2, .8);
+    // 每一天
+    DAYS.forEach((d, di) => {
+      S.at(d.enter * beat - .25, I.whip); S.at(d.enter * beat, I.boop, 1 + di * .1);
+      d.notes.forEach((nb, k) => { const w = nb * beat, j = d.judge[k]; if (j !== 'MISS') S.at(w, I.rim, 1.2); S.at(w + .01, judgeSfx[j]); if (di === 4) S.at(w, I.pluck, [72, 74, 76, 79, 81, 84, 86, 88][k], 1); });
+      const cw = d.card * beat; [0, 1, 2].forEach(j => S.at(cw + j * .06, I.pop, .8 + d.scores[j] * .05));
+      if (di < 4) S.at(cw + .1, cheer, 1.0, .35 + di * .15); else { S.at(cw + .05, cheer, 2.2, 1.3); S.at(cw + .2, clapCrowd, 1.8, 1.1); }
+      if (di === 0) S.at(cw + .1, bwomp);
+    });
+    // 周五：鼓加花，PERFECT!! 大合奏
+    S.drums(5, 6, 'busy', .9);
+    for (let k = 0; k < 8; k++) S.at(24 * beat + k * beat / 8, I.snare, .4 + k * .08);
+    S.at(B_BIG * beat, I.impact); S.at(B_BIG * beat, (w, B) => { [69, 73, 76, 81].forEach(m => I.brass(w, B, m, 1.1, .9)); I.chime(w, B); });
+    S.at(B_BIG * beat, cheer, 1.5, 1.2);
+    S.drums(6, 7, 'four', 1);
+    S.at(B_END * beat, (w, B) => [57, 64, 69, 73, 76].forEach(m => I.keys(w, B, m, 1.2, 1.8)));
+    [81, 85, 88, 93].forEach((m, k) => S.at(B_END * beat + .5 + k * .08, I.pluck, m, 1));
+    S.at(28 * beat, I.kick, 1); S.at(28 * beat, (w, B) => [45, 57, 64, 69, 73].forEach(m => I.brass(w, B, m, 1, 1.0)));
+  }
+});
+</script></body></html>

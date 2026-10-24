@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ASCII 终端 · 字符长出来的植物</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+const BPM = 100, BEAT = 60 / BPM;                          // 0.6 s
+const ON = .3, CLS = 6 * BEAT, BLOOM = 18 * BEAT, DONE = 20 * BEAT, OFF = 14.35;
+const LEAVES = [8, 10, 12, 14, 16].map(b => b * BEAT);   // a new leaf every other beat
+const TYPE0 = 2.75, CMD = 'RUN GROW.BAS', KEY = .05;
+const COLS = 80, ROWS = 26, SX = 90, SY = 40, SW = 1100, SH = 640, GX = 50, GY = 36, CW = 12.5, CH = 21.8;
+const VT = 'VT323, "Courier New", monospace';
+const RAMP = ' .:-=+*#%@';
+const COL = { 1: '#5CFF98', 2: '#23B057', 3: '#FFB84D', 4: '#E2FFEC' };
+const mk = (w, h) => { const k = document.createElement('canvas'); k.width = w; k.height = h; return k; };
+const TXT = mk(1650, 960), tx = TXT.getContext('2d');
+const TMP = mk(1650, 960), tp = TMP.getContext('2d');
+const WARP = mk(1650, 960), wp = WARP.getContext('2d');
+const PL = mk(COLS * 4, ROWS * 8), pl = PL.getContext('2d', { willReadFrequently: true });
+const GLOW = mk(412, 240), gw = GLOW.getContext('2d');
+
+Film({
+  title: 'ASCII 终端 · 字符长出来的植物', DUR: 15, BPM, poster: 11.9,
+  fonts: [['24px VT323', 'PHOSPHOR-80 BIOS V1.07 CPU MEMORY DISK A: READY RUN GROW.BAS DAY HEIGHT CM GROWTH COMPLETE 0123456789 .:-=+*#%@/\\|[]>_()']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, easeOut, ease, hash, rrect } = F;
+    // ---------------- character grid ----------------
+    const ch = [], co = [];
+    for (let r = 0; r < ROWS; r++) { ch.push(new Array(COLS).fill(' ')); co.push(new Array(COLS).fill(1)); }
+    const put = (r, c0, s, color = 1) => { for (let i = 0; i < s.length; i++) if (c0 + i >= 0 && c0 + i < COLS && r >= 0 && r < ROWS) { ch[r][c0 + i] = s[i]; co[r][c0 + i] = color; } };
+    const typed = (r, c0, s, t0, rate = .012, color = 1) => { if (t < t0) return; put(r, c0, s.slice(0, Math.floor((t - t0) / rate) + 1), color); };
+    const cursorOn = Math.floor(t / (BEAT / 2)) % 2 === 0;
+    if (t < CLS) {
+      // ---- power-on self test ----
+      typed(1, 2, 'PHOSPHOR-80 BIOS  V1.07', .7, .01, 4);
+      typed(3, 2, 'CPU ............. 8-BIT  OK', .95, .01);
+      if (t > 1.2) { const k = Math.min(64, Math.floor(prog(t, 1.25, 1.9) * 64)); put(4, 2, 'MEMORY .......... ' + String(k).padStart(3, '0') + 'K'); if (t > 1.9) put(4, 26, 'OK'); }
+      typed(5, 2, 'DISPLAY ......... P1 GREEN', 2.1, .01);
+      typed(6, 2, 'DISK A: ......... READY', 2.3, .01);
+      if (t > 2.6) { put(8, 2, 'A>'); const n = clamp(Math.floor((t - TYPE0) / KEY) + 1, 0, CMD.length); if (t >= TYPE0) put(8, 4, CMD.slice(0, n)); if (t < 3.45 || cursorOn) put(8, 4 + (t >= TYPE0 ? n : 0), t < 3.45 ? '_' : ''); }
+      if (t > 3.45) typed(10, 2, 'LOADING ' + '.'.repeat(Math.min(8, Math.floor((t - 3.45) / .02))), 3.45, .005, 2);
+      // little logo on the right
+      if (t > .9) ['  .--.  ', ' /    \\ ', '|  ()  |', ' \\    / ', "  '--'  "].forEach((s, i) => put(1 + i, 66, s, 2));
+    } else {
+      // ---- the plant, rendered to a tiny bitmap then mapped to characters ----
+      const bt = (t - CLS) / BEAT, bi = Math.floor(bt);
+      const stepU = x => { const f = Math.floor(x), p = x - f; return f + easeOut(clamp(p / .35, 0, 1)); };
+      const grow = clamp(stepU(Math.min(bt, 12)) / 12, 0, 1);            // grows a notch on every beat for 12 beats
+      pl.setTransform(1, 0, 0, 1, 0, 0); pl.clearRect(0, 0, PL.width, PL.height); pl.fillStyle = '#000'; pl.fillRect(0, 0, PL.width, PL.height);
+      const baseX = 160, baseY = 158, Hs = 18 + 104 * grow;
+      const stem = s => [baseX + Math.sin(s * 2.6 + t * 1.1) * 7 * s * grow, baseY - Hs * s];
+      // pot
+      pl.fillStyle = 'rgb(0,110,0)'; pl.beginPath(); pl.moveTo(126, 164); pl.lineTo(194, 164); pl.lineTo(184, 200); pl.lineTo(136, 200); pl.closePath(); pl.fill();
+      pl.fillStyle = 'rgb(0,230,0)'; pl.fillRect(120, 156, 80, 9);
+      pl.fillStyle = 'rgb(0,60,0)'; pl.fillRect(128, 150, 64, 6);
+      // stem
+      pl.strokeStyle = 'rgb(0,235,0)'; pl.lineWidth = 4; pl.lineCap = 'round'; pl.beginPath(); for (let i = 0; i <= 30; i++) { const p = stem(i / 30); i ? pl.lineTo(p[0], p[1]) : pl.moveTo(p[0], p[1]); } pl.stroke();
+      // leaves unfurl, alternating sides
+      LEAVES.forEach((lt, i) => {
+        const u = easeOut(prog(t, lt, lt + BEAT * 1.2)); if (u <= 0) return;
+        const s = [.22, .38, .52, .66, .78][i], p = stem(s * Math.min(1, grow / Math.max(.3, (s + .1)))), side = i % 2 ? -1 : 1;
+        const len = (22 - i * 1.8) * u, wid = (6.5 - i * .5) * u, lift = .35 + .45 * (1 - u) + i * .06, ang = (side > 0 ? -lift : Math.PI + lift) + .1 * Math.sin(t * 1.4 + i);
+        pl.save(); pl.translate(p[0], p[1]); pl.rotate(ang);
+        const g = pl.createLinearGradient(0, 0, len * 2, 0); g.addColorStop(0, 'rgb(0,255,0)'); g.addColorStop(1, 'rgb(0,150,0)');
+        pl.fillStyle = g; pl.beginPath(); pl.moveTo(0, 0); pl.quadraticCurveTo(len * .9, -wid * 1.6, len * 2, 0); pl.quadraticCurveTo(len * .9, wid * 1.6, 0, 0); pl.fill();
+        pl.restore();
+      });
+      // bud → bloom (amber lives in the red channel)
+      const top = stem(1);
+      if (t > 17 * BEAT) {
+        const u = easeOut(prog(t, BLOOM, BLOOM + BEAT * 1.5)), bud = easeOut(prog(t, 17 * BEAT, 17 * BEAT + .3));
+        pl.save(); pl.translate(top[0], top[1] - 4);
+        if (u <= 0) { pl.fillStyle = 'rgb(200,0,0)'; pl.beginPath(); pl.ellipse(0, 0, 4 * bud, 7 * bud, 0, 0, 7); pl.fill(); }
+        else { for (let k = 0; k < 5; k++) { pl.save(); pl.rotate(k / 5 * Math.PI * 2 + t * .15); pl.fillStyle = 'rgb(235,0,0)'; pl.beginPath(); pl.ellipse(0, -13 * u, 6 * u + 1, 11 * u + 2, 0, 0, 7); pl.fill(); pl.restore(); }
+          pl.fillStyle = 'rgb(255,0,0)'; pl.beginPath(); pl.arc(0, 0, 6, 0, 7); pl.fill(); pl.fillStyle = 'rgb(90,0,0)'; pl.beginPath(); pl.arc(0, 0, 2.5, 0, 7); pl.fill(); }
+        pl.restore();
+      }
+      // a small amber sun that pulses with the beat
+      const sp = 1 - clamp((bt - bi) / .5, 0, 1);
+      pl.fillStyle = 'rgb(230,0,0)'; pl.beginPath(); pl.arc(282, 34, 10, 0, 7); pl.fill();
+      pl.strokeStyle = 'rgb(180,0,0)'; pl.lineWidth = 3; for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4 + (bi % 2) * Math.PI / 8, r0 = 15, r1 = 21 + 5 * sp; pl.beginPath(); pl.moveTo(282 + Math.cos(a) * r0, 34 + Math.sin(a) * r0 * .9); pl.lineTo(282 + Math.cos(a) * r1, 34 + Math.sin(a) * r1 * .9); pl.stroke(); }
+      // brightness → character
+      const d = pl.getImageData(0, 0, PL.width, PL.height).data, Wd = PL.width;
+      for (let r = 2; r < ROWS - 2; r++) for (let cc = 0; cc < COLS; cc++) {
+        let q = [0, 0, 0, 0], red = 0, grn = 0;
+        for (let yy = 0; yy < 8; yy++) for (let xx = 0; xx < 4; xx++) { const i = ((r * 8 + yy) * Wd + cc * 4 + xx) * 4, v = Math.max(d[i], d[i + 1]) / 255; q[(yy >> 2) * 2 + (xx >> 1)] += v / 8; red += d[i]; grn += d[i + 1]; }
+        const L = (q[0] + q[1] + q[2] + q[3]) / 4; if (L < .06) continue;
+        const d1 = (q[1] + q[2]) - (q[0] + q[3]);
+        let s;
+        if (L < .6 && d1 > .45) s = '/'; else if (L < .6 && d1 < -.45) s = '\\';
+        else if (L > .2 && L < .7 && Math.abs(q[0] - q[2]) < .12 && Math.abs(q[1] - q[3]) < .12 && Math.abs(q[0] - q[1]) < .25 && grn > red) s = '|';
+        else s = RAMP[Math.min(RAMP.length - 1, Math.max(1, Math.round(L * (RAMP.length - 1))))];
+        put(r, cc, s, red > grn ? 3 : L > .75 ? 4 : 1);
+      }
+      // HUD
+      put(0, 1, 'GROW.BAS', 2); put(0, 66, 'DAY ' + String(1 + Math.min(12, bi) * 3 + (t > BLOOM ? 4 : 0)).padStart(3, '0'), 2);
+      put(1, 0, '-'.repeat(COLS), 2); put(ROWS - 2, 0, '-'.repeat(COLS), 2);
+      const cm = Math.round(4 + 38 * grow), bar = Math.round(grow * 20);
+      put(ROWS - 1, 1, 'HEIGHT ' + String(cm).padStart(2, ' ') + ' CM  [' + '#'.repeat(bar) + '.'.repeat(20 - bar) + ']', 1);
+      if (t > DONE) { typed(ROWS - 1, 48, 'GROWTH COMPLETE', DONE, .03, 3); }
+      if (t > DONE + .7) { put(ROWS - 1, 66, 'A>' + (cursorOn ? '_' : ''), 1); }
+    }
+    // ---------------- render glyphs ----------------
+    tx.setTransform(1, 0, 0, 1, 0, 0); tx.clearRect(0, 0, TXT.width, TXT.height);
+    tx.fillStyle = '#031006'; tx.fillRect(0, 0, TXT.width, TXT.height);
+    tx.setTransform(1.5, 0, 0, 1.5, 0, 0);
+    tx.font = `30px ${VT}`; tx.textAlign = 'center'; tx.textBaseline = 'middle';
+    const glitchRow = hash(Math.floor(t * 30) * 1.7) > .96 ? Math.floor(hash(Math.floor(t * 30)) * ROWS) : -1;
+    for (let r = 0; r < ROWS; r++) { const jx = r === glitchRow ? (hash(t * 99) - .5) * 14 : 0; for (let k = 0; k < COLS; k++) { const s = ch[r][k]; if (s === ' ') continue; tx.fillStyle = COL[co[r][k]]; tx.fillText(s, GX + k * CW + CW / 2 + jx, GY + r * CH + CH / 2); } }
+    // ---------------- barrel warp (row strips, then column strips) ----------------
+    const KB = .07, Wt = TXT.width, Ht = TXT.height;
+    tp.clearRect(0, 0, Wt, Ht);
+    for (let y = 0; y < Ht; y += 4) { const v = (y + 2 - Ht / 2) / (Ht / 2), s = 1 - KB * v * v, w = Wt * s; tp.drawImage(TXT, 0, y, Wt, 4, (Wt - w) / 2, y, w, 4); }
+    wp.fillStyle = '#000'; wp.fillRect(0, 0, Wt, Ht);
+    for (let x = 0; x < Wt; x += 4) { const u = (x + 2 - Wt / 2) / (Wt / 2), s = 1 - KB * 1.3 * u * u, h = Ht * s; wp.drawImage(TMP, x, 0, 4, Ht, x, (Ht - h) / 2, 4, h); }
+    // ---------------- monitor ----------------
+    const bz = c.createLinearGradient(0, 0, 0, H); bz.addColorStop(0, '#34312B'); bz.addColorStop(1, '#1F1D19'); c.fillStyle = bz; c.fillRect(0, 0, W, H);
+    c.fillStyle = 'rgba(255,255,255,.04)'; c.fillRect(0, 0, W, 3);
+    rrect(c, SX - 22, SY - 20, SW + 44, SH + 40, 60); c.fillStyle = '#15130F'; c.fill();
+    c.save(); rrect(c, SX, SY, SW, SH, 48); c.clip();
+    c.fillStyle = '#020503'; c.fillRect(SX, SY, SW, SH);
+    // power on / off envelope
+    const on = t < ON ? 0 : t < OFF ? 1 : 0;
+    let sy = 1, sx = 1, flash = 0;
+    if (t >= ON && t < ON + .35) { const u = prog(t, ON, ON + .35); sy = Math.max(.004, easeOut(u)); flash = 1 - u; }
+    if (t >= OFF) { const u = prog(t, OFF, OFF + .25), u2 = prog(t, OFF + .25, OFF + .5); sy = Math.max(.004, 1 - easeOut(u)); sx = Math.max(.002, 1 - easeOut(u2)); flash = u; }
+    const bright = (.94 + .06 * hash(Math.floor(t * 30) * 3.1)) * (t > OFF + .5 ? 0 : 1);
+    if (t >= ON && t < OFF + .55) {
+      c.save(); c.translate(SX + SW / 2, SY + SH / 2); c.scale(sx, sy); c.globalAlpha = bright;
+      c.drawImage(WARP, -SW / 2, -SH / 2, SW, SH);
+      // glow
+      gw.clearRect(0, 0, 412, 240); gw.drawImage(WARP, 0, 0, 412, 240);
+      c.globalCompositeOperation = 'lighter'; c.filter = 'blur(6px)'; c.globalAlpha = .9 * bright; c.drawImage(GLOW, -SW / 2, -SH / 2, SW, SH); c.filter = 'blur(24px)'; c.globalAlpha = .55 * bright; c.drawImage(GLOW, -SW / 2, -SH / 2, SW, SH); c.filter = 'none';
+      if (flash > 0) { c.globalAlpha = flash * .9; c.fillStyle = '#C8FFD8'; c.fillRect(-SW / 2, -SH / 2, SW, SH); }
+      c.restore();
+    }
+    // scanlines + slow refresh band + phosphor dot mask
+    c.fillStyle = 'rgba(0,0,0,.28)'; for (let y = SY; y < SY + SH; y += 3) c.fillRect(SX, y, SW, 1.1);
+    const band = ((t * .35) % 1.3 - .15) * SH + SY; const bg2 = c.createLinearGradient(0, band - 60, 0, band + 60); bg2.addColorStop(0, 'rgba(120,255,160,0)'); bg2.addColorStop(.5, `rgba(120,255,160,${.05 * on})`); bg2.addColorStop(1, 'rgba(120,255,160,0)'); c.fillStyle = bg2; c.fillRect(SX, band - 60, SW, 120);
+    // glass: vignette + reflection
+    const vg = c.createRadialGradient(SX + SW / 2, SY + SH / 2, SH * .35, SX + SW / 2, SY + SH / 2, SW * .62); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.75)'); c.fillStyle = vg; c.fillRect(SX, SY, SW, SH);
+    const rf = c.createRadialGradient(SX + 260, SY + 120, 10, SX + 260, SY + 120, 420); rf.addColorStop(0, 'rgba(255,255,255,.07)'); rf.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = rf; c.fillRect(SX, SY, SW, SH);
+    c.restore();
+    c.strokeStyle = 'rgba(0,0,0,.8)'; c.lineWidth = 6; rrect(c, SX, SY, SW, SH, 48); c.stroke();
+    // bezel details: badge + power LED
+    c.font = `20px ${VT}`; c.fillStyle = 'rgba(210,200,180,.35)'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText('PHOSPHOR-80', SX + 4, SY + SH + 26 > 700 ? 704 : SY + SH + 26);
+    const led = t >= ON && t < OFF + .3; c.beginPath(); c.arc(SX + SW - 10, 704, 5, 0, 7); c.fillStyle = led ? '#52FF8F' : '#1F3A28'; c.fill(); if (led) { c.save(); c.globalCompositeOperation = 'lighter'; c.beginPath(); c.arc(SX + SW - 10, 704, 12, 0, 7); c.fillStyle = 'rgba(80,255,140,.25)'; c.fill(); c.restore(); }
+    F.grain(c, t, .05);
+    const fo = prog(t, 14.55, 15); if (fo > 0) { c.fillStyle = `rgba(0,0,0,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    const osc = (w, B, type, f, d, peak, dst = 'sfx', f2) => { const X = B.sfx.context, o = X.createOscillator(), g = X.createGain(); o.type = type; o.frequency.setValueAtTime(f, w); if (f2) o.frequency.exponentialRampToValueAtTime(f2, w + d); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(peak, w + .005); g.gain.setValueAtTime(peak, w + Math.max(.006, d - .03)); g.gain.exponentialRampToValueAtTime(.0001, w + d); o.connect(g); g.connect(B[dst]); o.start(w); o.stop(w + d + .05); };
+    // CRT hum: mains buzz + a faint high whine, for as long as the set is on
+    S.at(ON, (w, B) => { const X = B.sfx.context, d = OFF + .3 - ON; [[60, .05, 'sine'], [120, .03, 'sawtooth'], [7800, .004, 'sine']].forEach(([f, p, ty]) => { const o = X.createOscillator(), g = X.createGain(); o.type = ty; o.frequency.value = f; g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(p, w + .2); g.gain.setValueAtTime(p, w + d - .2); g.gain.exponentialRampToValueAtTime(.0001, w + d); o.connect(g); g.connect(B.bass); o.start(w); o.stop(w + d + .05); }); });
+    S.at(ON, I.thud, 1.2); S.at(ON, (w, B) => osc(w, B, 'sine', 55, .6, .4, 'sfx', 38)); S.at(ON + .02, I.whip);
+    // POST beep + counters
+    S.at(.7, (w, B) => osc(w, B, 'square', 988, .16, .07));
+    for (let x = 1.25; x < 1.9; x += .04) S.at(x, I.tick, .5);
+    S.at(1.9, (w, B) => osc(w, B, 'square', 1319, .08, .06));
+    [2.1, 2.3].forEach(x => S.at(x, (w, B) => { for (let i = 0; i < 6; i++) osc(w + i * .03, B, 'square', 180 + i * 40, .025, .04); }));
+    for (let i = 0; i < CMD.length; i++) S.at(TYPE0 + i * KEY, I.key);
+    S.at(3.45, I.key); S.at(3.46, I.click);
+    // chiptune from the clear-screen on
+    const RT = [45, 41, 43, 40], PR = [[69, 72, 76], [65, 69, 72], [67, 71, 74], [64, 68, 71]];
+    for (let b = 0; b < 16; b++) { const w = CLS + b * beat, k = Math.floor(b / 4) % 4; S.at(w, I.chipTri, RT[k], .25, .9); S.at(w + beat / 2, I.chipTri, RT[k] + 12, .15, .6); if (b < 13) S.at(w, I.chip, PR[k][b % 3] + (b > 8 ? 12 : 0), .5, .12); S.at(w + beat / 2, I.hat, .5); }
+    LEAVES.forEach((x, i) => { S.at(x, I.chip, 76 + i * 2, .8, .1); S.at(x + .08, I.chip, 83 + i * 2, .6, .1); });
+    S.at(17 * beat, I.blip, 3);
+    for (let i = 0; i < 8; i++) S.at(BLOOM + i * .07, I.chip, [72, 76, 79, 84, 88, 91, 96, 100][i], .7, .1);
+    S.at(BLOOM, I.shimmer);
+    S.at(DONE, (w, B) => [57, 64, 69, 72].forEach(m => I.chip(w, B, m, .6, .9)));
+    for (let i = 0; i < 15; i++) S.at(DONE + i * .03, I.key);
+    // power off: falling zap
+    S.at(OFF, (w, B) => osc(w, B, 'sine', 2400, .45, .12, 'sfx', 60)); S.at(OFF, I.thud, .8);
+  }
+});
+</script></body></html>

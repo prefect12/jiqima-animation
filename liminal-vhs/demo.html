@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>阈限空间录像 · 凌晨三点的商场</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 时间常量（画面和声音共用） */
+const BPM = 72, BEAT = 60 / BPM;
+const PLAY_IN = .8;                                        // 蓝屏 → 画面
+const LIGHT_Z = [2, 7, 12, 17, 22, 27], ZEND = 30, DW = 1.6, DH = 2.6;   // 走廊 30 米，尽头双开门 3.2×2.6 米                    // 天花板灯组的纵深位置
+const OFF = [6, 7, 8, 9, 10, 11].map(b => b * BEAT);       // 6 组灯依次熄灭（近 → 远），一拍一组
+const DOOR = 12 * BEAT, DOOR_D = 1.5;                      // 自动门自己打开
+const LOSE = 15.6 * BEAT, STOP = 16.4 * BEAT;              // 跟踪丢失 → 停止
+const flick = (t, off, f, F) => {                          // 荧光灯：灭前闪烁，灭后余辉
+  if (t < off - .42) return 1;
+  if (t < off) return F.hash(f * 3.1 + off * 17) > .42 ? (F.hash(f * .7 + off) > .5 ? 1 : .7) : .08;
+  return .12 * Math.max(0, 1 - (t - off) / .35);
+};
+/* 离屏画布：低分辨率场景 + 三个通道 + 合成 */
+const LW = 480, LH = 270;
+const mk = () => { const cv = document.createElement('canvas'); cv.width = LW; cv.height = LH; return cv; };
+const scn = mk(), chR = mk(), chG = mk(), chB = mk(), mix = mk(), out = mk();
+const g = scn.getContext('2d');
+// 磁带雪花纹理（只在初始化时随机）
+const snow = document.createElement('canvas'); snow.width = 256; snow.height = 256;
+{ const s = snow.getContext('2d'), im = s.createImageData(256, 256); for (let i = 0; i < im.data.length; i += 4) { const v = Math.random() * 255; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; } s.putImageData(im, 0, 0); }
+
+Film({
+  title: '阈限空间录像 · 凌晨三点的商场', DUR: 15, BPM, poster: 6.9,
+  fonts: [['40px "VT323"', 'PLAY STOP SP AM PM OCT 17 1997 0123456789:.EXIT']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, hash, ease } = F;
+    const f = Math.floor(t * 30);
+    /* ---------- 相机：缓慢推进 + 手持微晃 ---------- */
+    const [camZ, FOC] = F.keyframes([[0, -5, 250], [9.4, -.5, 250], [13.6, 7.5, 470], [15, 8.5, 480]], t), camY = 1.55 + Math.sin(t * .9) * .015;
+    const yaw = Math.sin(t * .37) * .012 + Math.sin(t * 1.3) * .003;
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const P = (x, y, z) => { const dx = x, dz = z - camZ, X = dx * cy - dz * sy, Z = Math.max(.05, dx * sy + dz * cy); return [LW / 2 + FOC * X / Z, LH / 2 - FOC * (y - camY) / Z + 8, Z]; };
+    const zc = z => Math.max(z, camZ + .5);
+    /* ---------- 灯光 ---------- */
+    const on = LIGHT_Z.map((z, i) => flick(t, OFF[i], f, F) * (t < 3.2 && i === 2 && hash(f * .37) > .9 ? .45 : 1));
+    const door = ease(prog(t, DOOR, DOOR + DOOR_D));
+    // 门外的冷光：门开了才照进来
+    const outL = .08 + .92 * door;
+    const light = (x, y, z, nx, ny, nz) => {
+      let fl = 0;
+      for (let i = 0; i < LIGHT_Z.length; i++) {
+        if (on[i] <= 0) continue;
+        const lx = 0, ly = 3.15, lz = LIGHT_Z[i], dx = lx - x, dy = ly - y, dz = lz - z, d2 = dx * dx + dy * dy + dz * dz, d = Math.sqrt(d2);
+        const nd = Math.max(0, (dx * nx + dy * ny + dz * nz) / d);
+        fl += on[i] * (.3 + .7 * nd) * .78 / (1 + d2 * .028);
+      }
+      const dx = -x * .6, dy = 1.1 - y, dz = ZEND + .3 - z, d2 = dx * dx + dy * dy + dz * dz, d = Math.sqrt(d2);
+      const nd = Math.max(0, (dx * nx + dy * ny + dz * nz) / d), dl = outL * nd * Math.pow(Math.max(0, dz / d), 2) * 3 / (1 + d2 * .03) * clamp((ZEND - .15 - z) / 2.5, 0, 1);   // 门口的光只往走廊里照
+      return [.09 + fl * .92 + dl * .5, .095 + fl * 1 + dl * .7, .1 + fl * .84 + dl * .95];
+    };
+    const col = (rgb, L) => `rgb(${Math.min(255, rgb[0] * L[0]) | 0},${Math.min(255, rgb[1] * L[1]) | 0},${Math.min(255, rgb[2] * L[2]) | 0})`;
+    const quad = (pts, fill) => { g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); g.fillStyle = fill; g.fill(); };
+    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+    g.fillStyle = '#050606'; g.fillRect(0, 0, LW, LH);
+    const Z0 = Math.floor(camZ);
+    /* ---------- 地面：米色 / 灰色棋盘砖 ---------- */
+    for (let z = ZEND - 1; z >= Z0; z--) for (let x = -3.5; x < 3.5; x += 1) {
+      if (z + 1 <= camZ + .5) continue;
+      const a = zc(z), b = z + 1, L = light(x + .5, 0, (a + b) / 2, 0, 1, 0);
+      const base = ((Math.floor(x + 3.5) + z) & 1) ? [196, 188, 168] : [150, 150, 142];
+      quad([P(x, 0, a), P(x + 1, 0, a), P(x + 1, 0, b), P(x, 0, b)], col(base, L));
+    }
+    /* ---------- 天花板：吸音板格 ---------- */
+    for (let z = ZEND - 1; z >= Z0; z--) for (let x = -3.5; x < 3.5; x += 1.75) {
+      if (z + 1 <= camZ + .5) continue;
+      const a = zc(z), b = z + 1, L = light(x + .875, 3.2, (a + b) / 2, 0, -1, 0);
+      quad([P(x, 3.2, a), P(x + 1.75, 3.2, a), P(x + 1.75, 3.2, b), P(x, 3.2, b)], col([178, 176, 164], L));
+      g.strokeStyle = 'rgba(0,0,0,.22)'; g.lineWidth = .6; g.stroke();
+    }
+    /* ---------- 两侧墙：柱子 + 店面玻璃 + 半拉的卷帘 ---------- */
+    const wall = (side, z0, z1, y0, y1, rgb) => {
+      z1 = Math.min(z1, ZEND);
+      for (let z = z0; z < z1; z += 1) {
+        const a = zc(z), b = Math.min(z + 1, z1); if (b <= a) continue;
+        const L = light(side * 3.5, (y0 + y1) / 2, (a + b) / 2, -side, 0, 0);
+        quad([P(side * 3.5, y0, a), P(side * 3.5, y0, b), P(side * 3.5, y1, b), P(side * 3.5, y1, a)], col(rgb, L));
+      }
+    };
+    for (const side of [-1, 1]) for (let k = 0; k < 6; k++) {
+      const z0 = k * 6 - 3, shut = hash(k * 7 + side * 3) > .45;
+      if (z0 + 6 < camZ) continue;
+      wall(side, z0, z0 + .8, 0, 3.2, [208, 206, 196]);                    // 柱
+      wall(side, z0 + .8, z0 + 6, 2.55, 3.2, [120, 118, 110]);             // 招牌带（不亮）
+      wall(side, z0 + .8, z0 + 6, 0, .25, [90, 90, 86]);                   // 踢脚
+      const sh = shut ? 2.3 : .9 + hash(k + side) * .5;                     // 卷帘拉下的高度
+      wall(side, z0 + .8, z0 + 6, .25, 2.55 - sh, [34, 40, 42]);            // 黑玻璃（店里没开灯）
+      wall(side, z0 + .8, z0 + 6, 2.55 - sh, 2.55, [128, 130, 126]);        // 卷帘
+      for (let r = 2.55 - sh + .12; r < 2.55; r += .16) { const p1 = P(side * 3.49, r, zc(z0 + .8)), p2 = P(side * 3.49, r, z0 + 6); g.strokeStyle = 'rgba(0,0,0,.25)'; g.lineWidth = .5; g.beginPath(); g.moveTo(p1[0], p1[1]); g.lineTo(p2[0], p2[1]); g.stroke(); }
+    }
+    /* ---------- 尽头：墙 + 自动门 + EXIT ---------- */
+    const Le = light(0, 1.6, 35.8, 0, 0, -1), E = (x, y) => P(x, y, ZEND);
+    quad([E(-3.5, 0), E(3.5, 0), E(3.5, 3.2), E(-3.5, 3.2)], col([176, 172, 160], Le));
+    // 门外：雾里一盏冷色路灯
+    const d0 = E(-DW, 0), d1 = E(DW, DH);
+    const og = g.createLinearGradient(0, d1[1], 0, d0[1]); og.addColorStop(0, `rgb(${22 + 150 * door | 0},${28 + 170 * door | 0},${36 + 180 * door | 0})`); og.addColorStop(1, `rgb(${10 + 110 * door | 0},${12 + 128 * door | 0},${16 + 140 * door | 0})`);
+    g.fillStyle = og; g.fillRect(d0[0], d1[1], d1[0] - d0[0], d0[1] - d1[1]);
+    const lp = E(.5, 1.9), lg = g.createRadialGradient(lp[0], lp[1], 0, lp[0], lp[1], 14 + 10 * door);
+    lg.addColorStop(0, `rgba(200,220,235,${.25 + .6 * door})`); lg.addColorStop(1, 'rgba(200,220,235,0)'); g.fillStyle = lg; g.fillRect(d0[0], d1[1], d1[0] - d0[0], d0[1] - d1[1]);
+    // 两扇玻璃门向两侧滑开（藏进墙里）
+    g.save(); g.beginPath(); g.rect(d0[0], d1[1], d1[0] - d0[0], d0[1] - d1[1]); g.clip();
+    for (const s of [-1, 1]) {
+      const x0 = s < 0 ? -DW - DW * door : DW * door, x1 = x0 + DW;
+      quad([E(x0, 0), E(x1, 0), E(x1, DH), E(x0, DH)], `rgba(150,175,180,${.14})`);
+      g.strokeStyle = col([150, 150, 145], Le); g.lineWidth = 1.2; g.stroke();
+      const h = E(s < 0 ? x1 - .1 : x0 + .1, 1.1), h2 = E(s < 0 ? x1 - .1 : x0 + .1, 1.4); g.beginPath(); g.moveTo(h[0], h[1]); g.lineTo(h2[0], h2[1]); g.stroke();
+    }
+    g.restore();
+    g.strokeStyle = col([60, 62, 60], Le); g.lineWidth = 2; g.strokeRect(d0[0], d1[1], d1[0] - d0[0], d0[1] - d1[1]);
+    // 门口地面上的冷光
+    if (door > 0) { const a = P(-DW, 0, ZEND), b = P(DW, 0, ZEND), cc = P(2.9, 0, ZEND - 10 * door), dd = P(-2.9, 0, ZEND - 10 * door); const sg = g.createLinearGradient(0, a[1], 0, cc[1]); sg.addColorStop(0, `rgba(170,200,220,${.45 * door})`); sg.addColorStop(1, 'rgba(170,200,220,0)'); g.globalCompositeOperation = 'lighter'; quad([a, b, cc, dd], sg); g.globalCompositeOperation = 'source-over'; }
+    const ex = E(-.45, 3.08), ex2 = E(.45, 2.7);
+    g.fillStyle = '#0B2A16'; g.fillRect(ex[0], ex[1], ex2[0] - ex[0], ex2[1] - ex[1]);
+    g.fillStyle = hash(f * .13) > .97 ? '#2C6B3F' : '#63F08E'; g.font = `${(ex2[1] - ex[1]) * .95}px "VT323", monospace`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('EXIT', (ex[0] + ex2[0]) / 2, (ex[1] + ex2[1]) / 2 + .5);
+    { const eg = g.createRadialGradient((ex[0] + ex2[0]) / 2, ex[1], 0, (ex[0] + ex2[0]) / 2, ex[1], 18); eg.addColorStop(0, 'rgba(80,255,140,.25)'); eg.addColorStop(1, 'rgba(80,255,140,0)'); g.globalCompositeOperation = 'lighter'; g.fillStyle = eg; g.fillRect(ex[0] - 20, ex[1] - 20, 60, 50); g.globalCompositeOperation = 'source-over'; }
+    /* ---------- 花坛（远 → 近） ---------- */
+    [[10, -2.3]].forEach(([pz, px]) => {
+      if (pz - .7 < camZ + .6) return;
+      const L = light(px, .6, pz - .7, 0, 0, -1), Lt = light(px, .7, pz, 0, 1, 0), X0 = px - .6, X1 = px + .6;
+      quad([P(X0, .7, pz - .7), P(X1, .7, pz - .7), P(X1, .7, pz + .7), P(X0, .7, pz + .7)], col([120, 116, 108], Lt));
+      const sx = px < 0 ? X1 : X0, sideL = light(sx, .35, pz, px < 0 ? 1 : -1, 0, 0);   // 朝向走廊中线的那个侧面
+      quad([P(sx, 0, pz - .7), P(sx, 0, pz + .7), P(sx, .7, pz + .7), P(sx, .7, pz - .7)], col([118, 116, 108], sideL));
+      quad([P(X0, 0, pz - .7), P(X1, 0, pz - .7), P(X1, .7, pz - .7), P(X0, .7, pz - .7)], col([150, 146, 136], L));
+      for (let i = 0; i < 9; i++) {                                         // 塑料绿植：几团暗绿，从后往前画
+        const a = Math.PI + i / 9 * Math.PI, p = P(px + Math.cos(a) * .32, 1 + hash(i + pz) * .6, pz - Math.sin(a) * .25), r = 210 / p[2] * (.26 + hash(i * 3 + pz) * .12);
+        g.fillStyle = col([56 + i * 3, 84 + i * 3, 56], light(px, 1.4, pz - .4, 0, .5, -.8)); g.beginPath(); g.arc(p[0], p[1], r, 0, Math.PI * 2); g.fill();
+      }
+    });
+    /* ---------- 灯管（发光面 + 地面倒影 + 光晕） ---------- */
+    g.globalCompositeOperation = 'lighter';
+    LIGHT_Z.forEach((lz, i) => {
+      if (lz - .3 < camZ + .6) return;
+      const v = on[i], a = P(-.7, 3.19, lz - .3), b = P(.7, 3.19, lz - .3), cc = P(.7, 3.19, lz + .3), d = P(-.7, 3.19, lz + .3);
+      quad([a, b, cc, d], `rgba(${210 * v | 0},${230 * v | 0},${205 * v | 0},1)`);
+      if (v > .05) {
+        const m = P(0, 3.1, lz), hg = g.createRadialGradient(m[0], m[1], 0, m[0], m[1], 260 / m[2]);
+        hg.addColorStop(0, `rgba(190,215,190,${.35 * v})`); hg.addColorStop(1, 'rgba(190,215,190,0)'); g.fillStyle = hg; g.fillRect(m[0] - 300, m[1] - 300, 600, 600);
+        // 抛光地砖里的倒影
+        const ra = P(-.7, -3.19, lz - .3), rb = P(.7, -3.19, lz - .3), rc = P(.7, -3.19, lz + .3), rd = P(-.7, -3.19, lz + .3);
+        quad([ra, rb, rc, rd], `rgba(150,170,150,${.22 * v})`);
+      }
+    });
+    g.globalCompositeOperation = 'source-over';
+    /* ---------- VHS：RGB 通道拆开再错位叠回 ---------- */
+    const glitch = Math.max(1 - prog(t, PLAY_IN, PLAY_IN + .6), prog(t, LOSE, STOP) * 1.3, (t > OFF[5] && t < OFF[5] + .25) ? .3 : 0, (t > DOOR && t < DOOR + .2) ? .25 : 0);
+    const shift = 2.2 + glitch * 5 + Math.sin(t * 2.1) * .4;
+    [[chR, '#FF0000'], [chG, '#00FF00'], [chB, '#0000FF']].forEach(([cv, cc]) => { const x = cv.getContext('2d'); x.globalCompositeOperation = 'copy'; x.drawImage(scn, 0, 0); x.globalCompositeOperation = 'multiply'; x.fillStyle = cc; x.fillRect(0, 0, LW, LH); });
+    const m = mix.getContext('2d'); m.globalCompositeOperation = 'source-over'; m.fillStyle = '#000'; m.fillRect(0, 0, LW, LH);
+    m.globalCompositeOperation = 'lighter'; m.drawImage(chR, shift, 0); m.drawImage(chG, 0, 0); m.drawImage(chB, -shift * .8, .5);
+    // 色度拖尾：把画面横向拉一点再淡淡叠上去
+    m.globalAlpha = .18; m.drawImage(mix, 3, 0); m.globalAlpha = 1; m.globalCompositeOperation = 'source-over';
+    /* ---------- 行抖动 + 横向跟踪噪声带 + 底部磁头切换噪声 ---------- */
+    const o = out.getContext('2d'); o.fillStyle = '#000'; o.fillRect(0, 0, LW, LH);
+    const roll = t < PLAY_IN + .6 ? (1 - prog(t, PLAY_IN, PLAY_IN + .6)) * LH * 1.4 : 0;
+    const bandY = ((t * 38 + 60) % (LH + 120)) - 60, bandH = 16 + glitch * 60;
+    for (let y = 0; y < LH; y += 2) {
+      let dx = (hash(f * 13.7 + y * .31) - .5) * (.8 + glitch * 6);
+      const inBand = y > bandY && y < bandY + bandH; if (inBand) dx += (hash(f + y * 1.7) - .3) * (7 + glitch * 20);
+      if (y > LH - 9) dx += 6 + hash(f + y) * 8;
+      const sy2 = ((y + roll) % LH + LH) % LH;
+      o.drawImage(mix, 0, sy2, LW, 2, dx, y, LW, 2);
+    }
+    // 噪声带里的白色雪花短线
+    o.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 26 + glitch * 90; i++) { const y = bandY + hash(f * 1.3 + i) * bandH, x = hash(f * 2.9 + i * 7) * LW; o.fillStyle = `rgba(230,230,230,${.25 + hash(i + f) * .5})`; o.fillRect(x, y, 6 + hash(i * 5 + f) * 30, 1); }
+    o.globalCompositeOperation = 'source-over';
+    // 全屏雪花（很淡，丢失跟踪时变浓）
+    o.globalAlpha = .07 + glitch * .5; o.drawImage(snow, (f * 37) % 256 - 256, (f * 91) % 256 - 256, 1024, 540); o.globalAlpha = 1;
+    /* ---------- 放大到 1280×720：低清的软 ---------- */
+    c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+    c.filter = 'saturate(.72) contrast(1.06)';
+    c.drawImage(out, 0, 0, W, H); c.filter = 'none';
+    // 扫描线
+    c.fillStyle = 'rgba(0,0,0,.13)'; for (let y = 0; y < H; y += 3) c.fillRect(0, y, W, 1);
+    // 开头和结尾的 VHS 蓝屏
+    const blue = t < PLAY_IN ? 1 : (t < PLAY_IN + .12 ? .6 : 0) + (t > STOP ? 1 : 0);
+    if (blue > 0) { c.fillStyle = `rgba(22,52,196,${blue})`; c.fillRect(0, 0, W, H); }
+    F.vignette(c, .5, '0,0,0');
+    /* ---------- 屏幕字幕（OSD） ---------- */
+    const osd = (s, x, y, size = 44, al = 'left') => { c.font = `${size}px "VT323", monospace`; c.textAlign = al; c.textBaseline = 'alphabetic'; c.fillStyle = 'rgba(0,0,0,.55)'; c.fillText(s, x + 3, y + 3); c.fillStyle = '#F2F2EA'; c.fillText(s, x, y); };
+    const tri = (x, y, s) => { c.fillStyle = 'rgba(0,0,0,.55)'; c.beginPath(); c.moveTo(x + 3, y - s + 3); c.lineTo(x + s + 3, y - s / 2 + 3); c.lineTo(x + 3, y + 3); c.fill(); c.fillStyle = '#F2F2EA'; c.beginPath(); c.moveTo(x, y - s); c.lineTo(x + s, y - s / 2); c.lineTo(x, y); c.fill(); };
+    if (t < STOP) {
+      if (t < PLAY_IN + 2.5) { osd('PLAY', 70, 86); tri(160, 80, 26); }
+      osd('SP', W - 70, 86, 44, 'right');
+      const sec = 7 + Math.floor(t), fr = Math.floor(t * 30) % 30;
+      osd(`AM 3:12:${String(sec).padStart(2, '0')}`, 70, H - 60);
+      osd(`OCT.17 1997`, 70, H - 100, 36);
+      osd(`00:14:${String(2 + Math.floor(t)).padStart(2, '0')}:${String(fr).padStart(2, '0')}`, W - 70, H - 60, 40, 'right');
+    } else { osd('STOP', 70, 86); c.fillStyle = '#F2F2EA'; c.fillRect(160, 58, 24, 24); }
+    const fo = prog(t, 14.45, 15); if (fo > 0) { c.fillStyle = `rgba(0,0,0,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat } = S;
+    // 自建声音：走调电钢琴 / 荧光灯嗡声 / 磁带嘶声 / 自动门电机
+    const bus = B => {
+      if (B.__vhs) return B.__vhs;
+      const ctx = B.sfx.context, lp = ctx.createBiquadFilter(), hp = ctx.createBiquadFilter(), gm = ctx.createGain();
+      lp.type = 'lowpass'; lp.frequency.value = 2200; hp.type = 'highpass'; hp.frequency.value = 220; gm.gain.value = 1;
+      gm.connect(hp); hp.connect(lp); lp.connect(B.keys);
+      const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), d = nb.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      return (B.__vhs = { ctx, music: gm, nb });
+    };
+    const wow = t => -38 - (t > DOOR + DOOR_D ? (t - DOOR - DOOR_D) * 160 : 0);   // 降调（音分），开门后磁带越放越慢
+    const ep = (w, B, m, d, v, tt) => {                                          // 电钢琴：正弦 + 颤音
+      const { ctx, music } = bus(B), o = ctx.createOscillator(), o2 = ctx.createOscillator(), gg = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain();
+      const fq = 440 * Math.pow(2, (m - 69) / 12); o.frequency.value = fq; o2.frequency.value = fq * 2.003; o2.type = 'triangle';
+      o.detune.setValueAtTime(wow(tt), w); o.detune.linearRampToValueAtTime(wow(tt + d), w + d);
+      o2.detune.setValueAtTime(wow(tt), w); o2.detune.linearRampToValueAtTime(wow(tt + d), w + d);
+      lfo.frequency.value = 5.2; lg.gain.value = 14; lfo.connect(lg); lg.connect(o.detune); lg.connect(o2.detune);
+      gg.gain.setValueAtTime(.0001, w); gg.gain.exponentialRampToValueAtTime(.09 * v, w + .01); gg.gain.exponentialRampToValueAtTime(.0001, w + d);
+      const g2 = ctx.createGain(); g2.gain.value = .25; o.connect(gg); o2.connect(g2); g2.connect(gg); gg.connect(music);
+      [o, o2, lfo].forEach(x => { x.start(w); x.stop(w + d + .05); });
+    };
+    // 商场背景音乐：Fmaj7 - Em7 - Dm7 - Cmaj7，慢慢地“化”掉
+    const CH = [[53, 57, 60, 64], [52, 55, 59, 62], [50, 53, 57, 60], [48, 52, 55, 59]];
+    const MEL = [[0, 76], [1, 74], [1.5, 72], [2, 69], [4, 74], [5, 72], [5.5, 71], [6, 67], [8, 72], [9, 71], [9.5, 69], [10, 65], [12, 67], [13, 65], [14, 64]];
+    const END = LOSE;
+    for (let b = 0; b < 5; b++) {
+      const t0 = PLAY_IN + b * 4 * beat; if (t0 >= END) break;
+      CH[b % 4].forEach(m => { S.at(t0, ep, m, 2.2, .7, t0); S.at(t0 + 2 * beat, ep, m + (m < 55 ? 12 : 0), 1.3, .4, t0 + 2 * beat); });
+      S.at(t0, I.subbass, CH[b % 4][0] - 12, 1.6, .5);
+    }
+    MEL.concat(MEL.map(([b, m]) => [b + 16, m])).forEach(([b, m]) => { const tt = PLAY_IN + b * beat; if (tt < END) S.at(tt, ep, m + 12, .9, .55, tt); });
+    // 常驻层：荧光灯 100/120Hz 嗡声（每灭一组就小一截）+ 磁带嘶声
+    S.at(0, (w, B) => {
+      const { ctx, nb } = bus(B);
+      const hum = ctx.createGain(), lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 520; hum.connect(lp); lp.connect(B.sfx);
+      [[100, 'sawtooth', .5], [120, 'sawtooth', .3], [240, 'sine', .2]].forEach(([fq, ty, a]) => { const o = ctx.createOscillator(), og = ctx.createGain(); o.type = ty; o.frequency.value = fq; og.gain.value = a; o.connect(og); og.connect(hum); o.start(w + PLAY_IN); o.stop(w + 15.3); });
+      hum.gain.setValueAtTime(.0001, w); hum.gain.setValueAtTime(.05, w + PLAY_IN);
+      OFF.forEach((ot, i) => hum.gain.setValueAtTime(.05 * Math.max(.0001, 1 - (i + 1) / 6), w + ot));
+      const hs = ctx.createBufferSource(), hf = ctx.createBiquadFilter(), hg = ctx.createGain(); hs.buffer = nb; hs.loop = true; hf.type = 'bandpass'; hf.frequency.value = 4200; hf.Q.value = .5;
+      hs.connect(hf); hf.connect(hg); hg.connect(B.out); hg.gain.setValueAtTime(.022, w); hg.gain.setValueAtTime(.03, w + LOSE); hg.gain.linearRampToValueAtTime(.16, w + STOP); hg.gain.setValueAtTime(.02, w + STOP + .05); hg.gain.linearRampToValueAtTime(.0001, w + 15);
+      hs.start(w); hs.stop(w + 15.3);
+    });
+    // 画面同步音效
+    S.at(PLAY_IN - .05, I.click); S.at(PLAY_IN, I.swish);
+    OFF.forEach(ot => { for (let k = 0; k < 4; k++) S.at(ot - .4 + k * .09, I.crackle); S.at(ot, I.thud, .9); S.at(ot, I.tom, 33, .7); S.at(ot + .01, I.click); });
+    S.at(DOOR, (w, B) => {                                                       // 自动门：电机嗡 + 滑轨摩擦
+      const { ctx } = bus(B), o = ctx.createOscillator(), lp = ctx.createBiquadFilter(), gg = ctx.createGain();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(95, w); o.frequency.linearRampToValueAtTime(140, w + .5); o.frequency.linearRampToValueAtTime(90, w + DOOR_D);
+      lp.type = 'lowpass'; lp.frequency.value = 600; gg.gain.setValueAtTime(.0001, w); gg.gain.exponentialRampToValueAtTime(.12, w + .15); gg.gain.exponentialRampToValueAtTime(.0001, w + DOOR_D + .2);
+      o.connect(lp); lp.connect(gg); gg.connect(B.sfx); o.start(w); o.stop(w + DOOR_D + .3);
+    });
+    S.at(DOOR, I.whoosh, .5); S.at(DOOR + DOOR_D - .05, I.thud, .4);
+    S.at(LOSE, I.riser, STOP - LOSE); S.at(STOP, I.click); S.at(STOP, I.thud, .5);
+  }
+});
+</script></body></html>

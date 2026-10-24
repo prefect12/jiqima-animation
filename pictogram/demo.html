@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>象形图形运动 · 铁人三项</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Noto+Sans+SC:wght@900&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+const BPM = 128, BEAT = 60 / BPM;              // 0.469 s — one pose per beat, 32 beats in 15 s
+const SC = { intro: 0, swim: 4, bike: 12, run: 20, finish: 28 };  // scene start beats
+const OUT = 14.45;
+const CN = '"Noto Sans SC", "PingFang SC", sans-serif', EN = '"Archivo Black", "Arial Black", sans-serif';
+const THEME = {
+  intro: { bg: '#15151C', fig: '#FFC93C' },
+  swim: { bg: '#1E7FE0', fig: '#FFFFFF' },
+  bike: { bg: '#2FA35B', fig: '#FFFFFF' },
+  run: { bg: '#F0532B', fig: '#FFFFFF' },
+  finish: { bg: '#FFC93C', fig: '#15151C' }
+};
+const LABEL = { swim: ['01', '游泳', 'SWIM 1.5 KM'], bike: ['02', '骑车', 'BIKE 40 KM'], run: ['03', '跑步', 'RUN 10 KM'] };
+const LIMB = { torso: 70, ua: 44, fa: 42, th: 54, sh: 52, head: 21 };
+const V = a => [Math.sin(a * Math.PI / 180), Math.cos(a * Math.PI / 180)];   // 0° = down, 90° = forward, 180° = up
+// ---- poses: hip x/y, torso angle, arm1 (upper, fore), arm2, leg1 (thigh, shin), leg2 ----
+const P = (x, y, to, a1, f1, a2, f2, l1, s1, l2, s2) => ({ x, y, to, a1, f1, a2, f2, l1, s1, l2, s2 });
+const STAND = P(0, 0, 180, 12, 6, -12, -6, 6, 2, -6, -2);
+const READY = P(0, 4, 172, 40, 110, -35, 20, 22, -8, -18, -30);
+const SWIM_A = P(0, 0, 92, 96, 94, 205, 140, -84, -96, -96, -82);
+const SWIM_B = P(0, 0, 92, 205, 140, 96, 94, -96, -82, -84, -96);
+const RUN_A = P(0, 0, 168, -40, 40, 55, 150, 62, 8, -38, -105);
+const RUN_B = P(0, 0, 168, 55, 150, -40, 40, -38, -105, 62, 8);
+const WIN = P(0, 0, 180, 150, 162, 210, 198, 14, 2, -14, -4);
+// per-scene camera: local hip (0,0) → screen (x, y), scale k   (bike uses the BK coordinates below)
+const CAM = { intro: [860, 400, 2.1], swim: [560, 454, 2.2], bike: [700 - 600 * 1.9, 640 - 508 * 1.9, 1.9], run: [700, 404, 2.3], finish: [820, 440, 1.7] };
+// bike geometry
+const BK = { rh: [505, 452], ff: [705, 452], bb: [600, 452], seat: [588, 366], ht: [684, 378], bar: [700, 352], r: 56, crank: 22 };
+
+Film({
+  title: '象形图形运动 · 铁人三项', DUR: 15, BPM, poster: 10.2,
+  fonts: [['900 80px "Noto Sans SC"', '铁人三项游泳骑车跑步完赛！'], ['40px "Archivo Black"', 'TRIATHLON SWIM BIKE RUN KM 0123456789. FINISH']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, easeOut, back, rrect, hash } = F;
+    const b = Math.floor(t / BEAT), ph = (t - b * BEAT) / BEAT;         // beat index + phase
+    const snap = back(clamp((t - b * BEAT) / .11, 0, 1));             // quick snap into each new pose
+    const scene = b >= SC.finish ? 'finish' : b >= SC.run ? 'run' : b >= SC.bike ? 'bike' : b >= SC.swim ? 'swim' : 'intro';
+    const th = THEME[scene], FIG = th.fig, BG = th.bg;
+    const sb = b - SC[scene];                                            // beat within scene
+    const steps = x => Math.floor(x) + back(clamp((x - Math.floor(x)) / .22, 0, 1)); // stepped motion for backgrounds
+    const mix = (h1, h2, u) => { const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); const A = p(h1), B2 = p(h2); return `rgb(${A.map((v, i) => Math.round(v + (B2[i] - v) * u)).join(',')})`; };
+    // ---------- background ----------
+    c.fillStyle = BG; c.fillRect(0, 0, W, H);
+    const S = steps(t / BEAT);
+    if (scene === 'swim') {
+      c.fillStyle = '#1769C2'; c.fillRect(0, 455, W, H);
+      for (let k = 0; k < 2; k++) { const y = k ? 650 : 235; for (let i = -2; i < 40; i++) { const x = ((i * 40 - S * 40) % 1600 + 1600) % 1600 - 80; c.fillStyle = i % 4 < 2 ? '#FFFFFF' : '#FF5A5F'; c.beginPath(); c.arc(x, y, 9, 0, 7); c.fill(); } }
+    } else if (scene === 'bike') {
+      c.fillStyle = '#27904F'; for (let i = -1; i < 8; i++) { const x = ((i * 260 - S * 30) % 2080 + 2080) % 2080 - 200; c.beginPath(); c.moveTo(x, 640); c.lineTo(x + 150, 400 + (i % 3) * 40); c.lineTo(x + 300, 640); c.fill(); }
+      c.fillStyle = '#34353F'; c.fillRect(0, 640, W, H);
+      c.fillStyle = '#FFFFFF'; for (let i = -2; i < 12; i++) { const x = ((i * 160 - S * 80) % 1920 + 1920) % 1920 - 160; rrect(c, x, 674, 90, 12, 6); c.fill(); }
+    } else if (scene === 'run') {
+      c.fillStyle = '#C8401E'; c.fillRect(0, 600, W, H);
+      c.fillStyle = 'rgba(255,255,255,.9)'; [600, 660, 706].forEach(y => c.fillRect(0, y, W, 6));
+      for (let i = -2; i < 12; i++) { const x = ((i * 200 - S * 100) % 2400 + 2400) % 2400 - 200; c.fillRect(x, 616, 8, 34); c.font = `22px ${EN}`; c.fillStyle = 'rgba(255,255,255,.35)'; c.textAlign = 'center'; c.fillText(String(((i % 9) + 9) % 9 + 1), x + 4, 700); c.fillStyle = 'rgba(255,255,255,.9)'; }
+    } else if (scene === 'finish') {
+      c.fillStyle = '#15151C'; c.fillRect(0, 616, W, H);
+      for (let i = 0; i < 2; i++) for (let j = 0; j < 6; j++) { c.fillStyle = (i + j) % 2 ? '#FFFFFF' : '#15151C'; c.fillRect(802 + i * 18, 616 + j * 18, 18, 18); }
+    }
+    // scene wipe: the new colour slides in as a slanted block on the scene's first beat
+    const prevOf = { swim: 'intro', bike: 'swim', run: 'bike', finish: 'run' };
+    if (scene !== 'intro' && sb === 0 && ph < .5) { const u = easeOut(ph / .5), x = lerp(-200, W + 400, u); c.save(); c.beginPath(); c.moveTo(x, 0); c.lineTo(W + 400, 0); c.lineTo(W + 400, H); c.lineTo(x - 240, H); c.closePath(); c.fillStyle = THEME[prevOf[scene]].bg; c.fill(); c.restore(); }
+    // ---------- figure ----------
+    const lerpPose = (A, B, u) => { const o = {}; for (const k in A) o[k] = A[k] + (B[k] - A[k]) * u; return o; };
+    let pose, bike = null, crankA = 0;
+    if (scene === 'intro') pose = b < 3 ? STAND : lerpPose(STAND, READY, snap);
+    else if (scene === 'swim') { const cur = sb % 2 ? SWIM_B : SWIM_A, prv = sb === 0 ? READY : sb % 2 ? SWIM_A : SWIM_B; pose = lerpPose(prv, cur, snap); }
+    else if (scene === 'run') { const cur = sb % 2 ? RUN_B : RUN_A, prv = sb === 0 ? RUN_B : sb % 2 ? RUN_A : RUN_B; pose = lerpPose(prv, cur, snap); pose.y -= 14 * Math.sin(Math.PI * clamp(ph * 1.3, 0, 1)); }
+    else if (scene === 'finish') { pose = lerpPose(sb === 0 ? RUN_A : WIN, WIN, sb === 0 ? snap : 1); pose.y -= sb === 0 ? 50 * Math.sin(Math.PI * clamp(ph, 0, 1)) : sb === 2 ? 18 * Math.sin(Math.PI * clamp(ph, 0, 1)) : 0; }
+    else { crankA = (sb - 1 + snap) * 90; bike = true; pose = null; }
+    const cap = (pts, w, col) => { c.strokeStyle = col; c.lineWidth = w; c.lineCap = 'round'; c.lineJoin = 'round'; c.beginPath(); pts.forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.stroke(); };
+    const add = (p, a, l) => { const v = V(a); return [p[0] + v[0] * l, p[1] + v[1] * l]; };
+    const ik = (A, T, l1, l2, bendSign) => { let dx = T[0] - A[0], dy = T[1] - A[1], d = Math.hypot(dx, dy); d = Math.min(d, l1 + l2 - .5); const base = Math.atan2(dy, dx), off = Math.acos(clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1)); const a = base + bendSign * off; const K = [A[0] + Math.cos(a) * l1, A[1] + Math.sin(a) * l1]; return [A, K, [A[0] + Math.cos(base) * d, A[1] + Math.sin(base) * d]]; };
+    const backCol = mix(FIG === '#FFFFFF' ? '#FFFFFF' : FIG, BG, .38);
+    const G = 5; // gap ring width in local units (cut-out look)
+    function figure(p, parts = 4, pop = 1) {
+      const hip = [p.x, p.y], neck = add(hip, p.to, LIMB.torso), sho = add(hip, p.to, LIMB.torso - 8), head = add(hip, p.to, LIMB.torso + LIMB.head + 9);
+      const arm = (a, f) => { const e = add(sho, a, LIMB.ua); return [sho, e, add(e, f, LIMB.fa)]; };
+      const leg = (a, s) => { const k = add(hip, a, LIMB.th); return [hip, k, add(k, s, LIMB.sh)]; };
+      const A1 = arm(p.a1, p.f1), A2 = arm(p.a2, p.f2), L1 = leg(p.l1, p.s1), L2 = leg(p.l2, p.s2);
+      drawRig(hip, neck, head, A1, A2, L1, L2, parts, pop);
+    }
+    function drawRig(hip, neck, head, A1, A2, L1, L2, parts = 4, pop = 1) {
+      const lay = (pts, w, col) => { cap(pts, w + G * 2, BG); cap(pts, w, col); };
+      if (parts > 3 && L2) lay(L2, 21, backCol);
+      if (parts > 2) lay(A2, 17, backCol);
+      if (parts > 1) { const tv = [neck[0] - hip[0], neck[1] - hip[1]], tl = Math.hypot(tv[0], tv[1]); lay([hip, [hip[0] + tv[0] * (1 - 4 / tl), hip[1] + tv[1] * (1 - 4 / tl)]], 27, FIG); }
+      if (parts > 3) lay(L1, 21, FIG);
+      if (parts > 2) lay(A1, 17, FIG);
+      c.save(); c.translate(head[0], head[1]); c.scale(pop, pop); c.beginPath(); c.arc(0, 0, LIMB.head + G, 0, 7); c.fillStyle = BG; c.fill(); c.beginPath(); c.arc(0, 0, LIMB.head, 0, 7); c.fillStyle = FIG; c.fill(); c.restore();
+    }
+    const cam = CAM[scene]; c.save(); c.translate(cam[0], cam[1]); c.scale(cam[2], cam[2]);
+    if (scene === 'intro') {
+      const parts = Math.min(4, b + 1), pop = back(clamp((t - b * BEAT) / .16, 0, 1));
+      c.save(); if (b === 0) { c.translate(0, -100); c.scale(pop, pop); c.translate(0, 100); }
+      figure(pose, parts, 1); c.restore();
+    } else if (bike) {
+      // bike: wheels, frame, crank — the crank snaps 90° per beat
+      const wr = crankA * 2.4;
+      [BK.rh, BK.ff].forEach(w => { c.strokeStyle = FIG; c.lineWidth = 11; c.beginPath(); c.arc(w[0], w[1], BK.r, 0, 7); c.stroke(); c.lineWidth = 4; for (let k = 0; k < 3; k++) { const a = (wr + k * 60) * Math.PI / 180; c.beginPath(); c.moveTo(w[0] - Math.cos(a) * BK.r, w[1] - Math.sin(a) * BK.r); c.lineTo(w[0] + Math.cos(a) * BK.r, w[1] + Math.sin(a) * BK.r); c.stroke(); } c.beginPath(); c.arc(w[0], w[1], 7, 0, 7); c.fillStyle = FIG; c.fill(); });
+      const hipB = [BK.seat[0] + 2, BK.seat[1] - 10];
+      const pedal = k => { const a = (crankA + k * 180) * Math.PI / 180; return [BK.bb[0] + Math.cos(a) * BK.crank, BK.bb[1] + Math.sin(a) * BK.crank]; };
+      const bob = 3 * Math.sin(Math.PI * clamp(ph * 1.5, 0, 1));
+      const hip = [hipB[0], hipB[1] - bob], neck = add(hip, 124, LIMB.torso), head = add(hip, 124, LIMB.torso + LIMB.head + 9), sho = add(hip, 124, LIMB.torso - 8);
+      const L2 = ik(hip, pedal(1), LIMB.th, LIMB.sh, -1), L1 = ik(hip, pedal(0), LIMB.th, LIMB.sh, -1);
+      const A2 = ik(sho, [BK.bar[0] - 4, BK.bar[1] + 2], LIMB.ua, LIMB.fa, 1), A1 = ik(sho, BK.bar, LIMB.ua, LIMB.fa, 1);
+      // far pedal leg behind the frame
+      cap(L2, 21 + G * 2, BG); cap(L2, 21, backCol);
+      cap([BK.rh, BK.bb, BK.seat, BK.rh], 10, FIG); cap([BK.seat, BK.ht, BK.bb], 10, FIG); cap([BK.ht, BK.ff], 10, FIG); cap([BK.ht, BK.bar, [BK.bar[0] + 16, BK.bar[1] + 18]], 9, FIG);
+      c.beginPath(); c.arc(BK.bb[0], BK.bb[1], 12, 0, 7); c.fillStyle = FIG; c.fill();
+      cap([BK.bb, pedal(0)], 7, BG); cap([[BK.seat[0] - 22, BK.seat[1] - 2], [BK.seat[0] + 16, BK.seat[1] - 2]], 10, FIG);
+      drawRig(hip, neck, head, A1, A2, L1, null, 4, 1);
+      // speed ticks
+      c.strokeStyle = FIG; c.lineWidth = 6; c.lineCap = 'round'; const sp = ph < .35 ? 1 - ph / .35 : 0; if (sp > 0) [[400, 330], [370, 400], [410, 470]].forEach(([x, y], i) => { c.globalAlpha = sp; c.beginPath(); c.moveTo(x - 40 * sp - i * 10, y); c.lineTo(x, y); c.stroke(); }); c.globalAlpha = 1;
+    } else {
+      figure(pose);
+      if (scene === 'run') { c.strokeStyle = FIG; c.lineWidth = 6; c.lineCap = 'round'; const sp = ph < .35 ? 1 - ph / .35 : 0; if (sp > 0) [[-120, -70], [-150, -10], [-115, 50]].forEach(([x, y], i) => { c.globalAlpha = sp; c.beginPath(); c.moveTo(x - 40 * sp - i * 10, y); c.lineTo(x, y); c.stroke(); }); c.globalAlpha = 1; }
+    }
+    c.restore();
+    {
+      if (scene === 'swim') {
+        // water surface drawn over the lower half of the swimmer
+        c.save(); c.globalAlpha = .55; c.fillStyle = '#1769C2'; c.beginPath(); c.moveTo(0, 458); for (let x = 0; x <= W; x += 20) c.lineTo(x, 458 + 6 * Math.sin(x * .03 - S * 2)); c.lineTo(W, H); c.lineTo(0, H); c.fill(); c.restore();
+        c.strokeStyle = '#FFFFFF'; c.lineWidth = 7; c.lineCap = 'round'; c.beginPath(); for (let x = 0; x <= W; x += 20) c.lineTo(x, 458 + 6 * Math.sin(x * .03 - S * 2)); c.stroke();
+        // splash dots where the hand enters, one burst per beat
+        const hx = 560 + 150 * 2.2, sp = clamp(ph / .5, 0, 1); if (sp < 1) for (let k = 0; k < 6; k++) { const a = Math.PI + .25 + k * .53; c.beginPath(); c.arc(hx + Math.cos(a) * 80 * sp, 452 + Math.sin(a) * 70 * sp, 13 * (1 - sp), 0, 7); c.fillStyle = '#FFFFFF'; c.fill(); }
+      }
+      if (scene === 'finish') {
+        // tape snaps on the first finish beat, then confetti on beat 30
+        const u = sb === 0 ? clamp(ph / .4, 0, 1) : 1;
+        c.strokeStyle = '#E4572E'; c.lineWidth = 8; c.lineCap = 'round';
+        c.lineWidth = 12; c.beginPath(); c.moveTo(560, 420); c.quadraticCurveTo(lerp(700, 560, u), lerp(430, 540, u), lerp(820, 590, u), lerp(420, 600, u)); c.stroke();
+        c.beginPath(); c.moveTo(1080, 420); c.quadraticCurveTo(lerp(940, 1080, u), lerp(430, 540, u), lerp(820, 1050, u), lerp(420, 600, u)); c.stroke();
+        c.fillStyle = '#15151C'; c.fillRect(546, 400, 16, 216); c.fillRect(1074, 400, 16, 216);
+        if (sb >= 2) { const k = t - (SC.finish + 2) * BEAT; for (let i = 0; i < 46; i++) { const a = hash(i) * Math.PI * 2, v = 260 + hash(i * 3) * 380, x = 820 + Math.cos(a) * (70 + v * k * .9), y = 230 + Math.sin(a) * (50 + v * k * .6) - 260 * k + 560 * k * k; c.save(); c.translate(x, y); c.rotate(k * 6 + i); c.fillStyle = ['#15151C', '#E4572E', '#1E7FE0', '#2FA35B', '#FFFFFF'][i % 5]; c.fillRect(-10, -6, 20, 12); c.restore(); } }
+      }
+    }
+    // ---------- type ----------
+    c.textBaseline = 'alphabetic';
+    const slam = (s, x, y, size, col, t0, font = CN, align = 'left') => { if (t < t0) return; const k = easeOut(prog(t, t0, t0 + .12)), sc = lerp(1.6, 1, k); c.save(); c.globalAlpha = Math.min(1, k * 2); c.translate(x, y); c.scale(sc, sc); c.font = `900 ${size}px ${font}`; c.textAlign = align; c.fillStyle = col; c.fillText(s, 0, 0); c.restore(); };
+    if (scene === 'intro') { slam('铁人三项', 90, 350, 120, '#FFFFFF', 2 * BEAT, CN); slam('TRIATHLON', 94, 420, 40, '#FFC93C', 3 * BEAT, EN); }
+    if (LABEL[scene]) {
+      const [n, zh, en] = LABEL[scene], t0 = SC[scene] * BEAT;
+      slam(n, 70, 150, 64, FIG, t0, EN); slam(zh, 70, 238, 76, FIG, t0 + BEAT * .5, CN); slam(en, 72, 282, 24, FIG, t0 + BEAT, EN);
+    }
+    if (scene === 'finish') { slam('完赛！', 90, 330, 140, '#15151C', (SC.finish + 1) * BEAT, CN); slam('FINISH', 96, 400, 44, '#15151C', (SC.finish + 1.5) * BEAT, EN); }
+    // beat meter: 3 segments × 8 beats
+    if (b >= SC.swim) { const x0 = 880, y0 = 70; ['swim', 'bike', 'run'].forEach((k, i) => { for (let j = 0; j < 8; j++) { const on = b >= SC[k] + j; c.fillStyle = on ? FIG : scene === 'finish' ? 'rgba(21,21,28,.2)' : 'rgba(255,255,255,.25)'; rrect(c, x0 + i * 118 + j * 13.5, y0, 9.5, on && b === SC[k] + j ? 30 - 10 * ph : 20, 3); c.fill(); } }); }
+    const fo = prog(t, OUT, 15); if (fo > 0) { c.fillStyle = `rgba(21,21,28,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    const NB = new WeakMap();
+    const nbuf = X => { let b = NB.get(X); if (!b) { b = X.createBuffer(1, X.sampleRate, X.sampleRate); const d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; NB.set(X, b); } return b; };
+    const splash = (w, B) => { const X = B.sfx.context, s = X.createBufferSource(); s.buffer = nbuf(X); const f = X.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = .8; f.frequency.setValueAtTime(1800, w); f.frequency.exponentialRampToValueAtTime(600, w + .25); const g = X.createGain(); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.35, w + .01); g.gain.exponentialRampToValueAtTime(.0001, w + .28); s.connect(f); f.connect(g); g.connect(B.sfx); s.start(w, Math.random() * .5); s.stop(w + .3); };
+    // E minor electro, four on the floor
+    const RT = [40, 36, 43, 38];
+    for (let k = 0; k < 32; k++) { const w = k * beat; if (k >= 4 && k < 28) S.at(w, I.kick, 1); S.at(w + beat / 2, I.hat, k >= 4 ? .9 : .4); if (k >= 4 && k < 28 && k % 2) S.at(w, I.clap, .8); }
+    for (let b = 1; b < 7; b++) { const r = RT[b % 4]; for (let e = 0; e < 8; e++) S.at(b * bar + e * beat / 2, I.bass, r + (e % 2 ? 12 : 0), .18, .8); }
+    S.padBars([[52, 55, 59, 62], [48, 52, 55, 59], [55, 59, 62, 66], [50, 54, 57, 62]], 1, 7, 'pad', .6);
+    // intro: each body part gets a note
+    [0, 1, 2, 3].forEach(k => { S.at(k * beat, I.pop, 1 + k * .2); S.at(k * beat, I.lead, [64, 67, 71, 76][k], .9, .2); });
+    S.at(2 * beat, I.impact);
+    // one sound per action
+    for (let k = SC.swim; k < SC.bike; k++) { S.at(k * beat, splash); S.at(k * beat, I.chip, [76, 79, 83, 79][k % 4], .8, .12); }
+    for (let k = SC.bike; k < SC.run; k++) { S.at(k * beat, I.tick, 1.5); S.at(k * beat + .06, I.tick, 1); S.at(k * beat, I.pluck, [71, 74, 78, 81][k % 4], .9); }
+    for (let k = SC.run; k < SC.finish; k++) { S.at(k * beat, I.thud, .9); S.at(k * beat, I.lead, [83, 81, 79, 78][k % 4], .8, .14); }
+    [SC.swim, SC.bike, SC.run, SC.finish].forEach(k => { S.at(k * beat - .3, I.whoosh, .8); S.at(k * beat, I.snare, 1); });
+    S.at(SC.finish * beat, I.swish); S.at(SC.finish * beat + .02, I.impact);
+    S.at((SC.finish + 1) * beat, (w, B) => [64, 67, 71, 76].forEach(m => I.brass(w, B, m, 1, 1)));
+    for (let i = 0; i < 10; i++) S.at((SC.finish + 2) * beat + i * .045, I.clap, .5);
+    S.at((SC.finish + 2) * beat, I.chime);
+  }
+});
+</script></body></html>

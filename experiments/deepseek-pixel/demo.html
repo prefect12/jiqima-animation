@@ -1,0 +1,965 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BUG HUNT</title>
+<style>
+  html, body { background:#0d0d10; }
+</style>
+<!-- Press Start 2P is the style target. If this request is unavailable the
+     canvas text falls back to an installed monospace face. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<script src="../../_engine/core.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+
+  /* ------------------------------------------------------------------ *
+   * BUG HUNT — 15 s / 128 BPM / 320 x 180 native pixel art
+   *
+   * Timeline is defined once, in beats. Both draw() and score() read the
+   * same constants, so audio hits and visual landings cannot drift apart.
+   * ------------------------------------------------------------------ */
+
+  const W = 320, H = 180, GROUND = 146;
+  const BPM = 128, BEAT = 60 / BPM, BAR = BEAT * 4;
+  const DUR = 15;
+
+  // zero-indexed beats: 4/8/12 = first beat of bars 2/3/4.
+  const T = {
+    titleOut: 1.40625,                 // end of beat 3 (1.4 s title)
+    stomp: [4 * BEAT, 8 * BEAT, 12 * BEAT],
+    jumpLead: 0.45,                    // sine jump length, lands on the beat
+    level: 12 * BEAT,                  // LEVEL UP starts under the third stomp
+    levelSwap: 6.45,
+    boss: 16 * BEAT,                   // 7.5 s, bar 5
+    bossWalk: 1.15,
+    hits: [20 * BEAT, 22 * BEAT, 24 * BEAT],
+    boom: 24 * BEAT,                   // 11.25 s
+    clear: 25 * BEAT,                  // 11.71875 s
+    finalChord: 14.10,
+    fade: 14.5
+  };
+
+  const CAM_SPEED = 30;                // px/s while scrolling
+  const HERO_X = 84;                   // fixed screen x while running
+  const HERO_W = 14, HERO_H = 23;
+  const BUG_W = 15, BUG_H = 10;
+  const BOSS_X = 232;                  // final left edge on screen
+  const BOSS_SCALE = 4;
+  const BUG_WORLD = T.stomp.map(s => CAM_SPEED * s + HERO_X);
+
+  const P = {
+    sky: ['#8BD3FF', '#76C4F3', '#63B3EA', '#52A6E3'],
+    cloud: '#F4FBFF',
+    cloudShade: '#C9E9FB',
+    mtn: '#3C6E9E',
+    mtnShade: '#315D86',
+    snow: '#F4FBFF',
+    grass: '#34C759',
+    grassL: '#5BE07A',
+    grassD: '#22A144',
+    dirtA: '#9A5A32',
+    dirtB: '#A8643A',
+    dirtL: '#B97A4A',
+    dirtD: '#6E3E22',
+    hero: '#FF8C42',
+    heroL: '#FFB27A',
+    heroD: '#C25A20',
+    bug: '#E0504A',
+    bugL: '#FF7A6E',
+    bugD: '#9E2F30',
+    ink: '#1D1D24',
+    yellow: '#FFF27A',
+    white: '#FFFFFF'
+  };
+
+  const FONT = '"Press Start 2P", Menlo, "Courier New", monospace';
+
+  // Deterministic helpers. Nothing in draw() uses Math.random or wall time.
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const prog = (t, a, b) => clamp((t - a) / (b - a), 0, 1);
+  const lerp = (a, b, u) => a + (b - a) * u;
+  const easeOut = u => 1 - Math.pow(1 - u, 3);
+  const easeIn = u => u * u * u;
+  const hash = n => {
+    const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+    return x - Math.floor(x);
+  };
+
+  /* ------------------------------------------------------------------ *
+   * native buffer
+   * ------------------------------------------------------------------ */
+  const buf = document.createElement('canvas');
+  buf.width = W;
+  buf.height = H;
+  const g = buf.getContext('2d');
+  g.imageSmoothingEnabled = false;
+
+  function rect(x, y, w, h, col) {
+    if (w <= 0 || h <= 0) return;
+    g.fillStyle = col;
+    g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+  }
+
+  function aRect(x, y, w, h, col, alpha) {
+    const old = g.globalAlpha;
+    g.globalAlpha = alpha;
+    rect(x, y, w, h, col);
+    g.globalAlpha = old;
+  }
+
+  function txt(s, x, y, col, size, center) {
+    g.save();
+    g.font = size + 'px ' + FONT;
+    g.textAlign = center ? 'center' : 'left';
+    g.textBaseline = 'top';
+    const X = Math.round(x), Y = Math.round(y);
+    g.fillStyle = P.ink;
+    g.fillText(s, X + 1, Y + 1);
+    g.fillStyle = col;
+    g.fillText(s, X, Y);
+    g.restore();
+  }
+
+  function camAt(t) {
+    return CAM_SPEED * clamp(t, 0, T.boss);
+  }
+
+  function screenX(worldX, t) {
+    return Math.round(worldX - camAt(t));
+  }
+
+  /* ------------------------------------------------------------------ *
+   * background
+   * ------------------------------------------------------------------ */
+  function drawSky() {
+    for (let i = 0; i < 4; i++) rect(0, i * 37, W, 37, P.sky[i]);
+    // a one-pixel dithered seam keeps the four bands from looking like a
+    // smooth gradient at 6x.
+    for (let x = 0; x < W; x += 2) {
+      if ((x / 2) % 2 === 0) rect(x, 36, 1, 1, P.sky[0]);
+      if ((x / 2) % 3 === 0) rect(x, 73, 1, 1, P.sky[1]);
+      if ((x / 2) % 2 === 0) rect(x, 110, 1, 1, P.sky[2]);
+    }
+    rect(0, 148, W, H - 148, P.sky[3]);
+  }
+
+  const CLOUDS = [
+    [-28, 25, 1.0], [50, 44, 0.8], [112, 15, 1.2], [196, 35, 0.9],
+    [276, 22, 1.1], [352, 47, 0.85], [432, 17, 1.15], [512, 33, 1.0]
+  ];
+
+  function cloud(x, y, s) {
+    const w = Math.round(24 * s);
+    const h = Math.max(7, Math.round(14 * s));
+    const u = Math.max(1, Math.round(s));
+    rect(x + 2 * u, y + Math.round(h * 0.55), w - 4 * u, Math.max(2, Math.round(h * 0.32)), P.cloud);
+    rect(x + 4 * u, y + Math.round(h * 0.30), w - 8 * u, Math.round(h * 0.34), P.cloud);
+    rect(x + 9 * u, y + Math.round(h * 0.12), w - 17 * u, Math.round(h * 0.30), P.cloud);
+    rect(x + 1 * u, y + Math.round(h * 0.80), w - 2 * u, Math.max(1, Math.round(h * 0.14)), P.cloudShade);
+    rect(x + 7 * u, y + 2 * u, 3 * u, Math.max(1, u), P.white);
+  }
+
+  function drawClouds(t) {
+    const off = camAt(t) * 0.25;
+    for (let i = 0; i < CLOUDS.length; i++) {
+      const c = CLOUDS[i];
+      const x = Math.round(c[0] - off);
+      if (x < -44 || x > W + 20) continue;
+      cloud(x, c[1], c[2]);
+    }
+  }
+
+  const PEAKS = [
+    { x: -40, w: 104, h: 48 },
+    { x: 62, w: 124, h: 66 },
+    { x: 184, w: 92, h: 40 },
+    { x: 274, w: 132, h: 72 },
+    { x: 402, w: 104, h: 50 },
+    { x: 506, w: 144, h: 80 },
+    { x: 628, w: 104, h: 52 }
+  ];
+
+  function mountain(cx, w, h) {
+    cx = Math.round(cx);
+    const base = GROUND + 2;
+    for (let r = 0; r < h; r++) {
+      const half = Math.max(1, Math.floor(((r + 1) / h) * (w / 2)));
+      const y = base - h + r;
+      rect(cx - half, y, half * 2, 1, P.mtn);
+      if (half > 2) rect(cx, y, half, 1, P.mtnShade);
+    }
+    const snowRows = Math.max(4, Math.floor(h * 0.38));
+    for (let r = 0; r < snowRows; r++) {
+      const half = Math.max(1, Math.floor(((r + 1) / h) * (w / 2)));
+      const y = base - h + r;
+      if (r < snowRows - 4) {
+        rect(cx - half, y, half * 2, 1, P.snow);
+      } else {
+        // ragged lower snow edge, made of short horizontal runs.  Keeping
+        // the gaps off-centre avoids the accidental "cross" look.
+        for (let sx = cx - half; sx < cx + half; sx += 3) {
+          const gap = hash(sx * 0.19 + r * 5.3) > 0.58 ? 1 : 0;
+          rect(sx, y, Math.min(3 - gap, cx + half - sx), 1, P.snow);
+        }
+      }
+    }
+  }
+
+  function drawMountains(t) {
+    const off = camAt(t) * 0.5;
+    for (let i = 0; i < PEAKS.length; i++) {
+      const p = PEAKS[i];
+      const x = p.x - off;
+      if (x < -100 || x > W + 100) continue;
+      mountain(x, p.w, p.h);
+    }
+  }
+
+  function drawGround(t) {
+    const cam = camAt(t);
+    const off = cam % 16;
+    const base = Math.floor(cam / 16);
+
+    // alternating dirt tiles, fixed to world coordinates
+    for (let i = -1; i <= 21; i++) {
+      const idx = base + i;
+      const x = Math.round(i * 16 - off);
+      rect(x, GROUND + 6, 16, H - GROUND - 6, (idx & 1) ? P.dirtA : P.dirtB);
+      if (hash(idx * 2.3) > 0.55) rect(x + 2 + Math.floor(hash(idx * 4.1) * 10), GROUND + 12, 2, 1, P.dirtD);
+      if (hash(idx * 5.7) > 0.60) rect(x + 3 + Math.floor(hash(idx * 7.9) * 9), GROUND + 21, 3, 1, P.dirtL);
+      if (hash(idx * 9.1) > 0.72) rect(x + 1 + Math.floor(hash(idx * 3.3) * 12), GROUND + 27, 2, 2, P.dirtD);
+    }
+
+    // grass cap
+    rect(0, GROUND, W, 6, P.grass);
+    rect(0, GROUND, W, 1, P.grassL);
+    rect(0, GROUND + 5, W, 1, P.grassD);
+
+    // grass blades and tiny flowers follow the 1x ground layer
+    const step = 17;
+    const gBase = Math.floor(cam / step);
+    for (let i = -1; i <= W / step + 1; i++) {
+      const idx = gBase + i;
+      const x = Math.round(i * step - (cam % step));
+      const h = 1 + Math.floor(hash(idx * 3.17) * 3);
+      const dx = Math.floor(hash(idx * 7.3) * 9);
+      rect(x + dx, GROUND - h, 1, h, P.grassD);
+      rect(x + dx + 1, GROUND - h, 1, Math.max(1, h - 1), P.grassL);
+      if (hash(idx * 11.7) > 0.62) {
+        rect(x + dx + 5, GROUND - 1, 1, 1, P.yellow);
+        rect(x + dx + 4, GROUND, 1, 1, P.white);
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * hero
+   * ------------------------------------------------------------------ */
+  function heroBaseY(t) {
+    let y = GROUND - HERO_H;
+    for (let i = 0; i < T.stomp.length; i++) {
+      const s = T.stomp[i];
+      const start = s - T.jumpLead;
+      if (t >= start && t <= s) {
+        const u = prog(t, start, s);
+        y -= Math.sin(Math.PI * u) * 28;
+      } else if (t > s && t < s + 0.30) {
+        const u = prog(t, s, s + 0.30);
+        y -= Math.sin(Math.PI * u) * 3;
+      }
+    }
+    if (t >= T.clear && t < T.clear + 0.55) {
+      const u = prog(t, T.clear, T.clear + 0.55);
+      y -= Math.sin(Math.PI * u) * 10;
+    }
+    if (t >= T.boss && t < T.boom) y -= Math.round(Math.sin((t - T.boss) * Math.PI * 2) * 1);
+    return Math.round(y);
+  }
+
+  function attackAt(t) {
+    for (let i = 0; i < T.hits.length; i++) {
+      if (t >= T.hits[i] - 0.18 && t < T.hits[i] + 0.08) return true;
+    }
+    return false;
+  }
+
+  function heroFrame(t) {
+    if (attackAt(t)) return 3;
+    for (let i = 0; i < T.stomp.length; i++) {
+      const s = T.stomp[i];
+      if (t >= s - T.jumpLead && t <= s + 0.30) return 2;
+    }
+    if (t >= T.clear && t < T.clear + 0.55) return 2;
+    if (t >= T.boss) return 0;
+    return Math.floor(t * 8) % 2;
+  }
+
+  // style-guide helper signature: hero(x, y, frame, flash)
+  function hero(x, y, frame, flash) {
+    const attack = frame === 3;
+    const jumping = frame === 2;
+    const H = flash ? P.white : P.hero;
+    const HL = flash ? P.white : P.heroL;
+    const HD = flash ? P.white : P.heroD;
+    const ink = P.ink;
+
+    // shadow shrinks as the hero leaves the ground
+    const air = clamp((GROUND - HERO_H - y) / 28, 0, 1);
+    const sw = Math.max(6, Math.round(12 - air * 5));
+    aRect(x + 7 - Math.round(sw / 2), GROUND - 1, sw, 1, P.ink, 0.22);
+    aRect(x + 8 - Math.round(sw / 2), GROUND, sw - 2, 1, P.ink, 0.16);
+
+    // legs (behind body)
+    if (frame === 2) {
+      rect(x + 3, y + 16, 4, 4, ink);
+      rect(x + 4, y + 16, 2, 3, H);
+      rect(x + 8, y + 16, 4, 4, ink);
+      rect(x + 8, y + 16, 2, 3, H);
+      rect(x + 2, y + 19, 5, 3, ink);
+      rect(x + 9, y + 19, 5, 3, ink);
+      rect(x + 3, y + 19, 3, 1, HD);
+      rect(x + 10, y + 19, 3, 1, HD);
+    } else if (frame === 3) {
+      // planted attack stance
+      rect(x + 3, y + 16, 4, 5, ink);
+      rect(x + 4, y + 16, 2, 4, H);
+      rect(x + 2, y + 20, 5, 3, ink);
+      rect(x + 8, y + 16, 4, 5, ink);
+      rect(x + 9, y + 16, 2, 4, H);
+      rect(x + 8, y + 20, 5, 3, ink);
+      rect(x + 2, y + 21, 4, 2, HD);
+      rect(x + 9, y + 21, 4, 2, HD);
+    } else if (frame === 1) {
+      // run, right leg forward
+      rect(x + 4, y + 16, 3, 5, ink);
+      rect(x + 4, y + 16, 2, 3, H);
+      rect(x + 3, y + 20, 5, 3, ink);
+      rect(x + 8, y + 16, 3, 3, ink);
+      rect(x + 8, y + 16, 2, 2, H);
+      rect(x + 8, y + 18, 5, 4, ink);
+      rect(x + 3, y + 21, 4, 2, HD);
+      rect(x + 9, y + 20, 4, 2, HD);
+    } else {
+      // run, left leg forward
+      rect(x + 3, y + 16, 3, 3, ink);
+      rect(x + 3, y + 16, 2, 2, H);
+      rect(x + 2, y + 18, 5, 4, ink);
+      rect(x + 8, y + 16, 3, 5, ink);
+      rect(x + 8, y + 16, 2, 3, H);
+      rect(x + 8, y + 20, 5, 3, ink);
+      rect(x + 2, y + 20, 4, 2, HD);
+      rect(x + 9, y + 21, 4, 2, HD);
+    }
+
+    // torso outline + fill
+    rect(x + 3, y + 8, 8, 1, ink);
+    rect(x + 2, y + 9, 10, 6, ink);
+    rect(x + 3, y + 9, 8, 5, H);
+    rect(x + 4, y + 9, 6, 1, HL);
+    rect(x + 5, y + 10, 4, 2, HL);
+    rect(x + 6, y + 11, 2, 1, P.yellow);
+    rect(x + 3, y + 14, 8, 1, HD);
+    rect(x + 4, y + 15, 6, 1, ink);
+
+    // neck / scarf
+    rect(x + 4, y + 7, 6, 1, ink);
+    rect(x + 5, y + 7, 4, 1, P.yellow);
+
+    // arms
+    if (attack) {
+      rect(x + 1, y + 9, 2, 4, ink);
+      rect(x + 2, y + 9, 1, 3, H);
+      rect(x + 10, y + 10, 6, 3, ink);
+      rect(x + 11, y + 11, 5, 1, H);
+      // little blaster
+      rect(x + 15, y + 10, 4, 3, ink);
+      rect(x + 16, y + 11, 2, 1, P.yellow);
+      rect(x + 19, y + 11, 1, 1, P.white);
+    } else if (jumping) {
+      rect(x + 1, y + 8, 2, 5, ink);
+      rect(x + 2, y + 8, 1, 3, H);
+      rect(x + 11, y + 8, 2, 5, ink);
+      rect(x + 11, y + 8, 1, 3, H);
+    } else {
+      rect(x + 1, y + 9, 2, 5, ink);
+      rect(x + 2, y + 9, 1, 4, H);
+      rect(x + 11, y + 9, 2, 5, ink);
+      rect(x + 11, y + 9, 1, 4, H);
+      rect(x + 1, y + 13, 2, 1, HD);
+      rect(x + 11, y + 13, 2, 1, HD);
+    }
+
+    // helmet / head
+    rect(x + 4, y, 6, 1, ink);
+    rect(x + 3, y + 1, 8, 1, ink);
+    rect(x + 2, y + 2, 10, 6, ink);
+    rect(x + 3, y + 7, 8, 1, ink);
+    rect(x + 4, y + 1, 6, 1, H);
+    rect(x + 3, y + 2, 8, 5, H);
+    rect(x + 3, y + 2, 2, 2, HL);
+    rect(x + 4, y + 7, 6, 1, HD);
+    // visor
+    rect(x + 4, y + 3, 6, 2, ink);
+    rect(x + 5, y + 3, 4, 1, P.white);
+    rect(x + 9, y + 3, 1, 1, P.white);
+    // ear / helmet fins
+    rect(x + 1, y + 3, 1, 3, ink);
+    rect(x + 2, y + 3, 1, 2, HL);
+    rect(x + 12, y + 3, 1, 3, ink);
+    rect(x + 11, y + 3, 1, 2, HL);
+  }
+
+  function drawHero(t) {
+    const flash = t >= T.level && t < T.level + 0.32 && Math.floor((t - T.level) / 0.06) % 2 === 0;
+    hero(HERO_X, heroBaseY(t), heroFrame(t), flash);
+  }
+
+  function drawMuzzle(t) {
+    for (let i = 0; i < T.hits.length; i++) {
+      const h = T.hits[i];
+      if (t >= h - 0.18 && t < h - 0.10) {
+        const y = heroBaseY(t) + 10;
+        rect(HERO_X + 19, y + 1, 3, 1, P.yellow);
+        rect(HERO_X + 20, y, 1, 3, P.yellow);
+        rect(HERO_X + 21, y + 1, 1, 1, P.white);
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * bugs and boss
+   * ------------------------------------------------------------------ */
+  function bugShadow(x, s) {
+    const w = Math.round(12 * s);
+    aRect(x + 2 * s, GROUND - 1, w, 1, P.ink, 0.24);
+    aRect(x + 3 * s, GROUND, Math.max(2, w - 4), 1, P.ink, 0.14);
+  }
+
+  // style-guide helper signature: bug(x, y, frame, squash, scale, hit)
+  function bug(x, y, frame, squash, s, hit, boss) {
+    x = Math.round(x);
+    y = Math.round(y);
+    const ink = P.ink;
+    const C = hit ? P.white : P.bug;
+    const L = hit ? P.white : P.bugL;
+    const D = hit ? P.white : P.bugD;
+
+    // Bugs face left, toward the incoming player. Mirror the native sprite
+    // around its own right edge so every pixel stays on the 320x180 grid.
+    g.save();
+    g.translate(x + BUG_W * s, 0);
+    g.scale(-1, 1);
+    x = 0;
+
+    if (squash) {
+      const yy = GROUND - 3 * s;
+      rect(x - s, yy, 17 * s, 3 * s, ink);
+      rect(x, yy + s, 15 * s, s, C);
+      rect(x + s, yy + s, 4 * s, s, L);
+      rect(x + 10 * s, yy + s, 3 * s, s, D);
+      rect(x - 2 * s, yy + 2 * s, 2 * s, s, ink);
+      rect(x + 15 * s, yy + 2 * s, 2 * s, s, ink);
+      rect(x + 11 * s, yy + 2 * s, s, s, ink);
+      rect(x + 13 * s, yy + 2 * s, s, s, ink);
+      g.restore();
+      return;
+    }
+
+    // six legs, alternating two-frame gait
+    for (let k = 0; k < 3; k++) {
+      const lx = x + (2 + k * 4) * s;
+      const up = frame ? (k % 2) : ((k + 1) % 2);
+      rect(lx, y + (7 + up) * s, s, (3 - up) * s, ink);
+      rect(lx + (k === 2 ? s : 0), y + (9 + up) * s, s, s, ink);
+    }
+
+    // antennae
+    rect(x + 10 * s, y - 2 * s, s, 3 * s, ink);
+    rect(x + (frame ? 9 : 10) * s, y - 3 * s, s, s, ink);
+    rect(x + 12 * s, y - 1 * s, s, s, ink);
+
+    // body outline
+    rect(x + 3 * s, y, 9 * s, s, ink);
+    rect(x + s, y + s, 13 * s, s, ink);
+    rect(x, y + 2 * s, 15 * s, 4 * s, ink);
+    rect(x + s, y + 6 * s, 13 * s, 2 * s, ink);
+    rect(x + 3 * s, y + 8 * s, 9 * s, s, ink);
+
+    // body fill
+    rect(x + 3 * s, y + s, 9 * s, s, C);
+    rect(x + s, y + 2 * s, 13 * s, 4 * s, C);
+    rect(x + s, y + 6 * s, 13 * s, 2 * s, C);
+    rect(x + 3 * s, y + 8 * s, 9 * s, s, C);
+
+    // shell highlights and dark underside
+    rect(x + 3 * s, y + 2 * s, 3 * s, s, L);
+    rect(x + 8 * s, y + 3 * s, 2 * s, s, L);
+    rect(x + 2 * s, y + 5 * s, s, s, L);
+    rect(x + 2 * s, y + 7 * s, 4 * s, s, D);
+
+    // face
+    rect(x + 10 * s, y + 3 * s, 2 * s, 2 * s, ink);
+    rect(x + 10 * s, y + 3 * s, s, s, hit ? ink : P.white);
+    rect(x + 12 * s, y + 3 * s, s, s, ink);
+    rect(x + 11 * s, y + 6 * s, 2 * s, s, ink);
+
+    if (boss) drawCrown(x, y, s);
+    g.restore();
+  }
+
+  function drawCrown(x, y, s) {
+    const cx = x + Math.round(7.5 * s);
+    const top = y - 3 * s;
+    const u = Math.max(1, Math.round(s * 0.5));
+    rect(cx - 5 * s, top + 2 * s, 10 * s, 2 * s, P.ink);
+    rect(cx - 4 * s, top + 2 * s, 8 * s, s, P.yellow);
+    for (let k = -1; k <= 1; k++) {
+      const px = cx + k * 3 * s - u;
+      rect(px, top, u * 2, 2 * s, P.ink);
+      rect(px + 1, top + 1, Math.max(1, u * 2 - 2), 2 * s - 1, P.yellow);
+    }
+    rect(cx - 4 * s, top + 3 * s, 8 * s, 1, P.white);
+  }
+
+  function bossPos(t) {
+    const u = prog(t, T.boss, T.boss + T.bossWalk);
+    const x = 334 - (334 - BOSS_X) * easeOut(u);
+    const bob = u < 1 ? -Math.abs(Math.sin(t * 14)) * 2 : Math.sin((t - T.boss) * Math.PI * 2) * 1;
+    return { x: Math.round(x), y: Math.round(GROUND - BUG_H * BOSS_SCALE + bob) };
+  }
+
+  function hitAt(t) {
+    for (let i = 0; i < T.hits.length; i++) {
+      const h = T.hits[i];
+      if (h < T.boom && t >= h && t < h + 0.15) return h;
+    }
+    return -1;
+  }
+
+  function drawBoss(t) {
+    if (t < T.boss || t >= T.boom) return;
+    const p = bossPos(t);
+    const h = hitAt(t);
+    let x = p.x, y = p.y;
+    if (h >= 0) {
+      const u = prog(t, h, h + 0.15);
+      x += Math.round(Math.sin(u * Math.PI) * 5 + Math.sin(t * 97) * 2);
+      y += Math.round(Math.sin(t * 131) * 1);
+    }
+    bugShadow(x, BOSS_SCALE);
+    bug(x, y, Math.floor(t * 8) % 2, 0, BOSS_SCALE, h >= 0, true);
+
+    // boss entrance dust
+    const walk = prog(t, T.boss, T.boss + T.bossWalk);
+    if (walk > 0 && walk < 1) {
+      const phase = Math.floor(t * 10);
+      for (let k = 0; k < 2; k++) {
+        const px = x + 6 * BOSS_SCALE - k * 11 - hash(phase + k) * 6;
+        const py = GROUND - 2 - k * 2 - hash(phase + k + 9) * 2;
+        const a = 0.45 * (1 - ((t * 10 + k * 0.3) % 1));
+        aRect(px, py, 3 + k, 2, P.white, a);
+      }
+    }
+  }
+
+  function drawProjectiles(t) {
+    for (let i = 0; i < T.hits.length; i++) {
+      const h = T.hits[i];
+      const start = h - 0.16;
+      if (t >= start && t < h) {
+        const u = prog(t, start, h);
+        const x = lerp(HERO_X + 20, BOSS_X + 10, u);
+        const y = heroBaseY(t) + 11;
+        aRect(x - 7, y + 1, 6, 1, P.yellow, 0.40);
+        rect(x, y, 3, 2, P.yellow);
+        rect(x + 1, y, 1, 1, P.white);
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * effects
+   * ------------------------------------------------------------------ */
+  function drawStompFx(t) {
+    for (let i = 0; i < T.stomp.length; i++) {
+      const s = T.stomp[i];
+      const u = prog(t, s, s + 0.30);
+      if (t >= s && t < s + 0.30) {
+        for (let k = 0; k < 5; k++) {
+          const ang = hash(i * 7.1 + k * 2.3) * Math.PI * 2;
+          const spd = 10 + hash(i * 3.7 + k * 5.1) * 20;
+          const px = HERO_X + 7 + Math.cos(ang) * spd * u;
+          const py = GROUND - 2 + Math.sin(ang) * spd * u * 0.5;
+          const a = 0.55 * (1 - u);
+          aRect(px, py, 2, 2, P.white, a);
+        }
+      }
+
+      const fu = prog(t, s, s + 0.85);
+      if (t >= s && t < s + 0.85) {
+        const bx = screenX(BUG_WORLD[i], t);
+        const y = GROUND - 33 - 13 * easeOut(fu);
+        const old = g.globalAlpha;
+        g.globalAlpha = 1 - prog(t, s + 0.48, s + 0.85);
+        txt('+10XP', bx + 22, y, P.yellow, 6, true);
+        g.globalAlpha = old;
+      }
+    }
+  }
+
+  function drawHitFx(t) {
+    for (let i = 0; i < T.hits.length; i++) {
+      const h = T.hits[i];
+      if (t >= h && t < h + 0.22) {
+        const u = prog(t, h, h + 0.22);
+        const cx = BOSS_X + 8;
+        const cy = GROUND - 25;
+        for (let k = 0; k < 6; k++) {
+          const ang = hash(i * 5.9 + k * 4.3) * Math.PI * 2;
+          const spd = 12 + hash(i * 8.1 + k * 2.7) * 22;
+          rect(cx + Math.cos(ang) * spd * u, cy + Math.sin(ang) * spd * u, 2, 2, k % 2 ? P.yellow : P.white);
+        }
+        const old = g.globalAlpha;
+        g.globalAlpha = 0.22 * (1 - u);
+        rect(0, 0, W, H, P.white);
+        g.globalAlpha = old;
+      }
+    }
+  }
+
+  function drawExplosion(t) {
+    if (t < T.boom) return;
+    const u = t - T.boom;
+    const cx = BOSS_X + 30;
+    const cy = GROUND - 20;
+
+    if (u < 0.16) {
+      const old = g.globalAlpha;
+      g.globalAlpha = 0.55 * (1 - u / 0.16);
+      rect(0, 0, W, H, P.white);
+      g.globalAlpha = old;
+    }
+
+    if (u < 0.80) {
+      const cols = [P.bug, P.bugL, P.yellow, P.white, P.ink];
+      for (let i = 0; i < 10; i++) {
+        const ang = hash(i * 7.3 + 1.7) * Math.PI * 2;
+        const spd = 28 + hash(i * 3.9 + 9.1) * 62;
+        const px = cx + Math.cos(ang) * spd * u;
+        const py = cy + Math.sin(ang) * spd * u + 95 * u * u;
+        const sz = 2 + Math.floor(hash(i * 5.1 + 3.3) * 3);
+        if (u > 0.62) {
+          const old = g.globalAlpha;
+          g.globalAlpha = 1 - prog(u, 0.62, 0.80);
+          rect(px, py, sz, sz, cols[i % cols.length]);
+          g.globalAlpha = old;
+        } else {
+          rect(px, py, sz, sz, cols[i % cols.length]);
+        }
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * HUD and overlays
+   * ------------------------------------------------------------------ */
+  function panel(x, y, w, h) {
+    aRect(x, y, w, h, P.ink, 0.74);
+    aRect(x, y, w, 1, P.white, 0.16);
+    aRect(x, y + h - 1, w, 1, '#000000', 0.35);
+  }
+
+  function xpNow(t) {
+    let n = 0;
+    for (let i = 0; i < T.stomp.length; i++) if (t >= T.stomp[i]) n++;
+    if (t >= T.levelSwap) return { level: 2, xp: 0, max: 40, full: false };
+    let xp = 0;
+    if (n > 0) {
+      const last = T.stomp[n - 1];
+      xp = (n - 1) * 10 + 10 * easeOut(prog(t, last, last + 0.12));
+    }
+    return { level: 1, xp: Math.min(30, xp), max: 30, full: t >= T.level && t < T.levelSwap };
+  }
+
+  function bossHp(t) {
+    if (t < T.boss) return null;
+    if (t >= T.boom) return 0;
+    let hp = 3;
+    for (let i = 0; i < T.hits.length; i++) if (t >= T.hits[i]) hp--;
+    return Math.max(0, hp);
+  }
+
+  function drawHud(t) {
+    // player panel
+    panel(7, 7, 88, 24);
+    txt('HERO', 12, 11, P.white, 6, false);
+    txt('LV ' + (t >= T.levelSwap ? '2' : '1'), 52, 11, P.yellow, 6, false);
+    const xs = xpNow(t);
+    rect(12, 21, 78, 4, P.ink);
+    rect(13, 22, 76, 2, '#3A3A46');
+    const fill = Math.round((xs.xp / xs.max) * 76);
+    const blink = xs.full && (Math.floor((t - T.level) / 0.08) % 2 === 0);
+    rect(13, 22, fill, 2, blink ? P.white : P.yellow);
+
+    // boss panel slides in on the boss beat
+    const hp = bossHp(t);
+    if (hp !== null) {
+      const u = prog(t, T.boss, T.boss + 0.25);
+      const px = Math.round(229 + (1 - easeOut(u)) * 34);
+      panel(px, 7, 84, 22);
+      txt('BOSS', px + 6, 12, P.white, 6, false);
+      for (let i = 0; i < 3; i++) {
+        const bx = px + 34 + i * 16;
+        const by = 13;
+        rect(bx, by, 14, 7, P.ink);
+        rect(bx + 1, by + 1, 12, 5, '#3A2A2E');
+        if (i < hp) {
+          rect(bx + 1, by + 1, 12, 5, P.bug);
+          rect(bx + 1, by + 1, 12, 1, P.bugL);
+          rect(bx + 2, by + 4, 10, 1, P.bugD);
+        } else {
+          // brief white flash on the segment just lost; at zero HP the whole
+          // bar simply stays empty.
+          const just = hp > 0 && T.hits.some(h => h <= t && t < h + 0.15);
+          if (just && i === hp) rect(bx + 1, by + 1, 12, 5, P.white);
+        }
+      }
+    }
+  }
+
+  function drawTitle(t) {
+    if (t >= T.titleOut) return;
+    const inn = easeOut(prog(t, 0, 0.26));
+    const out = 1 - prog(t, 1.14, T.titleOut);
+    if (out <= 0) return;
+    const old = g.globalAlpha;
+    g.globalAlpha = Math.min(1, inn) * out;
+    const y = 50 - Math.round((1 - inn) * 12);
+    txt('BUG HUNT', 160, y, P.yellow, 16, true);
+    txt('STAGE 1-1', 160, y + 22, P.white, 6, true);
+    // title underline made of pixels
+    rect(123, y + 19, 28, 2, P.ink);
+    rect(125, y + 19, 24, 1, P.yellow);
+    rect(134, y + 19, 6, 1, P.white);
+    g.globalAlpha = old;
+  }
+
+  function drawLevelUp(t) {
+    if (t < T.level || t >= 7.32) return;
+    const inn = easeOut(prog(t, T.level, T.level + 0.24));
+    const out = 1 - prog(t, 6.98, 7.32);
+    const old = g.globalAlpha;
+    g.globalAlpha = Math.min(1, inn) * out;
+
+    const y = 46 - Math.round((1 - inn) * 10);
+    const flash = Math.floor((t - T.level) / 0.085) % 2 === 0;
+    txt('LEVEL UP!', 160, y, flash ? P.white : P.yellow, 12, true);
+    txt('LV 2', 160, y + 17, P.white, 6, true);
+
+    // four yellow pixels orbit the hero
+    const r = 7 + 10 * easeOut(prog(t, T.level, T.level + 0.30));
+    const cx = HERO_X + 7;
+    const cy = heroBaseY(t) + 11;
+    for (let i = 0; i < 4; i++) {
+      const ang = (t - T.level) * 8.5 + i * Math.PI / 2;
+      const px = Math.round(cx + Math.cos(ang) * r);
+      const py = Math.round(cy + Math.sin(ang) * r);
+      rect(px + 1, py + 1, 3, 3, P.ink);
+      rect(px, py, 3, 3, i === 0 ? P.white : P.yellow);
+    }
+    g.globalAlpha = old;
+  }
+
+  function drawClear(t) {
+    if (t < T.clear) return;
+    const inn = easeOut(prog(t, T.clear, T.clear + 0.30));
+    const old = g.globalAlpha;
+    g.globalAlpha = Math.min(1, inn);
+    const y = 40 + Math.round((1 - inn) * 8);
+    txt('STAGE CLEAR!', 160, y, P.yellow, 16, true);
+    const score = Math.round(1250 * easeOut(prog(t, T.clear + 0.10, T.clear + 0.55)));
+    txt('SCORE ' + score, 160, y + 24, P.white, 8, true);
+
+    // small rising pixel sparks around the banner
+    for (let i = 0; i < 8; i++) {
+      const ph = (t - T.clear) * (0.45 + hash(i * 3.3) * 0.3) + hash(i * 7.7);
+      const px = 40 + hash(i * 2.1 + 5.2) * 240;
+      const py = 118 - (ph % 1) * 70;
+      const a = 0.25 + 0.55 * Math.abs(Math.sin(ph * Math.PI));
+      aRect(px, py, 2, 2, i % 3 ? P.yellow : P.white, a);
+    }
+    g.globalAlpha = old;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * composed frame
+   * ------------------------------------------------------------------ */
+  function drawWorld(t) {
+    g.clearRect(0, 0, W, H);
+
+    drawSky();
+    drawClouds(t);
+    drawMountains(t);
+    drawGround(t);
+
+    // bugs: standing before their beat, flattened strips afterwards
+    for (let i = 0; i < T.stomp.length; i++) {
+      const x = screenX(BUG_WORLD[i], t);
+      if (x < -30 || x > W + 30) continue;
+      const stomped = t >= T.stomp[i];
+      if (!stomped) {
+        bugShadow(x, 1);
+        bug(x, GROUND - BUG_H, Math.floor(t * 8) % 2, 0, 1, false, false);
+      } else {
+        bug(x, GROUND - BUG_H, 0, 1, 1, false, false);
+      }
+    }
+
+    drawHero(t);
+    drawMuzzle(t);
+    drawBoss(t);
+    drawProjectiles(t);
+    drawStompFx(t);
+    drawHitFx(t);
+    drawExplosion(t);
+
+    drawHud(t);
+    drawTitle(t);
+    drawLevelUp(t);
+    drawClear(t);
+
+    if (t >= T.fade) {
+      const old = g.globalAlpha;
+      g.globalAlpha = prog(t, T.fade, DUR);
+      rect(0, 0, W, H, '#000000');
+      g.globalAlpha = old;
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * score
+   * ------------------------------------------------------------------ */
+  function buildScore(S) {
+    const I = S.I;
+
+    // ---- title fanfare (bar 1) ----
+    const intro = [72, 76, 79, 84, 79, 76, 72, 79, 84, 79, 76, 72];
+    intro.forEach((m, i) => S.at(i * BEAT / 2, I.chip, m, 1.05, 0.13));
+    S.at(0, I.chipTri, 36, 0.55, 1);
+    S.at(2 * BEAT, I.chipTri, 43, 0.40, 0.8);
+    S.at(3 * BEAT, I.chipTri, 48, 0.30, 0.7);
+
+    // ---- run / stomp bars (bars 2-4) ----
+    S.drums(1, 4, 'groove', 0.9);
+    S.bassLine([36, 33, 29], 1, 4, 0.85);
+
+    const melodyBars = [
+      [72, 76, 79, 84, 79, 76, 72, 79],
+      [69, 72, 76, 81, 76, 72, 69, 76],
+      [65, 69, 72, 77, 72, 69, 65, 72]
+    ];
+    melodyBars.forEach((notes, b) => {
+      notes.forEach((m, i) => S.at((b + 1) * BAR + i * BEAT / 2, I.chip, m, 1.12, 0.14));
+    });
+
+    // jumps start 0.45 s before the landing, then the stomp coin is exactly on
+    // the beat used by the picture.
+    T.stomp.forEach(s => {
+      S.at(s - T.jumpLead, I.jump);
+      S.at(s, I.coin);
+    });
+
+    // level-up chip arpeggio
+    [72, 76, 79, 84, 88, 91, 96].forEach((m, i) => {
+      S.at(T.level + i * 0.038, I.chip, m, 1.35, 0.10);
+    });
+    S.at(T.level + 0.30, I.chipTri, 48, 0.50, 0.9);
+
+    // ---- boss: A minor, sixteenth-note lead (bars 5-6) ----
+    S.drums(4, 6, 'busy', 0.85);
+    S.at(T.boss, I.riser, 0.95);
+    for (let b = 4; b < 6; b++) {
+      const root = b === 4 ? 33 : 31;
+      for (let e = 0; e < 8; e++) {
+        S.at(b * BAR + e * BEAT / 2, I.chipTri, root + (e % 4 === 3 ? 12 : 0), 0.18, 0.8);
+      }
+    }
+    const bossLead = [
+      [69, 72, 76, 79, 81, 79, 76, 72, 69, 72, 76, 79, 84, 81, 79, 76],
+      [77, 81, 84, 88, 86, 84, 81, 77, 76, 79, 83, 86, 84, 83, 79, 76]
+    ];
+    bossLead.forEach((notes, b) => {
+      notes.forEach((m, i) => S.at((b + 4) * BAR + i * BEAT / 4, I.chip, m, 0.82, 0.09));
+    });
+
+    // hits: thud + pop.  The third impact is the explosion itself, so the
+    // impact instrument takes over there instead of stacking three SFX.
+    T.hits.forEach((h, i) => {
+      if (i < 2) {
+        S.at(h, I.thud, 0.55);
+        S.at(h + 0.015, I.pop, 1.0);
+      }
+    });
+
+    // ---- explosion / clear (bars 7-8) ----
+    S.at(T.boom, I.impact);
+    S.at(T.boom + 0.06, I.riser, 0.55);
+    S.at(T.boom, I.chipTri, 36, 0.70, 0.55);
+
+    // "clear" melody is the main phrase an octave up.
+    [84, 88, 91, 96, 100, 103, 108].forEach((m, i) => {
+      S.at(T.clear + i * 0.055, I.chip, m, 1.35, 0.14);
+    });
+    S.at(T.clear, I.chipTri, 48, 0.65, 1);
+    S.at(T.clear + 0.40, I.chipTri, 55, 0.35, 0.9);
+
+    S.drums(7, 8, 'groove', 0.80);
+    const clearLead = [84, 88, 91, 96, 100, 103, 108, 103, 100, 96, 91, 88, 96, 100, 103, 108];
+    clearLead.forEach((m, i) => {
+      S.at(T.clear + i * BEAT / 4, I.chip, m, 1.25, 0.11);
+    });
+    [84, 88, 91, 96].forEach((m, i) => S.at(T.finalChord + i * 0.055, I.chip, m, 1.20, 0.16));
+    S.at(T.finalChord, I.chipTri, 36, 0.85, 1);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Film
+   * ------------------------------------------------------------------ */
+  window.Film({
+    title: 'BUG HUNT — pixel game',
+    DUR: DUR,
+    BPM: BPM,
+    poster: 10.62,
+    fonts: [
+      ['6px "Press Start 2P"', 'BUG HUNT HERO LEVEL UP STAGE CLEAR SCORE 0123456789 +!-'],
+      ['12px "Press Start 2P"', 'LEVEL UP!'],
+      ['16px "Press Start 2P"', 'BUG HUNT STAGE CLEAR!']
+    ],
+    draw(c, t) {
+      drawWorld(clamp(t, 0, DUR));
+
+      // Native 320 x 180 buffer is scaled 4x into the engine's 1280 x 720
+      // space, i.e. 6x at the 1920 x 1080 export size.
+      c.imageSmoothingEnabled = false;
+      c.clearRect(0, 0, 1280, 720);
+      c.drawImage(buf, 0, 0, 1280, 720);
+
+      // 8% scanline every 4 engine pixels
+      c.fillStyle = 'rgba(0,0,0,0.08)';
+      for (let y = 0; y < 720; y += 4) c.fillRect(0, y, 1280, 1);
+    },
+    score(S) {
+      buildScore(S);
+    }
+  });
+})();
+</script>
+</body>
+</html>

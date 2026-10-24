@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>数据叙事 · 手机占掉的一天</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Noto+Sans+SC:wght@500;700;900&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+const BPM = 96, BEAT = 60 / BPM;                        // 0.625 s
+const CN = '"Noto Sans SC", "PingFang SC", sans-serif', MONO = '"IBM Plex Mono", Menlo, monospace';
+const BG = '#F6F4EF', INK = '#1D2129', MUTE = '#8A8578', CELL = '#E2DED4', SLEEP = '#3E4C6E', PHONE = '#F0562A';
+// ---- illustrative data: one cell = 15 minutes; every number on screen is derived from these arrays ----
+const SLEEP_Q = []; for (let q = 0; q < 96; q++) if (q < 28 || q >= 92) SLEEP_Q.push(q);            // 23:00–07:00
+const PHONE_Q = [28, 32, 33, 40, 50, 51, 52, 60, 66, 72, 73, 78, 84, 85, 86, 87, 88, 89, 90, 91];   // 20 cells = 5 h
+const AWAKE = 96 - SLEEP_Q.length, PCT = Math.round(PHONE_Q.length / AWAKE * 100);                 // 64 cells, 31%
+// ---- timeline ----
+const T_GRID = 1 * BEAT, T_SLEEP = 3 * BEAT, T_SCAN0 = 5 * BEAT, T_SCAN1 = 14 * BEAT, T_GATHER = 15.5 * BEAT, T_CONC = 18.5 * BEAT, OUT = 14.45;
+const scanT = q => T_SCAN0 + (q / 4 - 7) / 16 * (T_SCAN1 - T_SCAN0);   // when the cursor reaches quarter q
+const X0 = 92, Y0 = 296, P = 46, CS = 38;
+const cellXY = q => [X0 + Math.floor(q / 4) * P, Y0 + (q % 4) * P];
+const NOTES = [['通勤 30 分钟', 32, 33, 'up'], ['午饭 + 午休 45 分钟', 50, 52, 'down'], ['睡前 2 小时', 84, 91, 'up']];   // [label, first cell, last cell, side]
+const hm = m => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+
+Film({
+  title: '数据叙事 · 手机占掉的一天', DUR: 15, BPM, poster: 12.9,
+  fonts: [['900 40px "Noto Sans SC"', '一天小时，手机拿走了多少？醒着的里约给'], ['500 18px "Noto Sans SC"', '每格分钟示意数据睡眠小时通勤路上午饭休睡前手机时间醒着的'], ['600 20px "IBM Plex Mono"', '0123456789:%h']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, ease, easeOut, back, rrect } = F;
+    c.fillStyle = BG; c.fillRect(0, 0, W, H);
+    const txt = (s, x, y, font, col, align = 'left', a = 1) => { c.save(); c.globalAlpha *= a; c.font = font; c.fillStyle = col; c.textAlign = align; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); c.restore(); };
+    // ---------- headline (question → answer) ----------
+    const qa = easeOut(prog(t, .1, .6)) * (1 - prog(t, T_CONC - .3, T_CONC));
+    if (qa > 0) txt('一天 24 小时，手机拿走了多少？', X0 - 20 * (1 - qa), 104, `900 40px ${CN}`, INK, 'left', qa);
+    const ca = easeOut(prog(t, T_CONC, T_CONC + .5));
+    if (ca > 0) { c.save(); c.globalAlpha = ca; c.font = `900 40px ${CN}`; c.textBaseline = 'alphabetic'; c.fillStyle = INK; const a = '醒着的 16 小时里，约 ', b = '1/3', d = ' 给了手机'; let x = X0 + 20 * (1 - ca); c.fillText(a, x, 104); x += c.measureText(a).width; c.fillStyle = PHONE; c.fillText(b, x, 104); x += c.measureText(b).width; c.fillStyle = INK; c.fillText(d, x, 104); c.restore(); }
+    txt('每格 = 15 分钟 · 示意数据', X0, 140, `500 18px ${CN}`, MUTE, 'left', easeOut(prog(t, .3, .8)));
+    // ---------- counter (top right) ----------
+    const flipped = PHONE_Q.filter(q => t >= scanT(q)).length;
+    const cA = easeOut(prog(t, T_SCAN0 - .4, T_SCAN0));
+    if (cA > 0) { txt('手机时间', 1188, 90, `500 18px ${CN}`, MUTE, 'right', cA); const last = PHONE_Q.filter(q => t >= scanT(q)).pop(), bump = last !== undefined ? 1 - prog(t, scanT(last), scanT(last) + .15) : 0; c.save(); c.globalAlpha = cA; c.translate(1188, 140); c.scale(1 + .08 * bump, 1 + .08 * bump); c.font = `600 50px ${MONO}`; c.textAlign = 'right'; c.fillStyle = PHONE; c.fillText(hm(flipped * 15) + ' h', 0, 0); c.restore(); }
+    // ---------- grid ----------
+    const gather = ease(prog(t, T_GATHER, T_GATHER + 1.6));
+    const gridFade = 1 - .75 * gather;
+    // hour axis
+    const axA = easeOut(prog(t, T_GRID, T_GRID + .6)) * gridFade;
+    if (axA > 0) {
+      for (let h = 0; h <= 24; h += 6) { const x = X0 + h * P - 4; c.save(); c.globalAlpha = axA; c.fillStyle = MUTE; c.fillRect(x - .5, Y0 + 4 * P - 4, 1.5, 12); c.restore(); txt(String(h).padStart(2, '0') + ':00', x, Y0 + 4 * P + 30, `500 16px ${MONO}`, MUTE, h === 0 ? 'left' : h === 24 ? 'right' : 'center', axA); }
+    }
+    const scanX = T => X0 + T * P - 4;
+    const cellCol = q => {
+      if (PHONE_Q.includes(q) && t >= scanT(q)) return PHONE;
+      if (SLEEP_Q.includes(q)) { const ts = T_SLEEP + (q < 28 ? q / 28 : (q - 92) / 4) * 1.1; if (t >= ts) return SLEEP; }
+      return CELL;
+    };
+    // bar targets for gathering: phone cells first, then the rest of the awake cells
+    const awakeQ = []; for (let q = 28; q < 92; q++) awakeQ.push(q);
+    const order = [...PHONE_Q, ...awakeQ.filter(q => !PHONE_Q.includes(q))];
+    const BX = X0, BY = 596, BP = 1096 / 64, BS = BP - 3;
+    for (let q = 0; q < 96; q++) {
+      const col = Math.floor(q / 4), appear = back(prog(t, T_GRID + col * .05, T_GRID + col * .05 + .25));
+      if (appear <= 0) continue;
+      let [x, y] = cellXY(q), s = CS * appear, a = 1, colr = cellCol(q);
+      // flip pop
+      if (PHONE_Q.includes(q)) { const k = prog(t, scanT(q), scanT(q) + .22); if (k > 0 && k < 1) s = CS * (1 + .22 * Math.sin(Math.PI * k)); }
+      const oi = order.indexOf(q);
+      if (oi >= 0 && gather > 0) {
+        const tx = BX + oi * BP, ty = BY, stagger = clamp((gather * 1.6 - oi / 64 * .6), 0, 1), u = ease(stagger);
+        // leave a faint ghost behind, move a copy into the bar
+        c.save(); c.globalAlpha = gridFade; rrect(c, x + (CS - s) / 2, y + (CS - s) / 2, s, s, 5); c.fillStyle = colr; c.fill(); c.restore();
+        const w = lerp(CS, BS, u), h = lerp(CS, 34, u);
+        c.save(); c.globalAlpha = u > 0 ? 1 : 0; rrect(c, lerp(x, tx, u), lerp(y, ty, u), w, h, lerp(5, 2, u)); c.fillStyle = PHONE_Q.includes(q) ? PHONE : '#CFC9BC'; c.fill(); c.restore();
+        continue;
+      }
+      c.save(); c.globalAlpha = a * (gather > 0 ? gridFade : 1); rrect(c, x + (CS - s) / 2, y + (CS - s) / 2, s, s, 5); c.fillStyle = colr; c.fill(); c.restore();
+    }
+    // sleep label
+    const sA = easeOut(prog(t, T_SLEEP + .5, T_SLEEP + .9)) * (1 - prog(t, T_GATHER - .3, T_GATHER));
+    if (sA > 0) { c.save(); c.globalAlpha = sA; c.strokeStyle = SLEEP; c.lineWidth = 2; [[0, 7], [23, 24]].forEach(([h0, h1]) => { c.beginPath(); c.moveTo(X0 + h0 * P, Y0 - 16); c.lineTo(X0 + h0 * P, Y0 - 24); c.lineTo(X0 + h1 * P - 8, Y0 - 24); c.lineTo(X0 + h1 * P - 8, Y0 - 16); c.stroke(); }); c.restore(); txt('睡眠 8 小时', X0, Y0 - 36, `700 18px ${CN}`, SLEEP, 'left', sA); }
+    // scanning cursor
+    if (t > T_SCAN0 - .2 && t < T_SCAN1 + .5) {
+      const T = 7 + 16 * clamp(prog(t, T_SCAN0, T_SCAN1), 0, 1), x = scanX(T), a = easeOut(prog(t, T_SCAN0 - .2, T_SCAN0)) * (1 - prog(t, T_SCAN1, T_SCAN1 + .5));
+      c.save(); c.globalAlpha = a; c.fillStyle = INK; c.fillRect(x - 1, Y0 - 14, 2.5, 4 * P + 12);
+      rrect(c, x - 34, Y0 - 44, 68, 26, 6); c.fill(); c.font = `600 15px ${MONO}`; c.fillStyle = BG; c.textAlign = 'center'; c.fillText(hm(Math.floor(T * 4) * 15).padStart(5, '0'), x, Y0 - 26); c.restore();
+    }
+    // annotations
+    NOTES.forEach(([s, q, q1, side], i) => {
+      const t0 = scanT(q) + .05;
+      const a = easeOut(prog(t, t0, t0 + .3)) * (1 - prog(t, T_GATHER + .5, T_GATHER + .9)); if (a <= 0) return;
+      const xa = cellXY(q)[0], xb = cellXY(q1)[0] + CS, xm = (xa + xb) / 2, hot = i === 2;
+      const yEdge = side === 'up' ? Y0 - 14 : Y0 + 4 * P + 40, yT = side === 'up' ? Y0 - 66 : Y0 + 4 * P + 84;
+      c.save(); c.globalAlpha = a; c.strokeStyle = hot ? PHONE : INK; c.lineWidth = hot ? 2.5 : 1.5;
+      c.beginPath(); c.moveTo(xa, yEdge); c.lineTo(xb, yEdge); c.moveTo(xm, yEdge); c.lineTo(xm, side === 'up' ? yT + 8 : yT - 26); c.stroke(); c.restore();
+      txt(s, xm, yT, `${hot ? 900 : 700} ${hot ? 22 : 18}px ${CN}`, hot ? PHONE : INK, 'center', a);
+    });
+    // ---------- bar + answer ----------
+    const bA = easeOut(prog(t, T_GATHER + 1.0, T_GATHER + 1.5));
+    if (bA > 0) {
+      txt('醒着的 16 小时', BX, BY - 16, `700 18px ${CN}`, INK, 'left', bA);
+      c.save(); c.globalAlpha = bA; c.strokeStyle = PHONE; c.lineWidth = 2; c.beginPath(); c.moveTo(BX, BY + 46); c.lineTo(BX, BY + 54); c.lineTo(BX + 20 * BP - 3, BY + 54); c.lineTo(BX + 20 * BP - 3, BY + 46); c.stroke(); c.restore();
+      txt('手机 5 小时', BX, BY + 80, `700 18px ${CN}`, PHONE, 'left', bA);
+    }
+    const nA = prog(t, T_GATHER + 1.4, T_GATHER + 2.4);
+    if (nA > 0) { const n = Math.round(PCT * easeOut(nA)); c.save(); c.globalAlpha = Math.min(1, nA * 3); c.font = `600 76px ${MONO}`; c.textAlign = 'right'; c.fillStyle = PHONE; c.fillText(n + '%', X0 + 1096, BY - 14); c.restore(); }
+    // fade
+    const fo = prog(t, OUT, 15); if (fo > 0) { c.fillStyle = `rgba(246,244,239,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    // F major, clean piano + pizzicato walk; each phone cell = one marimba tick
+    const PR = [[53, 57, 60, 64], [50, 53, 57, 60], [46, 50, 53, 57], [48, 52, 55, 58]];
+    S.comp(PR, 0, 6, 'piano', .7, [0, 2.5]);
+    for (let b = 0; b < 6; b++) { const r = PR[b % 4][0] - 12; [0, 1, 2, 3].forEach(k => S.at(b * bar + k * beat, I.pizz, r + [0, 7, 12, 7][k], .6)); }
+    S.drums(1, 6, 'soft', .7);
+    for (let col = 0; col < 24; col++) S.at(T_GRID + col * .05, I.tick, .6);
+    S.at(T_SLEEP, (w, B) => I.pad(w, B, [41, 48, 53, 57], 1.6, .8));
+    S.at(T_SLEEP + .5, I.pop2);
+    const scale = [72, 74, 77, 79, 81, 84, 86, 89];
+    PHONE_Q.forEach((q, i) => { S.at(scanT(q), I.marimba, scale[i % 8] - (i > 11 ? 0 : 12), .8); S.at(scanT(q), I.tick, 1); });
+    NOTES.forEach(([, q]) => S.at(scanT(q) + .05, I.pop, 1.2));
+    S.at(T_GATHER, I.whoosh, .8);
+    for (let i = 0; i < 12; i++) S.at(T_GATHER + .2 + i * .09, I.pluck, 77 + [0, 2, 4, 5, 7, 9, 11, 12][i % 8], .5);
+    for (let i = 0; i < 10; i++) S.at(T_GATHER + 1.4 + i * .1, I.tick, 1.2);
+    S.at(T_GATHER + 2.4, I.ding);
+    S.at(T_CONC, I.chime);
+    S.at(T_CONC, (w, B) => [53, 60, 64, 69].forEach(m => I.piano(w, B, m, 1, 2.5)));
+    S.at(OUT - .3, (w, B) => [41, 53, 57, 60].forEach(m => I.piano(w, B, m, .7, 1.5)));
+  }
+});
+</script></body></html>

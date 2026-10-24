@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>瑞士国际主义排版 · 网格之后</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=Noto+Sans+SC:wght@500;900&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+// a (fictional) lecture poster that sets itself on a 12 × 6 grid
+const PAPER = '#F2F0EB', BLACK = '#111111', RED = '#E30613', GUIDE = 'rgba(17,17,17,.24)';
+const SANS = 'Inter, "Helvetica Neue", Arial, sans-serif', CN = '"Noto Sans SC", "PingFang SC", sans-serif';
+const M = 40, G = 16, CW = (1200 - 11 * G) / 12, RH = (640 - 5 * G) / 6;
+const X = i => M + i * (CW + G), Y = j => M + j * (RH + G), XR = i => X(i) + CW, YB = j => Y(j) + RH;
+const BEAT = .5;
+// layouts: red panel [x0,y0,x1,y1], 07 anchor (0 left / 1 right), type positions [x, baseline] and title size
+const A = { red: [X(7), Y(0), XR(11), YB(5)], a7: 0, label: [X(0), 62], title: [X(0), 336, 150], en: [X(0), 398], rule: [X(0), XR(6), 430], date: [X(0), 560], day: [X(0), 610], loc: [X(4), 520] };
+const B = { red: [X(0), Y(0), XR(4), YB(5)], a7: 1, label: [X(6), 62], title: [X(6), 336, 140], en: [X(6), 398], rule: [X(6), XR(11), 430], date: [X(6), 560], day: [X(6), 610], loc: [X(9), 520] };
+const C = { red: [X(0), Y(0), XR(11), YB(1)], a7: 1, label: [X(0), 62], title: [X(0), 486, 150], en: [X(7), 486], rule: [X(0), XR(11), 522], date: [X(0), 640], day: [X(3), 640], loc: [X(7), 588] };
+const D = { red: [X(10), Y(0), XR(11), YB(5)], a7: 0, label: [X(0), 62], title: [X(0), 350, 196], en: [X(0), 412], rule: [X(0), XR(8), 444], date: [X(0), 580], day: [X(0), 630], loc: [X(5), 540] };
+const SEQ = [[8, B], [9, C], [10, D], [11, A]], MOVE = .45;
+const T = { grid: 0, sq: 1.5, up: 2.0, left: 2.5, grow: 3.0, o7: 3.5, title: 4.0, rule: 5.0, en: 5.5, date: 6.0, day: 6.5, loc: 7.0, label: 7.5, lock: 12.0, dot: 13.0 };
+const TITLE = '网格之后', LOC = ['城南设计学院', 'B 报告厅', '免费入场'];
+
+Film({
+  title: '瑞士国际主义排版 · 网格之后', DUR: 15, BPM: 120, poster: 7.9,
+  fonts: [['900 100px Inter', '0717.After the Grid'], ['700 30px Inter', 'After the Grid 0123456789:.'], ['400 12px Inter', '0123456789'], ['900 100px "Noto Sans SC"', '网格之后'], ['500 30px "Noto Sans SC"', '设计讲座系列第讲城南设计学院报告厅免费入场周五']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, ease, easeOut, back, clamp } = F;
+    c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
+    // ---- layout at time t: build A, then hop B → C → D → A. The red panel slides along the grid (x first, then y);
+    //      the type ducks up out of its mask and rises into its new slot, so nothing collides mid-move.
+    let L = A, R = A.red, a7 = A.a7, m = 0;
+    for (let i = 0; i < SEQ.length; i++) {
+      const [ts, to] = SEQ[i], from = i ? SEQ[i - 1][1] : A; if (t < ts) break;
+      const u = prog(t, ts, ts + .4), ux = ease(clamp(u / .5, 0, 1)), uy = ease(clamp((u - .5) / .5, 0, 1));
+      R = from.red.map((v, n) => lerp(v, to.red[n], n % 2 ? uy : ux)); a7 = lerp(from.a7, to.a7, ux);
+      const w = t - ts;
+      if (w < .18) { L = from; m = -F.easeIn(w / .18); } else { L = to; m = 1 - easeOut(prog(w, .2, MOVE)); }
+    }
+    // ---- guides: drawn in (0–1.5 s), retracted at the lock (12 s)
+    const gin = k => easeOut(prog(t, T.grid + k * .045, T.grid + k * .045 + .5)), gout = k => 1 - ease(prog(t, T.lock + k * .03, T.lock + k * .03 + .45));
+    c.lineWidth = 1; c.strokeStyle = GUIDE;
+    for (let i = 0; i < 12; i++) [X(i), XR(i)].forEach((x, s) => { const a = gin(i + s * .5), b = gout(i); if (a * b <= 0) return; c.beginPath(); c.moveTo(x, M + (H - 2 * M) * (1 - b)); c.lineTo(x, M + (H - 2 * M) * a * 1); c.stroke(); });
+    for (let j = 0; j < 6; j++) [Y(j), YB(j)].forEach((y, s) => { const a = gin(j * 2 + s + 4), b = gout(j * 2 + s); if (a * b <= 0) return; c.beginPath(); c.moveTo(M + (W - 2 * M) * (1 - b), y); c.lineTo(M + (W - 2 * M) * a, y); c.stroke(); });
+    c.font = `400 11px ${SANS}`; c.fillStyle = 'rgba(17,17,17,.4)'; c.textBaseline = 'alphabetic'; c.textAlign = 'left';
+    for (let i = 0; i < 12; i++) { const a = gin(i) * gout(i); if (a > 0) { c.globalAlpha = a; c.fillText(String(i + 1).padStart(2, '0'), X(i), 30); } }
+    for (let j = 0; j < 6; j++) { const a = gin(j + 4) * gout(j); if (a > 0) { c.globalAlpha = a; c.fillText(String.fromCharCode(65 + j), 18, Y(j) + 12); } }
+    c.globalAlpha = 1;
+    // ---- red panel: a single module appears, walks the grid, then grows into the panel
+    let red;
+    if (t < 8) {
+      const sx = lerp(X(11), X(7), ease(prog(t, T.left, T.left + .3))), sy = lerp(Y(5), Y(0), ease(prog(t, T.up, T.up + .3))), g = easeOut(prog(t, T.grow, T.grow + .35));
+      red = [sx, sy, lerp(sx + CW, A.red[2], g), lerp(sy + RH, A.red[3], g)];
+    } else red = R;
+    const sq = back(prog(t, T.sq, T.sq + .2));
+    if (t >= T.sq) {
+      c.save(); const cx = (red[0] + red[2]) / 2, cy = (red[1] + red[3]) / 2; c.translate(cx, cy); if (t < T.up) c.scale(sq, sq); c.translate(-cx, -cy);
+      c.fillStyle = RED; c.fillRect(red[0], red[1], red[2] - red[0], red[3] - red[1]); c.restore();
+    }
+    // masked slide: text rises into place inside its own box
+    const rise = (t0, x, y, h, w, draw, dir = 'up') => {
+      if (t < t0) return; const u = easeOut(prog(t, t0, t0 + .32)), dy = m * h * 1.2; if (u >= 1 && !dy) { draw(0, 0); return; }
+      c.save(); c.beginPath(); c.rect(x - 4, y - h, w + 8, h * 1.04); c.clip(); dir === 'up' ? draw(0, (1 - u) * h * 1.2 + dy) : draw(-(1 - u) * (w + 20), dy); c.restore();
+    };
+    const setF = (w, size, fam) => { c.font = `${w} ${size}px ${fam}`; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; };
+    // 07 inside the red panel, paper-coloured, cropped by the panel
+    if (t >= T.o7) {
+      setF(900, 360, SANS); c.letterSpacing = '-18px'; const w7 = c.measureText('07').width;
+      const x7 = lerp(red[0] + 14, red[2] - 14 - w7, a7), b7 = red[3] + 42;
+      c.save(); c.beginPath(); c.rect(red[0], red[1], red[2] - red[0], red[3] - red[1]); c.clip();
+      const u = easeOut(prog(t, T.o7, T.o7 + .4)); c.fillStyle = PAPER; c.fillText('07', x7, b7 + (1 - u) * 330); c.restore(); c.letterSpacing = '0px';
+    }
+    c.fillStyle = BLACK;
+    // title, one character per eighth note, sliding in from the left edge of its column
+    { const [x, y, s] = L.title; setF(900, s, CN); c.letterSpacing = `${-s * .04}px`;
+      let cx = x; for (let i = 0; i < TITLE.length; i++) { const ch = TITLE[i], w = c.measureText(ch).width; rise(T.title + i * .25, cx, y + s * .12, s * 1.02, w, (dx, dy) => c.fillText(ch, cx + dx, y + dy), 'left'); cx += w; }
+      c.letterSpacing = '0px'; }
+    { const [x0, x1, y] = L.rule, u = easeOut(prog(t, T.rule, T.rule + .3)); if (u > 0) c.fillRect(x0, y, (x1 - x0) * u * (1 - Math.abs(m)), 6); }
+    { const [x, y] = L.en; setF(700, 36, SANS); c.letterSpacing = '-.5px'; rise(T.en, x, y + 8, 40, c.measureText('After the Grid').width, (dx, dy) => c.fillText('After the Grid', x + dx, y + dy)); c.letterSpacing = '0px'; }
+    { const [x, y] = L.date; setF(900, 104, SANS); c.letterSpacing = '-5px'; rise(T.date, x, y + 6, 84, c.measureText('10.17').width, (dx, dy) => c.fillText('10.17', x + dx, y + dy)); c.letterSpacing = '0px'; }
+    { const [x, y] = L.day; setF(500, 28, CN); rise(T.day, x, y + 6, 32, 200, (dx, dy) => { c.fillText('周五', x + dx, y + dy); setF(700, 28, SANS); c.fillText('19:00', x + 70 + dx, y + dy); setF(500, 28, CN); }); }
+    { const [x, y] = L.loc; LOC.forEach((s, i) => { setF(i < 2 ? 500 : 500, i < 2 ? 28 : 22, CN); const yy = y + i * 44 + (i === 2 ? 4 : 0); c.fillStyle = i === 2 ? RED : BLACK; rise(T.loc + i * .12, x, yy + 6, 32, 200, (dx, dy) => c.fillText(s, x + dx, yy + dy)); }); c.fillStyle = BLACK; }
+    { const [x, y] = L.label; setF(500, 20, CN); rise(T.label, x, y + 4, 24, 260, (dx, dy) => { c.fillText('设计讲座系列', x + dx, y + dy); c.fillText('第 07 讲', x + 150 + dx, y + dy); }); }
+    // final mark: a red module lands beside “免费入场”
+    if (t >= T.dot) { const u = back(prog(t, T.dot, T.dot + .2)), [x, y] = L.loc, s = 16 * u; c.fillStyle = RED; c.fillRect(x - 26 + (16 - s) / 2, y + 88 - 16 + (16 - s) / 2, s, s); }
+    // metronome: a tiny beat counter in the bottom-right margin while the grid is up
+    if (t < T.lock + .5) { const b = Math.floor(t / BEAT) % 4; c.globalAlpha = gout(11) * Math.min(1, t * 4); for (let k = 0; k < 4; k++) { c.fillStyle = k === b ? RED : 'rgba(17,17,17,.25)'; c.fillRect(W - M - 58 + k * 16, H - 26, 10, 10); } c.globalAlpha = 1; }
+    const fo = prog(t, 14.5, 15); if (fo > 0) { c.fillStyle = `rgba(242,240,235,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    const tone = (w, B, f, d, peak, type = 'sine', dst = 'sfx') => { const ctx = B.sfx.context, o = ctx.createOscillator(), g = ctx.createGain(); o.type = type; o.frequency.setValueAtTime(f, w); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(peak, w + .004); g.gain.exponentialRampToValueAtTime(.0001, w + d); o.connect(g); g.connect(B[dst]); o.start(w); o.stop(w + d + .02); };
+    const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+    // metronome all the way through (accent on the one)
+    for (let k = 0; k < 29; k++) S.at(k * beat, (w, B) => { tone(w, B, k % 4 ? 1500 : 2200, .05, k % 4 ? .12 : .18, 'sine'); tone(w, B, k % 4 ? 3000 : 4400, .015, .03, 'square'); });
+    // sub pulse + clipped hats from bar 2, sparse sine arpeggio from bar 4
+    for (let b = 1; b < 6; b++) { S.at(b * bar, I.subbass, 33, .5, .9); S.at(b * bar + 2 * beat, I.subbass, b % 2 ? 36 : 31, .4, .7); S.at(b * bar, I.kick, .6); S.at(b * bar + 2.5 * beat, I.kick, .35); }
+    for (let e = 0; e < 64; e++) { const tt = 4 + e * beat / 4; if (tt < 12) S.at(tt, I.hat, e % 4 === 2 ? .7 : .3); }
+    const ARP = [69, 72, 76, 79, 76, 72];
+    for (let e = 0; e < 32; e++) { const tt = 8 + e * beat / 2; if (tt < 12) S.at(tt, (w, B) => tone(w, B, mtof(ARP[e % 6] + (e >= 16 ? 2 : 0)), .18, .06, 'triangle', 'lead')); }
+    S.padBars([[57, 64, 69, 72], [55, 62, 67, 71]], 2, 6, 'pad', .5);
+    // placement sounds, pitched upward through the build
+    const blip = (m, v = .16) => (w, B) => { tone(w, B, mtof(m), .12, v, 'sine'); tone(w, B, mtof(m + 12), .04, v * .3, 'square'); };
+    for (let k = 0; k < 12; k++) S.at(k * .045, I.tick, .5);
+    S.at(T.sq, blip(72)); S.at(T.up, I.swish); S.at(T.up + .3, blip(74)); S.at(T.left, I.swish); S.at(T.left + .3, blip(76));
+    S.at(T.grow, I.thud); S.at(T.grow, I.whoosh, .5); S.at(T.o7, I.swish); S.at(T.o7 + .3, I.thud, .6);
+    for (let i = 0; i < 4; i++) S.at(T.title + i * .25, blip(79 + [0, 2, 4, 7][i], .2));
+    S.at(T.rule, I.whip); S.at(T.en, blip(84)); S.at(T.date, I.thud, .7); S.at(T.date, blip(81)); S.at(T.day, blip(83)); [0, 1, 2].forEach(i => S.at(T.loc + i * .12, blip(86 + i * 2, .12))); S.at(T.label, blip(91, .12));
+    SEQ.forEach(([ts], i) => { S.at(ts, I.whip); S.at(ts + MOVE * .5, I.whip); S.at(ts + MOVE, I.thud, .8); S.at(ts + MOVE, blip([67, 64, 62, 69][i], .2)); });
+    // lock: grid lifts off, one resolving chord
+    S.at(T.lock, I.impact); S.at(T.lock, (w, B) => [45, 57, 64, 69, 72, 76].forEach(m => I.keys(w, B, m, 1, 2.6)));
+    for (let k = 0; k < 12; k++) S.at(T.lock + k * .03, I.tick, .35);
+    S.at(T.dot, blip(93, .2)); S.at(14, (w, B) => [69, 76, 81].forEach(m => I.keys(w, B, m, .5, 1.4)));
+  }
+});
+</script></body></html>

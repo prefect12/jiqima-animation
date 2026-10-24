@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>蜡笔绘本 · 想抱一抱的小刺猬</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 蜡笔绘本：所有蜡笔笔触先画在一张离屏图层上，最后用“纸齿”纹理 destination-out 抠掉一层，
+   蜡在纸面凸起处留色、凹处露白——这就是蜡笔的颗粒感。线条按 8 帧/秒“抖线”（boil）。 */
+const BPM = 100, BEAT = 60 / BPM;                         // 0.6 s
+const T = {
+  sky: [0, .9], grass: [.2, 1.2], sun: [.5, 1.3], title: [.6, 1.8], titleOut: [4.0, 4.6],
+  walk: [1.8, 3.6], see: 3.6, reach: [4.2, 5.4], poke: 5.4, sad: [6.0, 7.8], idea: 7.8,
+  bloom: 8.4, hug: [10.2, 10.8], hearts: [10.8, 11.4, 12.0], lift: [11.4, 12.6], end: [12.6, 13.5], fade: 14.4
+};
+const HOPS = 6, SPIKES = 7, STAGE = 1.4, BLOOM_STEP = BEAT / 2;
+const INK = '#2B2420', BROWN = '#8A5A2E', DARK = '#5B3A1F', SKIN = '#EBC48E', RED = '#E03C2E', PINK = '#F08AAE',
+  YEL = '#F6C21C', ORA = '#F28A22', GRN = '#62A93A', GRN2 = '#3F8A34', BLUE = '#3C7DD0', SKY = '#86BFEC', PUR = '#8C5BC4';
+const FLOWER = [PINK, YEL, PUR, ORA, '#5EB6E8', RED, '#F7A6C8'];
+const FONT = '"ZCOOL KuaiLe", "PingFang SC", sans-serif';
+
+/* ---------- 初始化纹理（只在这里用 Math.random） ---------- */
+function makeTile(n, px) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = n;
+  const x = cv.getContext('2d'), im = x.createImageData(n, n);
+  for (let y = 0; y < n; y++) for (let i = 0; i < n; i++) im.data.set(px(i, y), (y * n + i) * 4);
+  x.putImageData(im, 0, 0); return cv;
+}
+const G = 48, grid = Array.from({ length: G * G }, () => Math.random());
+const bil = (u, v) => { const x0 = Math.floor(u), y0 = Math.floor(v), fx = u - x0, fy = v - y0, g = (a, b) => grid[((b % G + G) % G) * G + ((a % G + G) % G)];
+  return (g(x0, y0) * (1 - fx) + g(x0 + 1, y0) * fx) * (1 - fy) + (g(x0, y0 + 1) * (1 - fx) + g(x0 + 1, y0 + 1) * fx) * fy; };
+// 纸齿：横向略拉长的颗粒，值高的地方是“凹坑”，蜡笔涂不进去
+const TOOTH = makeTile(240, (x, y) => { const v = .5 * bil(x / 5, y / 2.5) + .5 * Math.random(); const a = Math.max(0, Math.min(1, (v - .53) * 3.2)); return [0, 0, 0, a * 255]; });
+const PAPER = makeTile(240, (x, y) => { const v = .6 * bil(x / 3, y / 3) + .4 * Math.random(); return [110, 85, 50, v * 26]; });
+
+let L = null; const layerCv = document.createElement('canvas');
+function layer(c) {
+  const w = c.canvas.width, h = c.canvas.height; if (layerCv.width !== w || layerCv.height !== h) { layerCv.width = w; layerCv.height = h; }
+  const l = layerCv.getContext('2d'); l.setTransform(1, 0, 0, 1, 0, 0); l.globalCompositeOperation = 'source-over'; l.globalAlpha = 1; l.clearRect(0, 0, w, h);
+  l.setTransform(w / 1280, 0, 0, w / 1280, 0, 0); return l;
+}
+
+Film({
+  title: '蜡笔绘本 · 想抱一抱的小刺猬', DUR: 15, BPM, poster: 12.1,
+  fonts: [['64px "ZCOOL KuaiLe"', '小刺猬想抱一抱到啦！']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, hash, ease, easeOut, back, keyframes } = F;
+    const bf = Math.floor(t * 8);                             // boil: 线条每 1/8 秒换一次抖动
+    L = layer(c);
+    const jit = (x, y, s, amp = 1.2) => [x + (hash(s * 1.31 + bf * 7.7) - .5) * 2 * amp + (hash(s * .71) - .5) * 4, y + (hash(s * 2.17 + bf * 3.3 + 9) - .5) * 2 * amp + (hash(s * .93 + 5) - .5) * 4];
+    const ell = (cx, cy, rx, ry, n = 36, a0 = 0, a1 = Math.PI * 2) => Array.from({ length: n + 1 }, (_, i) => { const a = lerp(a0, a1, i / n); return [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]; });
+    // 蜡笔线：三遍叠画，每遍偏一点、细一点、淡一点
+    function cline(pts, col, w, seed, u = 1, closed = false) {
+      if (u <= 0) return;
+      let P = pts.map(([x, y], i) => jit(x, y, seed * 17 + i));
+      if (closed) P.push(P[0]);
+      const m = (P.length - 1) * clamp(u, 0, 1), n = Math.floor(m);
+      L.lineCap = 'round'; L.lineJoin = 'round'; L.strokeStyle = col;
+      for (let k = 0; k < 3; k++) {
+        const ox = (hash(seed + k * 11 + bf) - .5) * w * .5, oy = (hash(seed + k * 13 + bf + 4) - .5) * w * .5;
+        L.globalAlpha = [.92, .6, .45][k]; L.lineWidth = w * [1, .75, .55][k];
+        L.beginPath(); L.moveTo(P[0][0] + ox, P[0][1] + oy);
+        for (let i = 1; i <= n; i++) L.lineTo(P[i][0] + ox, P[i][1] + oy);
+        if (n < P.length - 1) { const f = m - n, a = P[n], b = P[n + 1]; L.lineTo(lerp(a[0], b[0], f) + ox, lerp(a[1], b[1], f) + oy); }
+        L.stroke();
+      }
+      L.globalAlpha = 1;
+    }
+    // 蜡笔涂色：在形状里来回之字形排线，再用另一个角度补一遍，u 控制涂到哪里
+    function cfill(path, box, col, seed, u = 1, ang = -.5, gap = 7, w = 7.5) {
+      if (u <= 0) return;
+      const [x0, y0, x1, y1] = box, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, R = Math.hypot(x1 - x0, y1 - y0) / 2 + 12;
+      L.save(); L.beginPath(); path(); L.clip();
+      L.strokeStyle = col; L.lineCap = 'round'; L.lineJoin = 'round';
+      for (let pass = 0; pass < 2; pass++) {
+        L.save(); L.translate(cx, cy); L.rotate(ang + pass * .9);
+        const rows = Math.ceil(2 * R / gap), m = rows * clamp(u, 0, 1);
+        let py = null;
+        for (let i = 0; i < m; i++) {
+          const y = -R + i * gap + (hash(seed + i * 3.1 + pass) - .5) * gap * .7 + (hash(bf + i) - .5) * 1.2;
+          const xl = -R - 6 + hash(seed + i * 5.3 + pass) * 14, xr = R + 6 - hash(seed + i * 7.7 + pass) * 14;
+          const frac = Math.min(1, m - i), [a, b] = i % 2 ? [xr, xl] : [xl, xr];
+          // 每一行一笔，力度（透明度）和粗细都不一样；行与行之间留出一点白
+          L.globalAlpha = (pass ? .35 : .6) + hash(seed * 3 + i * 1.7 + pass) * (pass ? .25 : .38);
+          L.lineWidth = (pass ? w * .6 : w * .8) * (.8 + hash(seed + i * 2.3) * .4);
+          L.beginPath(); if (py !== null) { L.moveTo(a, py); L.lineTo(a, y); } else L.moveTo(a, y);
+          const bw = Math.sin(i * .7 + seed) * 3;
+          L.quadraticCurveTo((a + b) / 2 * frac + a * (1 - frac) * .5, y + gap * .25 * frac + bw, lerp(a, b, frac), y + gap * .5 * frac); L.stroke();
+          py = y + gap * .5 * frac;
+        }
+        L.restore();
+      }
+      L.restore(); L.globalAlpha = 1;
+    }
+    const ellPath = (cx, cy, rx, ry, rot = 0) => () => L.ellipse(cx, cy, rx, ry, rot, 0, Math.PI * 2);
+    const polyPath = pts => () => { pts.forEach(([x, y], i) => i ? L.lineTo(x, y) : L.moveTo(x, y)); L.closePath(); };
+    function heart(x, y, s, col, seed) {
+      const pts = Array.from({ length: 29 }, (_, i) => { const a = i / 28 * Math.PI * 2; return [x + s * 16 * Math.pow(Math.sin(a), 3) / 16, y - s * (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) / 16]; });
+      cfill(polyPath(pts), [x - s, y - s, x + s, y + s], col, seed, 1, .8, 5, 5); cline(pts, RED, 3.5, seed + 3, 1, true);
+    }
+    function flower(x, y, r, col, seed) {
+      for (let k = 0; k < 5; k++) { const a = k / 5 * Math.PI * 2 + seed, px = x + Math.cos(a) * r * .62, py = y + Math.sin(a) * r * .62;
+        cfill(ellPath(px, py, r * .5, r * .5), [px - r, py - r, px + r, py + r], col, seed + k * 7, 1, a, 4, 4.5); cline(ell(px, py, r * .5, r * .5, 12), col, 2.5, seed + k * 9, 1); }
+      cfill(ellPath(x, y, r * .34, r * .34), [x - r, y - r, x + r, y + r], YEL, seed + 50, 1, .3, 3.5, 4); cline(ell(x, y, r * .34, r * .34, 10), ORA, 2.5, seed + 51);
+    }
+    function textIn(s, x, y, size, col, u, align = 'left', al = 1) {
+      if (u <= 0) return; L.save(); L.font = `${size}px ${FONT}`; L.textAlign = align; L.textBaseline = 'middle';
+      const w = L.measureText(s).width, x0 = align === 'center' ? x - w / 2 : x;
+      L.beginPath(); L.rect(x0 - 10, y - size, (w + 20) * u, size * 2); L.clip();
+      const [jx, jy] = jit(0, 0, 777, 1);
+      L.fillStyle = col; L.globalAlpha = .85 * al; L.fillText(s, x + jx, y + jy); L.strokeStyle = col; L.lineWidth = 2.5; L.globalAlpha = .6 * al; L.strokeText(s, x + jx + 1.5, y + jy + 1); L.restore();
+    }
+
+    /* ---------- 纸 ---------- */
+    c.fillStyle = '#F7F0E0'; c.fillRect(0, 0, W, H);
+    c.fillStyle = c.createPattern(PAPER, 'repeat'); c.fillRect(0, 0, W, H);
+
+    /* ---------- 天空条 + 太阳 + 草地（孩子画天空：顶上一条蓝） ---------- */
+    const skyEdge = Array.from({ length: 27 }, (_, i) => [i * 50, 64 + Math.sin(i * 1.3) * 9 + hash(i) * 8]);
+    const skyPoly = [[0, -10], ...skyEdge, [1300, -10]];
+    cfill(polyPath(skyPoly), [0, 0, W, 90], SKY, 3, prog(t, ...T.sky), -Math.PI / 2 + .25, 9, 9);
+    const su = prog(t, ...T.sun), sx = 1150, sy = 112;
+    cfill(ellPath(sx, sy, 50, 48), [sx - 55, sy - 55, sx + 55, sy + 55], YEL, 9, su, -.4, 6, 7);
+    cline(Array.from({ length: 60 }, (_, i) => { const a = i / 52 * Math.PI * 2 - 1, r = 50 + i * .1; return [sx + Math.cos(a) * r, sy + Math.sin(a) * r]; }), ORA, 5, 11, su);
+    for (let k = 0; k < 9; k++) { const a = k / 9 * Math.PI * 2 + .3 + Math.sin(t * 1.5) * .04; cline([[sx + Math.cos(a) * 64, sy + Math.sin(a) * 64], [sx + Math.cos(a) * 92, sy + Math.sin(a) * 92]], ORA, 5, 20 + k, prog(t, .8 + k * .05, 1.0 + k * .05)); }
+    const grassEdge = Array.from({ length: 27 }, (_, i) => [i * 50, 588 + Math.sin(i * .9 + 1) * 10 + hash(i + 40) * 8]);
+    const gu = prog(t, ...T.grass);
+    cfill(polyPath([[-10, 740], ...grassEdge, [1300, 740]]), [0, 570, W, H], GRN, 5, gu, -1.25, 8, 9);
+    cline(grassEdge, GRN2, 6, 6, gu);
+    for (let k = 0; k < 18; k++) { const gx = 30 + k * 72 + hash(k + 60) * 30, gy = 630 + hash(k + 70) * 70; cline([[gx - 8, gy], [gx - 3, gy - 18], [gx, gy], [gx + 5, gy - 20], [gx + 9, gy]], GRN2, 3.5, 80 + k, prog(t, .8 + k * .02, 1.1 + k * .02)); }
+    [[180, 660, RED], [930, 690, YEL], [1100, 645, PINK], [60, 700, YEL]].forEach(([x, y, col], k) => { if (t > 1 + k * .1) { cfill(ellPath(x, y, 9, 9), [x - 10, y - 10, x + 10, y + 10], col, 90 + k, 1, .2, 4, 5); cline(ell(x, y, 9, 9, 10), col, 3, 95 + k); } });
+
+    /* ---------- 标题 / 结尾字 ---------- */
+    const tOut = prog(t, ...T.titleOut);
+    if (tOut < 1) textIn('小刺猬想抱一抱', 80, 176, 78, BLUE, prog(t, ...T.title), 'left', 1 - tOut);
+    textIn('抱到啦！', 80, 180, 92, RED, prog(t, ...T.end));
+
+    /* ---------- 小刺猬（整组角色放大 1.4 倍，以地面中点为轴） ---------- */
+    L.save(); L.translate(640, 600); L.scale(STAGE, STAGE); L.translate(-640, -600);
+    const hops = prog(t, ...T.walk), hopPh = (hops * HOPS) % 1;
+    let hx = keyframes([[T.walk[0], -170], [T.walk[1], 540], [T.reach[0], 540], [T.reach[1], 575], [T.sad[0], 560]], t)[0];
+    if (t >= T.walk[0] && t < T.walk[1]) hx = lerp(-170, 540, hops);
+    const lift = 72 * ease(prog(t, ...T.lift)) + (t > T.lift[0] ? Math.sin((t - T.lift[0]) * 3.2) * 6 * prog(t, T.lift[0], T.lift[0] + .8) : 0);
+    const hopY = t > T.walk[0] && t < T.walk[1] ? Math.abs(Math.sin(Math.PI * hopPh)) * 18 : 0;
+    const sad = prog(t, T.sad[0], T.sad[0] + .3) * (1 - prog(t, T.idea - .2, T.idea));
+    const hy = 592 - hopY - lift + sad * 5;
+    const bx = hx, by = hy - 74, RX = 108, RY = 78;
+    const spikeA = i => lerp(2.72, 5.56, i / (SPIKES - 1));
+    const spikeTip = (i, k = 1) => { const a = spikeA(i); return [bx + Math.cos(a) * RX * (1 + .36 * k), by + Math.sin(a) * RY * (1 + .52 * k)]; };
+    // 腿
+    [[-44, 0], [34, 0]].forEach(([lx], k) => { const sw = t > T.walk[0] && t < T.walk[1] ? Math.sin(hopPh * Math.PI * 2 + k * Math.PI) * 8 : (lift > 5 ? Math.sin(t * 6 + k) * 5 : 0);
+      cfill(ellPath(bx + lx + sw, hy - 4, 17, 12), [bx + lx - 20 + sw, hy - 18, bx + lx + 20 + sw, hy + 10], DARK, 30 + k, 1, .4, 4, 5); cline(ell(bx + lx + sw, hy - 4, 17, 12, 14), DARK, 3.5, 32 + k); });
+    // 刺 → 花
+    for (let i = 0; i < SPIKES; i++) {
+      const ts = T.bloom + i * BLOOM_STEP, ks = 1 - easeOut(prog(t, ts, ts + .15)), kf = back(prog(t, ts + .05, ts + .38));
+      const a = spikeA(i), droop = sad * .5;
+      if (ks > 0) {
+        const b1 = [bx + Math.cos(a - .2) * RX * .95, by + Math.sin(a - .2) * RY * .95], b2 = [bx + Math.cos(a + .2) * RX * .95, by + Math.sin(a + .2) * RY * .95];
+        const tp = spikeTip(i, ks * (1 - droop * .4)); tp[0] += Math.cos(a + 1.3) * droop * 14; tp[1] += Math.sin(a + 1.3) * droop * 14;
+        cfill(polyPath([b1, tp, b2]), [Math.min(b1[0], tp[0], b2[0]) - 5, Math.min(b1[1], tp[1], b2[1]) - 5, Math.max(b1[0], tp[0], b2[0]) + 5, Math.max(b1[1], tp[1], b2[1]) + 5], DARK, 100 + i, 1, a, 5, 6);
+        cline([b1, tp, b2], INK, 4, 110 + i);
+      }
+      if (kf > 0) { const [fx, fy] = spikeTip(i, .92); cline([[bx + Math.cos(a) * RX * .9, by + Math.sin(a) * RY * .9], [fx, fy]], GRN2, 4, 120 + i, kf); flower(fx, fy, 22 * kf, FLOWER[i], 130 + i * 10); }
+    }
+    // 身体 + 刺的纹路
+    cfill(ellPath(bx, by, RX, RY), [bx - RX, by - RY, bx + RX, by + RY], BROWN, 40, 1, -.6, 7, 8);
+    for (let k = 0; k < 9; k++) { const px = bx - 70 + (k % 3) * 38 + hash(k + 200) * 10, py = by - 42 + Math.floor(k / 3) * 26; cline([[px - 7, py + 6], [px, py - 6], [px + 7, py + 6]], DARK, 3.5, 210 + k); }
+    cline(ell(bx, by, RX, RY, 40), INK, 4.5, 44, 1);
+    // 脸
+    const fx0 = bx + 70, fy0 = by + 6;
+    cfill(() => { L.ellipse(fx0, fy0, 50, 46, 0, 0, Math.PI * 2); L.moveTo(fx0 + 20, fy0 - 30); L.lineTo(fx0 + 92, fy0 + 10); L.lineTo(fx0 + 20, fy0 + 36); L.closePath(); }, [fx0 - 52, fy0 - 48, fx0 + 94, fy0 + 48], SKIN, 50, 1, .4, 6, 7);
+    cline([...ell(fx0, fy0, 50, 46, 20, 3.9, 5.4), [fx0 + 92, fy0 + 10], ...ell(fx0, fy0, 50, 46, 14, 1.0, 2.4)], INK, 4, 52);
+    cfill(ellPath(fx0 + 92, fy0 + 9, 8, 7), [fx0 + 82, fy0, fx0 + 102, fy0 + 20], INK, 55, 1, 0, 3, 4);
+    const happy = t > T.hug[1] - .1, eyeX = fx0 + 20, eyeY = fy0 - 14;
+    if (happy) cline([[eyeX - 9, eyeY + 3], [eyeX, eyeY - 6], [eyeX + 9, eyeY + 3]], INK, 4, 60);
+    else if (sad > .5) cline([[eyeX - 9, eyeY - 3], [eyeX, eyeY + 4], [eyeX + 9, eyeY - 3]], INK, 4, 61);
+    else { const bl = (t % 3.1) < .12; if (bl) cline([[eyeX - 7, eyeY], [eyeX + 7, eyeY]], INK, 4, 62); else { cfill(ellPath(eyeX, eyeY, 6, 8), [eyeX - 8, eyeY - 9, eyeX + 8, eyeY + 9], INK, 63, 1, 0, 3, 4); } }
+    cfill(ellPath(fx0 + 22, fy0 + 14, 11, 7), [fx0 + 8, fy0 + 5, fx0 + 36, fy0 + 23], PINK, 65, 1, .3, 4, 4);
+    if (happy || t < T.sad[0]) cline(ell(fx0 + 48, fy0 + 18, 10, 7, 8, .3, 2.6), INK, 3, 66); else cline(ell(fx0 + 48, fy0 + 28, 9, 6, 8, 3.6, 5.8), INK, 3, 67);
+    // 眼泪
+    if (sad > .3 && t < T.idea) { const d = ((t - T.sad[0] - .3) % 1.2) / 1.2, tx = eyeX + 4, ty = eyeY + 12 + d * 40;
+      cfill(ellPath(tx, ty, 6, 9), [tx - 8, ty - 10, tx + 8, ty + 10], BLUE, 70, 1, 0, 3, 4); }
+
+    /* ---------- 气球 ---------- */
+    let [gx, gy] = keyframes([[1.2, 1500, 200], [3.0, 850, 330], [4.2, 840, 322], [T.poke, 724, 380], [T.poke + .3, 880, 296], [T.poke + .6, 855, 330], [T.hug[0], 855, 330], [T.hug[1], 756, 488]], t);
+    if (t < T.poke) gy += Math.sin(t * 2.4) * 8; else if (t < T.hug[0]) gy += Math.sin(t * 2.4) * 8 * prog(t, T.poke + .6, T.poke + 1);
+    if (t > T.hug[1]) { gx = bx + 196; gy = by - 30; }
+    const shake = t > T.poke && t < T.poke + .5 ? Math.sin(t * 90) * 7 * (1 - prog(t, T.poke, T.poke + .5)) : 0;
+    const squ = t > T.poke && t < T.poke + .2 ? 1 - .18 * Math.sin(Math.PI * prog(t, T.poke, T.poke + .2)) : 1;
+    const hugSq = t > T.hug[1] ? 1 - .06 * Math.sin(Math.PI * prog(t, T.hug[1], T.hug[1] + .3)) : 1;
+    gx += shake;
+    const grx = 62 * (2 - squ) * (2 - hugSq), gry = 74 * squ * hugSq;
+    const strEnd = t > T.hug[1] ? [bx + 120, by + 40] : [gx - 20 + Math.sin(t * 2) * 14, gy + gry + 150];
+    cline(Array.from({ length: 13 }, (_, i) => { const u = i / 12; return [lerp(gx, strEnd[0], u) + Math.sin(u * 9 + t * 3) * 7 * (t > T.hug[1] ? .3 : 1), lerp(gy + gry + 8, strEnd[1], u)]; }), INK, 3, 300);
+    // 气球：红色涂满，左上留一块白（孩子画的高光）
+    L.save(); L.beginPath(); L.rect(0, 0, W, H); L.ellipse(gx - 26, gy - 34, 8, 14, .5, 0, Math.PI * 2); L.clip('evenodd');
+    cfill(ellPath(gx, gy, grx, gry), [gx - grx, gy - gry, gx + grx, gy + gry], RED, 310, 1, -.7, 6.5, 8);
+    L.restore();
+    cline(ell(gx, gy, grx, gry, 36), '#B8231A', 4.5, 312);
+    cfill(polyPath([[gx - 9, gy + gry + 12], [gx, gy + gry - 2], [gx + 9, gy + gry + 12]]), [gx - 12, gy + gry - 4, gx + 12, gy + gry + 14], RED, 314, 1, 0, 3, 4);
+
+    /* ---------- 手臂（最后画，抱住气球时压在气球上面） ---------- */
+    const reach = ease(prog(t, ...T.reach)) * (1 - prog(t, T.poke, T.poke + .25)), hugA = easeOut(prog(t, T.hug[1] - .25, T.hug[1] + .1));
+    const sh = [bx + 58, by + 28];
+    let hand = [bx + 88, by + 52 + Math.sin(t * 8) * (t > T.walk[0] && t < T.walk[1] ? 4 : 0)];
+    hand = [lerp(hand[0], bx + 132, reach), lerp(hand[1], by - 20, reach)];
+    hand = [lerp(hand[0], gx - 22, hugA), lerp(hand[1], gy + 46, hugA)];
+    const elbow = [lerp(sh[0], hand[0], .5) - 4 * hugA, lerp(sh[1], hand[1], .5) + 10 + 18 * hugA];
+    cline([sh, elbow, hand], BROWN, 17 + 5 * hugA, 320);
+    cline([sh, elbow, hand], DARK, 3.5, 322);
+    cfill(ellPath(hand[0], hand[1], 13, 12), [hand[0] - 14, hand[1] - 14, hand[0] + 14, hand[1] + 14], SKIN, 324, 1, 0, 3.5, 4); cline(ell(hand[0], hand[1], 13, 12, 12), DARK, 3, 326);
+
+    /* ---------- 小效果 ---------- */
+    if (t > T.see && t < T.see + 1.1) { const k = back(prog(t, T.see, T.see + .25)); heart(bx + 60, by - 150 - prog(t, T.see, T.see + 1.1) * 30, 22 * k, PINK, 400); }
+    if (t > T.poke && t < T.poke + .7) {
+      const k = easeOut(prog(t, T.poke, T.poke + .15)), [cx, cy] = spikeTip(SPIKES - 1), pts = [];
+      for (let i = 0; i <= 16; i++) { const a = i / 16 * Math.PI * 2, r = (i % 2 ? 22 : 52) * k; pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+      cfill(polyPath(pts), [cx - 55, cy - 55, cx + 55, cy + 55], YEL, 410, 1, .5, 4, 5); cline(pts, ORA, 4, 412);
+      textIn('!', bx - 20, by - 190, 96, RED, 1, 'center');
+      const s = back(prog(t, T.poke + .1, T.poke + .3)), dx = bx + 40, dy = by - 150; if (s > 0) { cfill(ellPath(dx, dy, 7 * s, 11 * s), [dx - 9, dy - 12, dx + 9, dy + 12], SKY, 415, 1, 0, 3, 4); cline(ell(dx, dy, 7 * s, 11 * s, 10), BLUE, 3, 416); }
+    }
+    if (t > T.idea && t < T.bloom + 1.2) {
+      const k = back(prog(t, T.idea, T.idea + .3)), cx = bx + 20, cy = by - 175, pts = [];
+      for (let i = 0; i <= 10; i++) { const a = i / 10 * Math.PI * 2 - Math.PI / 2, r = (i % 2 ? 11 : 28) * k; pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+      cfill(polyPath(pts), [cx - 30, cy - 30, cx + 30, cy + 30], YEL, 420, 1, .3, 4, 5); cline(pts, ORA, 3.5, 421);
+    }
+    T.hearts.forEach((h0, k) => { if (t < h0) return; const u = prog(t, h0, h0 + 2.2); if (u >= 1) return; const s = back(prog(t, h0, h0 + .3)) * (1 - prog(u, .75, 1)) * (18 - k * 2);
+      heart(gx - 80 + k * 70 + Math.sin(u * 6 + k) * 12, gy - 110 - u * 150, s, [PINK, RED, PINK][k], 430 + k * 10); });
+
+    L.restore();
+    /* ---------- 纸齿：抠掉蜡笔层的凹坑，然后贴到纸上 ---------- */
+    L.globalCompositeOperation = 'destination-out'; L.globalAlpha = 1;
+    L.fillStyle = L.createPattern(TOOTH, 'repeat'); L.fillRect(0, 0, W, H);
+    L.globalCompositeOperation = 'source-over';
+    c.drawImage(L.canvas, 0, 0, W, H);
+    F.vignette(c, .16, '120,90,50');
+    const fo = prog(t, T.fade, 15); if (fo > 0) { c.fillStyle = `rgba(247,240,224,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    // 自造音色：气球“吱”、下滑哨、上滑哨
+    const slide = (w, B, f0, f1, d, v = .14, type = 'sine') => { const ac = B.sfx.context, o = ac.createOscillator(), g = ac.createGain(), lfo = ac.createOscillator(), lg = ac.createGain();
+      o.type = type; o.frequency.setValueAtTime(f0, w); o.frequency.exponentialRampToValueAtTime(f1, w + d); lfo.frequency.value = 7; lg.gain.value = f0 * .03; lfo.connect(lg); lg.connect(o.frequency);
+      g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(v, w + .03); g.gain.setValueAtTime(v, w + d * .7); g.gain.exponentialRampToValueAtTime(.0001, w + d);
+      o.connect(g); g.connect(B.sfx); o.start(w); lfo.start(w); o.stop(w + d + .05); lfo.stop(w + d + .05); };
+    const squeak = (w, B) => { [0, .07].forEach((o, k) => slide(w + o, B, 900 + k * 200, 1500 + k * 300, .09, .12, 'triangle')); };
+    // 和弦：C G Am F，悲伤那两小节换成 Am Dm
+    const PR = [[60, 64, 67], [55, 59, 62], [57, 60, 64], [53, 57, 60]], RT = [48, 43, 45, 41];
+    const nb = Math.ceil(15 / bar);
+    for (let b = 0; b < nb; b++) {
+      const t0 = b * bar, sadBar = t0 >= T.sad[0] - .1 && t0 < T.idea;
+      const ch = sadBar ? [57, 60, 64] : PR[b % 4], rt = sadBar ? 45 : RT[b % 4];
+      for (let e = 0; e < 8; e++) { const tt = t0 + e * beat / 2; if (tt >= 14.4) break; if (!sadBar || e % 2 === 0) S.at(tt, I.mbox, ch[[0, 1, 2, 1, 0, 2, 1, 2][e]] + 12, sadBar ? .5 : .7); }
+      for (let k = 0; k < 4; k++) { const tt = t0 + k * beat; if (tt >= 14.4 || tt < 1.8) continue; S.at(tt, I.pizz, rt - 12 + (k % 2 ? 7 : 0), sadBar ? .6 : .9); if (!sadBar) S.at(tt + beat / 2, I.shaker, .8); }
+    }
+    // 旋律（木琴）：走路和开花两段
+    S.melody([72, 74, 76, 0, 79, 0, 76, 74], T.walk[0], beat / 2, 'marimba', .45);
+    S.melody([72, 76, 79, 81, 79, 76, 84, 0], T.bloom, BLOOM_STEP, 'marimba', .1);
+    // 画画：蜡笔沙沙
+    S.at(0, I.scribble, .9); S.at(.2, I.scribble, 1.0); S.at(.6, I.scribble, 1.2); S.at(T.end[0], I.scribble, .9);
+    for (let i = 0; i < HOPS; i++) S.at(T.walk[0] + i * (T.walk[1] - T.walk[0]) / HOPS + .05, I.boop, .8 + (i % 2) * .15);
+    S.at(T.see, I.pop2);
+    S.at(T.reach[0], (w, B) => slide(w, B, 300, 620, 1.1, .06));
+    S.at(T.poke, squeak); S.at(T.poke, I.pop, .8); S.at(T.poke + .05, I.boing);
+    S.at(T.sad[0], (w, B) => slide(w, B, 820, 260, 1.1, .1));
+    S.at(T.idea, I.ding);
+    for (let i = 0; i < SPIKES; i++) { S.at(T.bloom + i * BLOOM_STEP, I.pop, 1 + i * .12); S.at(T.bloom + i * BLOOM_STEP, I.blip, i); }
+    S.at(T.hug[0], I.whoosh, .4); S.at(T.hug[1], I.squash); S.at(T.hug[1], I.chime);
+    T.hearts.forEach((h, k) => S.at(h, I.pop2));
+    S.at(T.lift[0], (w, B) => slide(w, B, 400, 900, 1.2, .07)); S.at(T.lift[0], I.shimmer);
+    S.at(T.end[1], I.ding);
+    S.at(T.fade - .6, (w, B) => [60, 64, 67, 72, 76].forEach((m, i) => I.mbox(w + i * .08, B, m + 12, .9)));
+    S.at(T.fade - .6, (w, B) => I.pizz(w, B, 36, 1));
+  }
+});
+</script></body></html>

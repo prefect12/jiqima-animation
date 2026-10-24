@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>大字动态排版 · 风格库预告</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Noto+Sans+SC:wght@900&text=一句话做出部动画种风每秒水墨像素剪纸白板蓝图默片浮世绘积木纯代码零素材个作都踩在节拍上逐帧导张段录音格库">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Roboto+Mono:wght@500&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+const CN = '"Noto Sans SC", "PingFang SC", sans-serif', EN = 'Anton, Impact, sans-serif', MONO = '"Roboto Mono", monospace';
+const CREAM = '#F3EDE2', INK = '#15130F', ORANGE = '#D97652';
+const NAMES = [['水墨', '#EDE8DC', '#1B1B1B'], ['像素', '#2B2D5C', '#FFE45C'], ['剪纸', '#C8372D', '#FBEFD9'], ['白板', '#FBFBF7', '#1F3A8A'], ['蓝图', '#1F4E8C', '#FFFFFF'], ['默片', '#1A1A1A', '#E8E0CC'], ['浮世绘', '#E9DCC0', '#2C4A6E'], ['积木', '#F2C230', '#D0342C']];
+const CODE = 'ctx.fillRect(x, y, w, h);';
+Film({
+  title: '大字动态排版 · 风格库预告', DUR: 15, BPM: 120, poster: 13.9,
+  fonts: [['900 100px "Noto Sans SC"', '一句话做出部动画种风每秒水墨像素剪纸白板蓝图默片浮世绘积木纯代码零素材个作都踩在节拍上逐帧导张段录音格库'], ['100px Anton', 'OPUS5.4HTML1080p0123456789'], ['20px "Roboto Mono"', CODE]],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, easeOut, back, rrect } = F;
+    const bg = col => { c.fillStyle = col; c.fillRect(0, 0, W, H); };
+    // a word slams in on its beat: big → normal size, with a quick fade-in
+    const slam = (s, x, y, size, col, t0, font = CN, align = 'center') => {
+      if (t < t0) return 0; const k = easeOut(prog(t, t0, t0 + .14)), sc = lerp(1.7, 1, k);
+      c.save(); c.globalAlpha = Math.min(1, k * 2); c.translate(x, y); c.scale(sc, sc);
+      c.font = `900 ${size}px ${font}`; c.textAlign = align; c.textBaseline = 'middle'; c.fillStyle = col; c.fillText(s, 0, 0); c.restore(); return 1;
+    };
+    // camera shake right after each downbeat impact
+    const kick = [0, .5, 1, 2, 3.5, 5.5, 7.5, 8, 9.5, 10, 10.5, 12, 13].reduce((a, h) => t >= h && t < h + .12 ? 1 - (t - h) / .12 : a, 0);
+    c.save(); c.translate(Math.sin(t * 90) * 6 * kick, Math.cos(t * 70) * 5 * kick);
+    if (t < 2) {
+      bg(CREAM);
+      slam('一句话', 640, 200, 120, INK, 0);
+      slam('做出', 640, 350, 120, INK, .5);
+      slam('一部动画', 640, 520, 170, ORANGE, 1.0);
+      if (t > 1.5) { const u = prog(t, 1.5, 2); c.fillStyle = INK; c.fillRect(0, H * (1 - easeOut(u)), W, H); }
+    } else if (t < 3.5) {
+      bg(INK);
+      const s = 'OPUS 5.5'; c.font = `260px ${EN}`; c.textBaseline = 'middle'; c.textAlign = 'left';
+      const tw = c.measureText(s).width; let x = 640 - tw / 2;
+      for (let i = 0; i < s.length; i++) {
+        const ch = s[i], w = c.measureText(ch).width, k = back(prog(t, 2 + i * .07, 2.25 + i * .07));
+        c.save(); c.translate(x + w / 2, 360 + (1 - k) * 120); c.globalAlpha = Math.min(1, k * 1.5);
+        c.lineWidth = 4; c.strokeStyle = CREAM; c.textAlign = 'center'; c.strokeText(ch, 0, 0); c.restore(); x += w;
+      }
+      const f = easeOut(prog(t, 3.0, 3.35));
+      if (f > 0) { c.save(); c.beginPath(); c.rect(640 - tw / 2 - 10, 0, (tw + 20) * f, H); c.clip(); c.fillStyle = ORANGE; c.fillText(s, 640 - tw / 2, 360); c.restore(); }
+      c.font = `22px ${MONO}`; c.fillStyle = 'rgba(243,237,226,.6)'; c.textAlign = 'center'; if (t > 2.6) c.fillText('一个模型 · 一段提示词', 640, 560);
+    } else if (t < 5.5) {
+      bg(ORANGE);
+      const n = Math.round(44 * easeOut(prog(t, 3.5, 4.5)));
+      const k = back(prog(t, 3.5, 3.75));
+      c.save(); c.translate(560, 330); c.scale(k, k); c.font = `330px ${EN}`; c.textAlign = 'right'; c.textBaseline = 'middle'; c.fillStyle = INK; c.fillText(String(n), 0, 10); c.restore();
+      slam('种画风', 600, 350, 140, CREAM, 3.75, CN, 'left');
+      if (t > 4.5) { const u = back(prog(t, 4.5, 4.8)); c.save(); c.translate(640, 590 + (1 - u) * 160); c.fillStyle = INK; rrect(c, -210, -48, 420, 96, 48); c.fill(); c.font = `900 56px ${CN}`; c.fillStyle = CREAM; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('每种 15 秒', 0, 2); c.restore(); }
+    } else if (t < 7.5) {
+      const i = Math.min(7, Math.floor((t - 5.5) / .25)), [nm, b, fg] = NAMES[i];
+      bg(b);
+      slam(nm, 640, 360, 230, fg, 5.5 + i * .25);
+      c.font = `28px ${EN}`; c.fillStyle = fg; c.globalAlpha = .7; c.textAlign = 'left'; c.fillText(String(i + 1).padStart(2, '0') + ' / 44', 60, 80); c.globalAlpha = 1;
+    } else if (t < 9.5) {
+      const a = easeOut(prog(t, 7.5, 7.8)), b = easeOut(prog(t, 8.0, 8.3));
+      bg(CREAM);
+      c.fillStyle = INK; c.fillRect(W * (1 - a) * -1, 0, W, H / 2);
+      c.save(); c.globalAlpha = a; c.font = `900 150px ${CN}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = CREAM; c.fillText('纯代码', 640 - (1 - a) * 400, 190); c.restore();
+      if (b > 0) { c.save(); c.globalAlpha = b; c.font = `900 150px ${CN}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = INK; c.fillText('零素材', 640 + (1 - b) * 400, 540); c.restore(); }
+      const n = Math.floor(prog(t, 8.5, 9.1) * CODE.length);
+      if (n > 0) { c.font = `24px ${MONO}`; c.fillStyle = ORANGE; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText(CODE.slice(0, n) + (Math.floor(t * 4) % 2 ? '▌' : ''), 60, 330); }
+      if (t > 9.0) { c.font = `26px ${MONO}`; c.fillStyle = 'rgba(21,19,15,.6)'; c.textAlign = 'center'; c.fillText('0 张图片 · 0 段录音', 640, 660); }
+    } else if (t < 11) {
+      bg(CREAM);
+      const beatPhase = ((t - 9.5) % .5) / .5, hop = Math.abs(Math.sin(Math.PI * beatPhase));
+      ['每个动作', '都踩在', '节拍上'].forEach((s, i) => { const t0 = 9.5 + i * .5; if (t < t0) return; const cur = Math.min(2, Math.floor((t - 9.5) / .5)) === i; c.save(); c.translate(0, cur ? -18 * (1 - beatPhase) : 0); slam(s, 640, 190 + i * 150, 120, i === 2 ? ORANGE : INK, t0); c.restore(); });
+      for (let k = 0; k < 4; k++) { const on = Math.floor((t - 9.5) / .5) >= k; c.beginPath(); c.arc(520 + k * 80, 650, on ? 16 : 10, 0, Math.PI * 2); c.fillStyle = on ? ORANGE : 'rgba(21,19,15,.2)'; c.fill(); }
+      void hop;
+    } else if (t < 13) {
+      bg(INK);
+      // film strip scrolling left, one frame per beat
+      const sx = -((t - 11) * 240) % 240;
+      c.fillStyle = '#2A2620'; c.fillRect(0, 280, W, 190);
+      for (let k = -1; k < 8; k++) {
+        const x = sx + k * 240, idx = k + Math.floor((t - 11) * 1);
+        c.fillStyle = NAMES[((idx % 8) + 8) % 8][1]; c.fillRect(x + 20, 305, 200, 140);
+        c.fillStyle = NAMES[((idx % 8) + 8) % 8][2]; c.fillRect(x + 90, 345, 60, 60);
+        c.fillStyle = CREAM; for (let h = 0; h < 5; h++) { c.fillRect(x + 12 + h * 48, 288, 22, 10); c.fillRect(x + 12 + h * 48, 452, 22, 10); }
+      }
+      slam('一个 HTML', 330, 170, 90, CREAM, 11.0);
+      slam('逐帧导出', 930, 170, 90, CREAM, 11.5);
+      slam('1080p', 640, 590, 170, ORANGE, 12.0, EN);
+    } else {
+      bg(CREAM);
+      slam('风格库', 640, 270, 200, INK, 13.0);
+      const u = easeOut(prog(t, 13.25, 13.6)), ux = 340, uw = 600;
+      c.fillStyle = ORANGE; c.fillRect(ux, 452, uw * u, 12);
+      c.font = `30px ${EN}`; c.textAlign = 'center'; c.fillStyle = 'rgba(21,19,15,.55)'; if (t > 13.5) c.fillText('STYLE LIBRARY · 44 STYLES · 15s EACH', 640, 540);
+      if (t > 13.5) {
+        // a little Clawd hops along the underline, one hop per beat
+        const hopT = Math.min(t, 14.5) - 13.5, n = Math.floor(hopT / .5), ph = (hopT % .5) / .5;
+        const x = lerp(ux + 30, ux + uw - 60, Math.min(1, (n + (t < 14.5 ? ph : 0)) / 2)), y = 452 - (t < 14.5 ? Math.sin(Math.PI * ph) * 34 : 0);
+        const sq = t < 14.5 && ph < .12 ? .8 : 1;
+        c.save(); c.translate(x, y); c.scale(1 / sq, sq);
+        c.fillStyle = ORANGE; c.fillRect(-30, -44, 60, 34); c.fillRect(-38, -32, 8, 10); c.fillRect(30, -32, 8, 10);
+        [-24, -12, 8, 20].forEach(lx => c.fillRect(lx, -10, 5, 10));
+        c.fillStyle = INK; c.fillRect(-16, -36, 6, 10); c.fillRect(10, -36, 6, 10);
+        c.restore();
+      }
+    }
+    c.restore();
+    const fo = prog(t, 14.6, 15); if (fo > 0) { c.fillStyle = `rgba(243,237,226,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    const PR = [[57, 60, 64, 69], [53, 57, 60, 65], [48, 52, 55, 60], [55, 59, 62, 67]], RT = [45, 41, 36, 43];
+    S.padBars(PR, 0, 7, 'pad', .7);
+    [0, .5, 1].forEach(x => { S.at(x, I.kick); S.at(x, I.thud, .7); });
+    S.at(1.2, I.riser, .7);
+    S.drums(1, 6, 'four', .85);
+    S.bassLine(RT, 1, 6, .85);
+    S.at(2, I.impact);
+    for (let i = 0; i < 8; i++) S.at(2 + i * .07, I.tick, .8);
+    S.at(3.0, I.swish);
+    for (let x = 3.5; x < 4.5; x += .05) S.at(x, I.tick, .5);
+    S.at(4.5, I.pop);
+    for (let i = 0; i < 8; i++) { S.at(5.5 + i * .25, I.whip); S.at(5.5 + i * .25, I.blip, i); }
+    S.at(7.5, I.whoosh); S.at(8.0, I.whoosh);
+    for (let i = 0; i < CODE.length; i += 2) S.at(8.5 + i * .6 / CODE.length, I.key);
+    [9.5, 10, 10.5].forEach((x, i) => S.at(x, I.boop, 1 + i * .25));
+    S.at(11, I.click); S.at(11.5, I.click); S.at(12, I.pop, .7);
+    for (let e = 0; e < 4; e++) S.at(12 + e * beat, I.kick, .7);
+    S.at(12.5, I.riser, .5);
+    S.at(13, I.impact); S.at(13, (w, B) => [57, 64, 69, 72, 76].forEach(m => I.keys(w, B, m, 1.2, 2.2)));
+    [13.5, 14].forEach(x => S.at(x, I.jump)); [14, 14.5].forEach(x => S.at(x, I.thud, .5));
+    S.at(14.5, I.ding);
+  }
+});
+</script></body></html>

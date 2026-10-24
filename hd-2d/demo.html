@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HD-2D · 晨光神殿</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@700&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* HD-2D：场景和角色都是低分辨率像素（320×180 放大 4 倍、关闭平滑），
+   光照、光柱、尘埃、泛光、景深全部在高分辨率上叠加。
+   场景用一个极简的逐像素光线投射器“搭”成立体大厅：地板、侧墙、天花板、后墙、六根柱子、两扇会转的门。 */
+const BPM = 80, BEAT = 60 / BPM;                         // 一拍 0.75 秒
+const T_KNOCK = 4 * BEAT, T_OPEN = 7 * BEAT, T_WALK = 8 * BEAT, T_STOP = 15 * BEAT, T_RAISE = 16 * BEAT, T_TITLE = 17 * BEAT;
+const LW = 320, LH = 180, FOC = 210, CX = 160, CY = 72, EYE = 1.6;
+const ROOM_X = 3.2, ROOM_Y = 5, BACK = 12, DOOR = 1, ARCH = 2.2;  // 门洞：宽 2，拱顶高 3.2
+const SUN = .35;                                         // 阳光方向 (0, -0.35, -1)：从门外斜向下照进大厅
+const PILLARS = [4, 7, 10].flatMap(z => [[-2.35, z], [2.35, z]]);
+const world = document.createElement('canvas'); world.width = LW; world.height = LH;
+const wctx = world.getContext('2d'), img = wctx.createImageData(LW, LH), px = img.data;
+const lmap = document.createElement('canvas'); lmap.width = LW; lmap.height = LH; const lctx = lmap.getContext('2d');
+const rays = document.createElement('canvas'); rays.width = LW; rays.height = LH; const rctx = rays.getContext('2d');
+const spr = document.createElement('canvas'); spr.width = 24; spr.height = 48; const sctx = spr.getContext('2d');
+const rim = document.createElement('canvas'); rim.width = 24; rim.height = 48; const rmctx = rim.getContext('2d');
+let tmp = null;
+const H1 = n => { n = Math.sin(n * 127.1 + 311.7) * 43758.5453; return n - Math.floor(n); };
+const H2 = (a, b) => H1(a * 57.3 + b * 13.1);
+const archTop = x => ARCH + Math.sqrt(Math.max(0, 1 - x * x));
+const cl = (v, a, b) => Math.max(a, Math.min(b, v)), pr = (t, a, b) => cl((t - a) / (b - a), 0, 1);
+const sm = u => u * u * (3 - 2 * u);
+const camZ = t => 2.2 * sm(pr(t, 0, 13.5));              // 缓慢推镜
+const doorAng = t => Math.PI * .47 * sm(pr(t, T_KNOCK + .15, T_OPEN));
+const knightZ = t => t < T_KNOCK ? 12.9 : t < T_WALK ? 12.9 - .9 * sm(pr(t, T_KNOCK + .3, T_WALK)) : t < T_STOP ? 12 - 4.9 * pr(t, T_WALK, T_STOP) : 7.1;
+// 3D → 320×180 像素坐标
+const proj = (x, y, z, cz) => { const d = Math.max(.05, z - cz); return [CX + FOC * x / d, CY - FOC * (y - EYE) / d, d]; };
+
+/* ---------- 逐像素光线投射：只算“材质颜色”，光照交给高分辨率层 ---------- */
+function renderWorld(cz, ang) {
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  for (let py = 0; py < LH; py++) for (let pxl = 0; pxl < LW; pxl++) {
+    const dx = (pxl + .5 - CX) / FOC, dy = (CY - py - .5) / FOC;
+    let t = 1e9, kind = 0, hx = 0, hy = 0, hz = 0, nx = 0;
+    // 地板 / 天花板
+    if (dy < 0) { const tt = -EYE / dy; if (tt < t) { t = tt; kind = 1; } } else if (dy > 0) { const tt = (ROOM_Y - EYE) / dy; if (tt < t) { t = tt; kind = 2; } }
+    // 侧墙
+    if (dx !== 0) { const tt = (dx > 0 ? ROOM_X : -ROOM_X) / dx; if (tt < t) { t = tt; kind = 3; } }
+    // 后墙
+    { const tt = BACK - cz; if (tt < t) { t = tt; kind = 4; } }
+    // 柱子（轴对齐方柱）
+    for (let i = 0; i < 6; i++) {
+      const [bx, bz] = PILLARS[i], r = .36;
+      let t0 = -1e9, t1 = 1e9, n = 0;
+      if (dx !== 0) { let a = (bx - r) / dx, b = (bx + r) / dx; if (a > b) [a, b] = [b, a]; if (a > t0) { t0 = a; n = 1; } t1 = Math.min(t1, b); } else if (Math.abs(bx) > r) continue;
+      { let a = (bz - r - cz), b = (bz + r - cz); if (a > t0) { t0 = a; n = 2; } t1 = Math.min(t1, b); }
+      if (t0 < t1 && t0 > 0 && t0 < t) { const yy = EYE + dy * t0; if (yy > 0 && yy < ROOM_Y) { t = t0; kind = 5; nx = n; } }
+    }
+    // 两扇门（绕门轴向大厅里转开）
+    for (let s = -1; s <= 1; s += 2) {
+      const hxg = s * DOOR, ux = -s * ca, uz = -sa;           // 门板方向（从门轴指向门缝）
+      const nX = -uz, nZ = ux, den = nX * dx + nZ * 1;
+      if (Math.abs(den) < 1e-6) continue;
+      const tt = (nX * (hxg - 0) + nZ * (BACK - cz)) / den;
+      if (tt > 0 && tt < t + 1e-3) {
+        const X = dx * tt, Y = EYE + dy * tt, Z = cz + tt, sl = (X - hxg) * ux + (Z - BACK) * uz;
+        if (sl >= 0 && sl <= DOOR && Y >= 0 && Y <= archTop(hxg + (-s) * sl)) { t = tt; kind = 6; hx = sl; hy = Y; nx = s; }
+      }
+    }
+    if (kind !== 6) { hx = dx * t; hy = EYE + dy * t; hz = cz + t; }
+    let r, g, b;
+    if (kind === 1) {                                          // 石板地面 + 中间红地毯
+      const ax = Math.abs(hx);
+      if (ax < .72 && hz < BACK) { const border = ax > .6; const tx = Math.floor(hx * 8), tz = Math.floor(hz * 8), n = H2(tx, tz) * 14; if (border) { r = 196 + n; g = 150 + n; b = 60; } else { r = 128 + n; g = 34 + n * .3; b = 48 + n * .3; } if (!border && (Math.floor(hz * 2) % 2 === 0) && Math.abs(ax - .3) < .05) { r = 170; g = 60; b = 60; } }
+      else { const fx = hx - Math.floor(hx), fz = hz - Math.floor(hz), grout = fx < .07 || fz < .07; const n = H2(Math.floor(hx), Math.floor(hz)) * 26 + H2(Math.floor(hx * 8), Math.floor(hz * 8)) * 10; if (grout) { r = 40; g = 42; b = 58; } else { r = 104 + n; g = 106 + n; b = 124 + n; } }
+      if (hz > BACK) { const n = H2(Math.floor(hx * 4), Math.floor(hz * 4)) * 20; r = 236 + n * .5; g = 222 + n * .5; b = 190; }
+    } else if (kind === 2) { const beam = (hz - Math.floor(hz / 2) * 2) < .3; r = beam ? 58 : 40; g = beam ? 50 : 40; b = beam ? 52 : 58; }
+    else if (kind === 3 || kind === 4) {
+      const u = kind === 3 ? hz : hx;
+      const inDoor = kind === 4 && Math.abs(hx) < DOOR && hy < archTop(hx);
+      if (inDoor) {                                            // 门外：晨光里的庭院和天空
+        const dz = 1, tg = dy < 0 ? -EYE / dy : 1e9;
+        if (tg < 1e8) { const gx = dx * tg, gz = cz + tg, n = H2(Math.floor(gx * 3), Math.floor(gz * 3)) * 16; r = 240 + n * .4; g = 226 + n * .4; b = 196; }
+        else { const k = cl((hy - 1.5) / 2.5, 0, 1); r = 255; g = 246 - 20 * k; b = 214 - 30 * k; }
+        void dz;
+      } else {
+        const row = Math.floor(hy * 2), off = row % 2 ? .5 : 0, fu = (u + off) - Math.floor(u + off), fv = hy * 2 - row;
+        const grout = fu < .06 || fv < .1, n = H2(Math.floor(u + off) + row * 17, row) * 22 + H2(Math.floor(u * 8), Math.floor(hy * 8)) * 8;
+        if (grout) { r = 34; g = 34; b = 48; } else { r = 88 + n; g = 88 + n; b = 108 + n; }
+        if (kind === 4) {                                      // 门框：浅色石拱
+          const dd = Math.abs(hx) < DOOR + .28 && hy < archTop(Math.min(.999, Math.abs(hx) / (DOOR + .28))) + .28;
+          if (dd) { const n2 = H2(Math.floor(hx * 6), Math.floor(hy * 6)) * 16; r = 150 + n2; g = 142 + n2; b = 130 + n2; if (Math.abs(Math.abs(hx) - DOOR - .14) < .03) { r = 90; g = 84; b = 80; } }
+          if (kind === 4 && Math.abs(hx - 0) < .5 && hy > 3.7 && hy < 4.5) { const f = H2(Math.floor(hx * 10), Math.floor(hy * 10)); r = 200 + f * 30; g = 160 + f * 20; b = 60; }  // 门楣上的金色徽记
+        }
+        if (kind === 3) r *= .82, g *= .82, b *= .86;
+      }
+    } else if (kind === 5) {                                   // 带凹槽的石柱
+      const u = nx === 1 ? hz : hx, flute = ((u * 7) - Math.floor(u * 7)) < .3;
+      const n = H2(Math.floor(u * 8), Math.floor(hy * 8)) * 12, band = hy < .45 || hy > ROOM_Y - .5 || Math.abs(hy - 2.25) < .08;
+      r = (band ? 150 : flute ? 96 : 122) + n; g = (band ? 142 : flute ? 94 : 118) + n; b = (band ? 136 : flute ? 110 : 132) + n;
+      if (nx === 1) r *= .78, g *= .78, b *= .82;
+    } else if (kind === 6) {                                   // 木门：竖木板 + 铁箍 + 铆钉
+      const plank = Math.floor(hx * 5), fx = hx * 5 - plank, gap = fx < .1, n = H2(plank, Math.floor(hy * 6)) * 18;
+      r = gap ? 40 : 104 + n; g = gap ? 26 : 64 + n * .6; b = gap ? 20 : 40 + n * .4;
+      if (Math.abs(hy - .8) < .1 || Math.abs(hy - 2.3) < .1) { r = 70; g = 72; b = 84; if (fx > .4 && fx < .6) { r = 150; g = 150; b = 160; } }
+    }
+    const o = (py * LW + pxl) * 4; px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = 255;
+  }
+  wctx.putImageData(img, 0, 0);
+}
+
+/* ---------- 像素骑士（24×40 画布，逐帧重画） ---------- */
+function drawKnight(frame, raise) {
+  sctx.clearRect(0, 0, 24, 48);
+  const R = (x, y, w, h, col) => { sctx.fillStyle = col; sctx.fillRect(x, y + 8, w, h); };
+  const OUT = '#141528', L = '#C9D4E8', M = '#8B9BB4', D = '#566C86', RED = '#B13E53', CAPE = '#6D1F3A', GOLD = '#F4B41A', BLADE = '#E6F2FF';
+  const bob = frame === 1 || frame === 3 ? 1 : 0, lA = frame === 1 ? -2 : 0, lB = frame === 3 ? -2 : 0;
+  const body = [[5, 18 + bob, 14, 16], [7, 11 + bob, 10, 8], [8, 29, 3, 8 + lA], [13, 29, 3, 8 + lB]];
+  // 先画 1 像素描边（每个块外扩 1 像素）
+  const parts = [
+    [4, 17 + bob, 16, 15, CAPE], [7, 18 + bob, 10, 11, L], [12, 18 + bob, 5, 11, M], [7, 28 + bob, 10, 1, GOLD], [11, 20 + bob, 2, 4, RED],
+    [5, 18 + bob, 3, 3, L], [16, 18 + bob, 3, 3, M],
+    [5, 21 + bob, 2, 6, M], [17, 21 + bob, 2, 6, D],
+    [8, 30 + bob, 3, 7 + lA, M], [13, 30 + bob, 3, 7 + lB, D], [7, 36 + bob + lA, 4, 2, D], [13, 36 + bob + lB, 4, 2, OUT],
+    [8, 10 + bob, 8, 8, L], [12, 10 + bob, 4, 8, M], [9, 13 + bob, 6, 1, OUT], [11, 14 + bob, 2, 3, OUT],
+    [11, 6 + bob, 2, 4, RED], [10, 7 + bob, 4, 1, RED]
+  ];
+  void body;
+  const sword = raise > 0
+    ? [[17, 11 + bob, 2, 10, M], [17, 4 + bob, 2, 1, GOLD], [16, 5 + bob, 4, 1, GOLD], [17, 6 + bob, 2, 4, '#7A4A2A'], [17, -8 + bob + 12, 2, 0, BLADE]]
+    : [[19, 22 + bob, 1, 2, '#7A4A2A'], [18, 24 + bob, 3, 1, GOLD], [19, 25 + bob, 1, 11, BLADE]];
+  parts.concat(sword).forEach(([x, y, w, h]) => { if (w > 0 && h > 0) R(x - 1, y - 1, w + 2, h + 2, OUT); });
+  parts.forEach(([x, y, w, h, col]) => R(x, y, w, h, col));
+  if (raise > 0) {                                          // 右臂举剑，剑身竖直向上（超出画布顶部的部分截掉）
+    R(16, 10 + bob, 4, 11, OUT); R(17, 11 + bob, 2, 10, M); R(15, 4 + bob, 6, 3, OUT); R(16, 5 + bob, 4, 1, GOLD); R(17, 6 + bob, 2, 4, '#7A4A2A');
+    R(16, -9, 4, 14 + bob, OUT); R(17, -8, 2, 13 + bob, BLADE); R(17, -8, 1, 13 + bob, '#FFFFFF');
+  } else { R(18, 21 + bob, 3, 16, OUT); R(19, 22 + bob, 1, 2, '#7A4A2A'); R(18, 24 + bob, 3, 1, GOLD); R(19, 25 + bob, 1, 11, BLADE); }
+  // 轮廓光用的剪影
+  rmctx.clearRect(0, 0, 24, 48); rmctx.drawImage(spr, 0, 0); rmctx.globalCompositeOperation = 'source-in'; rmctx.fillStyle = '#FFD98A'; rmctx.fillRect(0, 0, 24, 48); rmctx.globalCompositeOperation = 'source-over';
+}
+
+Film({
+  title: 'HD-2D · 晨光神殿', DUR: 15, BPM, poster: 9.4,
+  fonts: [['700 80px "Noto Serif SC"', '晨光神殿']],
+  draw(c, t, F) {
+    const { W, H, hash } = F;
+    const cz = camZ(t), ang = doorAng(t), open = pr(t, T_KNOCK + .15, T_OPEN), gap = 1 - Math.cos(ang);
+    renderWorld(cz, ang);
+    const P = (x, y, z) => proj(x, y, z, cz);
+
+    /* ---- 1. 像素场景（关闭平滑放大） ---- */
+    c.imageSmoothingEnabled = false; c.drawImage(world, 0, 0, W, H);
+
+    /* ---- 2. 光照贴图：低频、平滑放大后 multiply ---- */
+    lctx.globalCompositeOperation = 'source-over'; lctx.filter = 'none';
+    lctx.fillStyle = `rgb(${40 + 26 * open},${46 + 24 * open},${98 + 12 * open})`; lctx.fillRect(0, 0, LW, LH);
+    lctx.globalCompositeOperation = 'lighter';
+    PILLARS.forEach(([x, z], i) => {                           // 柱子内侧的火把
+      const tx = x > 0 ? x - .42 : x + .42, [sx, sy, d] = P(tx, 2.7, z); if (d < .3) return;
+      const fl = .8 + .2 * hash(Math.floor(t * 14) + i * 7), rr = 300 / d * fl;
+      const g = lctx.createRadialGradient(sx, sy, 0, sx, sy, rr); g.addColorStop(0, `rgba(255,170,90,${.9 * fl})`); g.addColorStop(1, 'rgba(255,120,60,0)');
+      lctx.fillStyle = g; lctx.fillRect(sx - rr, sy - rr, rr * 2, rr * 2);
+    });
+    if (open > 0) {
+      // 门洞本身全亮 + 周围墙面泛暖
+      const [dx0, dy0] = P(0, 1.6, BACK), gr = lctx.createRadialGradient(dx0, dy0, 4, dx0, dy0, 90);
+      gr.addColorStop(0, `rgba(255,220,160,${.9 * open})`); gr.addColorStop(1, 'rgba(255,200,140,0)'); lctx.fillStyle = gr; lctx.fillRect(0, 0, LW, LH);
+      // 地上的光斑：门洞沿阳光方向投到地面
+      lctx.filter = 'blur(2px)'; lctx.beginPath();
+      const N = 12; for (let i = 0; i <= N; i++) { const x = -gap + 2 * gap * i / N, zz = BACK - archTop(x) / SUN, [sx, sy] = P(x, 0, Math.max(zz, cz + .6)); i ? lctx.lineTo(sx, sy) : lctx.moveTo(sx, sy); }
+      const [ax, ay] = P(gap, 0, BACK), [bx, by] = P(-gap, 0, BACK); lctx.lineTo(ax, ay); lctx.lineTo(bx, by); lctx.closePath();
+      const [, fy0] = P(0, 0, BACK), [, fy1] = P(0, 0, cz + 2.8), lg = lctx.createLinearGradient(0, fy0, 0, fy1);
+      lg.addColorStop(0, `rgba(255,236,190,${open})`); lg.addColorStop(1, `rgba(255,190,120,${.75 * open})`); lctx.fillStyle = lg; lctx.fill();
+      lctx.filter = 'none';
+    }
+    // 门洞里一律全亮
+    lctx.globalCompositeOperation = 'source-over'; lctx.fillStyle = '#FFFFFF'; lctx.beginPath();
+    for (let i = 0; i <= 16; i++) { const x = -DOOR + 2 * DOOR * i / 16, [sx, sy] = P(x, archTop(x), BACK); i ? lctx.lineTo(sx, sy) : lctx.moveTo(sx, sy); }
+    { const [a1, b1] = P(DOOR, 0, BACK), [a2, b2] = P(-DOOR, 0, BACK); lctx.lineTo(a1, b1); lctx.lineTo(a2, b2); } lctx.closePath();
+    lctx.save(); lctx.clip();
+    // 门没开时只有门缝亮；开了以后整洞亮（门板本身交给 multiply 前的像素颜色）
+    { const [lx] = P(-DOOR + Math.cos(ang), 0, BACK - Math.sin(ang)), [rx] = P(DOOR - Math.cos(ang), 0, BACK - Math.sin(ang)); lctx.fillRect(Math.min(lx, rx) - .5, 0, Math.abs(rx - lx) + 1, LH); }
+    lctx.restore();
+    // 骑士投在地上的长影子（逆光，朝镜头方向）
+    const kz = knightZ(t);
+    if (open > .3 && kz < BACK + .2) {
+      const [sx0, sy0] = P(0, 0, kz), [sx1, sy1] = P(0, 0, Math.max(cz + .8, kz - 1.9 / SUN)), wd = FOC * .32 / Math.max(.3, kz - cz);
+      lctx.fillStyle = `rgba(40,40,80,${.65 * open})`; lctx.filter = 'blur(1.5px)'; lctx.beginPath(); lctx.moveTo(sx0 - wd, sy0); lctx.lineTo(sx0 + wd, sy0); lctx.lineTo(sx1 + wd * 2.2, sy1); lctx.lineTo(sx1 - wd * 2.2, sy1); lctx.closePath(); lctx.fill(); lctx.filter = 'none';
+    }
+    c.save(); c.globalCompositeOperation = 'multiply'; c.imageSmoothingEnabled = true; c.drawImage(lmap, 0, 0, W, H); c.restore();
+
+    /* ---- 4. 光柱：门洞沿阳光方向拉出的体积，分成几条亮度不同的光带，screen 叠加 ---- */
+    rctx.clearRect(0, 0, LW, LH);
+    if (open > 0) {
+      rctx.filter = 'blur(1.6px)'; rctx.globalCompositeOperation = 'lighter';
+      const N = 11;
+      for (let i = 0; i < N; i++) {
+        const xa = -gap + 2 * gap * i / N, xb = -gap + 2 * gap * (i + 1) / N, xm = (xa + xb) / 2;
+        const k = (hash(i * 3.7) > .45 ? 1 : .22) * (.7 + .3 * Math.sin(t * .9 + i * 1.3));
+        const pts = [P(xa, archTop(xa), BACK), P(xb, archTop(xb), BACK), P(xb, 0, Math.max(BACK - archTop(xb) / SUN, cz + .6)), P(xa, 0, Math.max(BACK - archTop(xa) / SUN, cz + .6))];
+        const [gx0, gy0] = P(xm, 2, BACK), [gx1, gy1] = P(xm, 0, Math.max(BACK - archTop(xm) / SUN, cz + .6));
+        const lg = rctx.createLinearGradient(gx0, gy0, gx1, gy1); lg.addColorStop(0, `rgba(255,226,160,${.8 * k * open})`); lg.addColorStop(.6, `rgba(255,200,130,${.38 * k * open})`); lg.addColorStop(1, 'rgba(255,190,120,0)');
+        rctx.fillStyle = lg; rctx.beginPath(); pts.forEach(([x, y], j) => j ? rctx.lineTo(x, y) : rctx.moveTo(x, y)); rctx.closePath(); rctx.fill();
+      }
+      rctx.filter = 'none'; rctx.globalCompositeOperation = 'source-over';
+    } else if (t > T_KNOCK - .05) {                            // 开门前一瞬：门缝里透出一道细光
+      const [sx, sy] = P(0, 1.5, BACK); rctx.fillStyle = 'rgba(255,220,160,.8)'; rctx.fillRect(sx - .5, sy - 14, 1, 26);
+    }
+    c.save(); c.globalCompositeOperation = 'screen'; c.imageSmoothingEnabled = true; c.drawImage(rays, 0, 0, W, H); c.restore();
+
+    /* ---- 5. 泛光：门洞、火把、剑光（lighter） ---- */
+    c.save(); c.globalCompositeOperation = 'lighter';
+    var glow = (x, y, r, col, a) => { const g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${col},${a})`); g.addColorStop(1, `rgba(${col},0)`); c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2); };
+    { const [dx0, dy0] = P(0, 1.7, BACK); glow(dx0 * 4, dy0 * 4, 260 + 160 * open, '255,214,150', .12 + .5 * open * (.9 + .1 * Math.sin(t * 3))); }
+    PILLARS.forEach(([x, z], i) => { const tx = x > 0 ? x - .42 : x + .42, [sx, sy, d] = P(tx, 2.7, z); if (d < .3) return; const fl = .8 + .2 * hash(Math.floor(t * 14) + i * 7); glow(sx * 4, sy * 4, 180 / d * 4, '255,150,70', .35 * fl);
+      // 火苗本身画成像素块
+      c.globalCompositeOperation = 'source-over'; c.imageSmoothingEnabled = false; const u = Math.max(3, Math.round(26 / d)); const fh = Math.floor(hash(Math.floor(t * 12) + i) * 2);
+      c.fillStyle = '#5A3A22'; c.fillRect(sx * 4 - u, sy * 4 + u, u * 2, u * 3); c.fillStyle = '#FF8A3A'; c.fillRect(sx * 4 - u, sy * 4 - u * (1 + fh), u * 2, u * (2 + fh)); c.fillStyle = '#FFE08A'; c.fillRect(sx * 4 - u / 2, sy * 4 - u * fh, u, u); c.globalCompositeOperation = 'lighter'; });
+    c.restore();
+
+    /* ---- 3. 像素骑士：低分辨率精灵按透视缩放（整数像素），逆光压暗 + 金色轮廓光 ---- */
+    const walking = t >= T_KNOCK + .3 && t < T_STOP;
+    const stepRate = t < T_WALK ? 1.2 : 2 / BEAT;             // 走路时每拍两步
+    const frame = walking ? Math.floor(t * stepRate) % 4 : 0, raise = t >= T_RAISE - .1 ? 1 : 0;
+    drawKnight(frame, raise);
+    const [kx, ky, kd] = P(0, 0, kz), unit = Math.max(1, Math.round(FOC * 1.95 / kd / 30 * 4 * 2) / 2);   // 每个精灵像素占多少高分辨率像素
+    const sw = 24 * unit, sh = 48 * unit, sxk = kx * 4 - sw / 2, syk = ky * 4 - sh + 2 * unit;
+    c.save();
+    if (kz > BACK - .05) {                                     // 还在门外：只从门缝里露出来
+      const [lx] = P(-DOOR + Math.cos(ang), 0, BACK - Math.sin(ang)), [rx] = P(DOOR - Math.cos(ang), 0, BACK - Math.sin(ang)), [, top] = P(0, archTop(0), BACK);
+      c.beginPath(); c.rect(Math.min(lx, rx) * 4, top * 4, Math.abs(rx - lx) * 4, H); c.clip();
+    }
+    c.imageSmoothingEnabled = false;
+    const back = .15 + open * (.62 - .22 * pr(t, T_WALK, T_STOP));   // 逆光：正面压暗，越靠近门越接近剪影
+    const rw = Math.max(2, unit * .35);
+    [[-rw, 0], [rw, 0], [0, -rw]].forEach(([ox, oy]) => { c.globalAlpha = .85 * open; c.drawImage(rim, sxk + ox, syk + oy, sw, sh); });
+    c.globalAlpha = 1;
+    sctx.globalCompositeOperation = 'source-atop'; sctx.fillStyle = `rgba(22,26,60,${back})`; sctx.fillRect(0, 0, 24, 48); sctx.globalCompositeOperation = 'source-over';
+    c.drawImage(spr, sxk, syk, sw, sh);
+    c.restore();
+
+    c.save(); c.globalCompositeOperation = 'lighter';
+    if (raise) { const u = pr(t, T_RAISE, T_RAISE + .25), tipX = sxk + 18 * unit, tipY = syk + 1 * unit, fl = u < 1 ? u : Math.max(.35, 1 - (t - T_RAISE - .25) * .5);
+      glow(tipX, tipY, 160 * fl + 40, '255,240,200', .8 * fl); c.strokeStyle = `rgba(255,248,220,${.9 * fl})`; c.lineWidth = 3; const L = 120 * fl + 30 * Math.sin(t * 6); c.beginPath(); c.moveTo(tipX - L, tipY); c.lineTo(tipX + L, tipY); c.moveTo(tipX, tipY - L); c.lineTo(tipX, tipY + L); c.stroke(); }
+    c.restore();
+    // 光柱在骑士前面再薄薄叠一层，保持体积感但不把角色洗白
+    c.save(); c.globalCompositeOperation = 'screen'; c.globalAlpha = .28; c.imageSmoothingEnabled = true; c.drawImage(rays, 0, 0, W, H); c.restore();
+
+    /* ---- 6. 尘埃：3D 粒子，落在光柱里的才被照亮；离镜头近的虚成大光斑 ---- */
+    c.save(); c.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 260; i++) {
+      const bx = (hash(i * 1.31) - .5) * 4.4, bz = cz + 1 + hash(i * 2.17) * (BACK - cz - 1.2), by0 = hash(i * 3.03) * 4.2;
+      const x = bx + .25 * Math.sin(t * (.2 + hash(i) * .3) + i), z = bz + .2 * Math.cos(t * .23 + i * 2), y = ((by0 + t * (.06 + .05 * hash(i * 5.1)) ) % 4.2) + .1 * Math.sin(t * .8 + i);
+      const yd = y + SUN * (BACK - z), inBeam = Math.abs(x) < gap && yd > 0 && yd < archTop(x) ? 1 : 0;
+      const nearTorch = PILLARS.some(([px2, pz]) => Math.abs(z - pz) < .8 && Math.abs(x - px2) < 1.2 && Math.abs(y - 2.7) < 1) ? .35 : 0;
+      const lum = Math.max(inBeam * open * (.6 + .4 * Math.sin(t * 2 + i)), nearTorch, .06);
+      const [sx, sy, d] = P(x, y, z); if (d < .4) continue;
+      const blur = Math.max(0, Math.abs(d - (kz - cz)) - 1.5) * .35, r = 2.2 + (3 + 22 * blur) / d * 2.2, a = Math.min(1, lum * 1.4 / (1 + blur * 2.5));
+      const g = c.createRadialGradient(sx * 4, sy * 4, 0, sx * 4, sy * 4, r); g.addColorStop(0, `rgba(255,236,200,${a})`); g.addColorStop(.4, `rgba(255,220,170,${a * .5})`); g.addColorStop(1, 'rgba(255,210,160,0)');
+      c.fillStyle = g; c.fillRect(sx * 4 - r, sy * 4 - r, r * 2, r * 2);
+    }
+    c.restore();
+
+    /* ---- 7. 前景：离镜头很近、强烈失焦的暗色剪影（锁链、石栏） ---- */
+    c.save(); c.filter = 'blur(10px)'; c.fillStyle = '#07080F';
+    c.fillRect(-60, -40, 150, 800); c.fillStyle = 'rgba(255,170,100,.35)'; c.fillRect(88, -40, 10, 800);
+    for (let k = 0; k < 9; k++) { c.beginPath(); c.ellipse(1150 + Math.sin(k * .6 + t * .6) * 8, -20 + k * 34, 12, 20, 0, 0, Math.PI * 2); c.lineWidth = 9; c.strokeStyle = '#0A0B14'; c.stroke(); }
+    c.restore();
+
+    /* ---- 8. 移轴景深：上下两条带重画一遍模糊版本 ---- */
+    const cw = c.canvas.width, ch = c.canvas.height, k = cw / W;
+    if (!tmp || tmp.width !== cw) { tmp = document.createElement('canvas'); tmp.width = cw; tmp.height = ch; }
+    const tc = tmp.getContext('2d'); tc.clearRect(0, 0, cw, ch); tc.drawImage(c.canvas, 0, 0);
+    [[0, 70, 5], [70, 130, 2.5], [600, 660, 2.5], [660, 720, 5]].forEach(([y0, y1, b]) => { c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.beginPath(); c.rect(0, y0 * k, cw, (y1 - y0) * k); c.clip(); c.filter = `blur(${b * k}px)`; c.drawImage(tmp, 0, 0); c.restore(); });
+
+    /* ---- 9. 标题、暗角、颗粒、淡出 ---- */
+    if (t >= T_TITLE) {
+      const u = pr(t, T_TITLE, T_TITLE + .9);
+      c.save(); c.globalAlpha = u; c.font = '700 76px "Noto Serif SC", serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.shadowColor = 'rgba(255,200,120,.9)'; c.shadowBlur = 30; c.fillStyle = '#FFF1D2'; c.letterSpacing = '18px'; c.fillText('晨光神殿', 649, 632 + 10 * (1 - u)); c.shadowBlur = 0;
+      c.fillStyle = 'rgba(255,230,180,.7)'; c.fillRect(640 - 150 * u, 684, 300 * u, 2); c.restore();
+    }
+    F.vignette(c, .55, '6,6,20'); F.grain(c, t, .045);
+    const fin = 1 - pr(t, 0, .6); if (fin > 0) { c.fillStyle = `rgba(0,0,0,${fin})`; c.fillRect(0, 0, W, H); }
+    const fo = pr(t, 14.45, 15); if (fo > 0) { c.fillStyle = `rgba(0,0,0,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S, F) {
+    const { I, beat, bar } = S, hash = F.hash;
+    const mt = m => 440 * Math.pow(2, (m - 69) / 12);
+    const NB = new WeakMap();
+    const nbuf = ctx => { let b = NB.get(ctx); if (!b) { b = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate); const d = b.getChannelData(0); let s = 777; for (let i = 0; i < d.length; i++) { s = (s * 16807) % 2147483647; d[i] = s / 1073741823.5 - 1; } NB.set(ctx, b); } return b; };
+    const env = (g, w, a, p, d) => { g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(p, w + a); g.gain.exponentialRampToValueAtTime(.0001, w + a + d); };
+    // 竖琴：三角波 + 泛音，长衰减
+    const harp = (w, B, m, v = 1) => { const ctx = B.sfx.context; [[1, 'triangle', .1], [2, 'sine', .035], [3, 'sine', .012]].forEach(([k, ty, p]) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = ty; o.frequency.value = mt(m) * k; env(g, w, .004, p * v, 1.6 / k); o.connect(g); g.connect(B.keys); o.start(w); o.stop(w + 1.7); }); };
+    // 合成“合唱 ah”：锯齿波过两个元音共振峰，慢起慢落
+    const choir = (w, B, ch, d, v = 1) => { const ctx = B.sfx.context; ch.forEach((m, i) => [0.996, 1.004].forEach(k => { const o = ctx.createOscillator(), f1 = ctx.createBiquadFilter(), f2 = ctx.createBiquadFilter(), g = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain(); o.type = 'sawtooth'; o.frequency.value = mt(m) * k; lfo.frequency.value = 5 + i * .3; lg.gain.value = mt(m) * .006; lfo.connect(lg); lg.connect(o.frequency); f1.type = 'bandpass'; f1.frequency.value = 800; f1.Q.value = 3; f2.type = 'bandpass'; f2.frequency.value = 1150; f2.Q.value = 4; g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.05 * v, w + .8); g.gain.setValueAtTime(.05 * v, w + d - .8); g.gain.exponentialRampToValueAtTime(.0001, w + d); o.connect(f1); o.connect(f2); f1.connect(g); f2.connect(g); g.connect(B.pad); o.start(w); lfo.start(w); o.stop(w + d + .05); lfo.stop(w + d + .05); })); };
+    // 门轴吱呀：一串变速的摩擦脉冲
+    const creak = (w, B, d) => { const ctx = B.sfx.context; let x = 0; for (let k = 0; x < d; k++) { const rate = 22 + 30 * Math.sin(x * 2.3) ** 2 + hash(k) * 6; const s = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain(); s.buffer = nbuf(ctx); bp.type = 'bandpass'; bp.frequency.value = 520 + 260 * Math.sin(x * 1.7); bp.Q.value = 9; env(g, w + x, .002, .22, .03); s.connect(bp); bp.connect(g); g.connect(B.sfx); s.start(w + x, hash(k * 3) * 1.5); s.stop(w + x + .05); x += 1 / rate; } };
+    const wind = (w, B, d, v = 1) => { const ctx = B.sfx.context, s = ctx.createBufferSource(), lp = ctx.createBiquadFilter(), g = ctx.createGain(); s.buffer = nbuf(ctx); s.loop = true; lp.type = 'bandpass'; lp.Q.value = .8; lp.frequency.setValueAtTime(300, w); lp.frequency.linearRampToValueAtTime(900, w + d * .5); lp.frequency.linearRampToValueAtTime(400, w + d); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.12 * v, w + d * .4); g.gain.exponentialRampToValueAtTime(.0001, w + d); s.connect(lp); lp.connect(g); g.connect(B.sfx); s.start(w); s.stop(w + d + .05); };
+    // 盔甲脚步：低闷一下 + 金属叮
+    const step = (w, B, v = 1) => { I.thud(w, B, .25 * v); const ctx = B.sfx.context;[2100, 3170].forEach((f, i) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = f + hash(w * 10 + i) * 80; env(g, w, .002, .025 * v, .12); o.connect(g); g.connect(B.sfx); o.start(w); o.stop(w + .2); }); };
+
+    const Dm = [38, 50, 53, 57], Bb = [34, 50, 53, 58], D = [38, 50, 54, 57], Bm = [35, 50, 54, 59], G = [31, 50, 55, 59], A = [33, 49, 52, 57];
+    // 开场：低弦乐 Dm，竖琴零星拨弦，风声
+    S.at(0, I.strings, Dm, 3.2, 1.1); S.at(0, wind, 3.4, .7);
+    [62, 65, 69, 74, 69, 65].forEach((m, i) => S.at(.3 + i * beat / 2 * 1.5, harp, m, .6));
+    S.at(2.2, I.strings, Bb, 1.2, 1);
+    // 敲门 → 门开（吱呀 + 渐强）
+    S.at(T_KNOCK, I.impact); S.at(T_KNOCK, I.tom, 38, 1); S.at(T_KNOCK - .38, I.tom, 38, .7);
+    S.at(T_KNOCK + .2, creak, T_OPEN - T_KNOCK - .3); S.at(T_KNOCK + .2, I.riser, T_OPEN - T_KNOCK - .3);
+    S.at(T_KNOCK, I.strings, [38, 45, 50, 53, 57], T_OPEN - T_KNOCK + .3, 1.2); S.at(T_KNOCK + .6, wind, 2.4, 1);
+    // 门开：钟声 + 合唱 + 竖琴上行刮奏
+    S.at(T_OPEN, I.bell, 74, 1.2); S.at(T_OPEN, I.bell, 62, 1); S.at(T_OPEN, I.kick, .6);
+    S.at(T_OPEN, choir, [62, 66, 69, 74], 4.2, 1); S.at(T_OPEN, I.strings, D, 3.2, 1.2);
+    [50, 54, 57, 62, 66, 69, 74, 78, 81, 86].forEach((m, i) => S.at(T_OPEN + i * .055, harp, m, .8));
+    S.at(T_OPEN + .1, I.shimmer);
+    // 前进：D - Bm - G - A，竖琴八分音符琶音
+    const PR = [D, Bm, G, A, D];
+    for (let b = 0; b < 5; b++) {
+      const t0 = T_OPEN + .75 + b * bar * .5 * 1.0, ch = PR[b];
+      if (t0 > T_RAISE) break;
+      S.at(t0, I.strings, ch, bar * .5 + .3, 1);
+      [0, 1, 2, 3, 2, 1].forEach((k, i) => S.at(t0 + i * beat / 3, harp, ch[1 + (k % 3)] + (k === 3 ? 12 : 12), .55));
+    }
+    for (let s = 0; s < 14; s++) { const x = T_WALK + s * beat / 2; if (x < T_STOP) S.at(x, step, s % 2 ? .7 : 1); }
+    // 举剑：钟 + 闪光音 + 大和弦
+    S.at(T_RAISE - .2, I.swish); S.at(T_RAISE, I.bell, 81, 1.3); S.at(T_RAISE, I.bell, 69, 1); S.at(T_RAISE, I.chime); S.at(T_RAISE, I.impact);
+    S.at(T_RAISE, choir, [62, 66, 69, 74, 78], 3.0, 1.1); S.at(T_RAISE, I.strings, [38, 50, 57, 62, 66], 3.2, 1.3);
+    S.at(T_TITLE, I.bell, 74, .7);
+    [74, 78, 81, 86].forEach((m, i) => S.at(T_TITLE + .2 + i * .18, harp, m, .6));
+  }
+});
+</script></body></html>

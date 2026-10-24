@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>工程蓝图 · 一把雨伞</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@500;700&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+const BPM = 120, BEAT = 60 / BPM;
+const MONO = '"IBM Plex Mono", Menlo, monospace', ZH = '"Noto Sans SC", "PingFang SC", sans-serif';
+const INK = '#EAF3FF', BG = '#133F74', FILL = '#1A4B86';
+// ---- timeline (seconds), shared by draw() and score(); every key action sits on a beat (0.5 s) ----
+const T_SHAFT = 1.0, T_RIBS = 2.0, OPEN = [2.5, 3.0, 3.5, 4.0], DIMS = [4.5, 5.0, 5.5];
+const EXP = [6.5, 7.0, 7.5], ASM = [8.5, 9.0, 9.5], STAMP = 10.0, RAIN = 10.5, OUT = 14.45;
+// ---- umbrella geometry (1 px = 2 mm) ----
+const CX = 560, TOP = 220, L = 300, TILT = .2, SB = 540;
+const TH_OPEN = 66 * Math.PI / 180, TH_FOLD = 3 * Math.PI / 180;
+const EXPL = { canopy: -130, ferrule: -150, handle: 55 };
+const PARTS = [[1, '中棒', '铝合金', '1', T_SHAFT], [2, '伞骨', '弹簧钢', '8', T_RIBS], [3, '滑块', '尼龙', '1', T_RIBS + .25], [4, '伞面', '涤纶', '1', EXP[0]], [5, '伞尖', '黄铜', '1', EXP[1]], [6, '手柄', '胡桃木', '1', EXP[2]]];
+const ZHTXT = '雨伞总装图零件表序号名称材料数量中棒铝合金伞骨弹簧钢滑块尼龙伞面涤纶伞尖黄铜手柄胡桃木图号比例单位第张共装配完成·';
+// paper mottling, generated once
+const MOT = document.createElement('canvas'); MOT.width = 64; MOT.height = 36;
+{ const g = MOT.getContext('2d'), im = g.createImageData(64, 36); for (let i = 0; i < im.data.length; i += 4) { const v = Math.random() * 255; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; } g.putImageData(im, 0, 0); }
+
+function ribPt(phi, o, s) {
+  const th = TH_FOLD + (TH_OPEN - TH_FOLD) * o, d = L * s, b = 10 * o * Math.sin(Math.PI * s);
+  const r = Math.sin(th) * d + Math.cos(th) * b, y = Math.cos(th) * d - Math.sin(th) * b;
+  return [CX + r * Math.cos(phi), TOP + y + r * Math.sin(phi) * TILT, r, y];
+}
+const RIB_R = ribPt(0, 1, 1)[2];
+// canopy top silhouette (for rain), sampled once
+const SIL = []; for (let i = 0; i <= 60; i++) { const p = ribPt(0, 1, i / 60); SIL.push([p[2], TOP + p[3]]); }
+const silY = dx => { dx = Math.abs(dx); for (let i = 1; i < SIL.length; i++) if (SIL[i][0] >= dx) { const a = SIL[i - 1], b = SIL[i], u = (dx - a[0]) / (b[0] - a[0] || 1); return a[1] + (b[1] - a[1]) * u; } return SIL[SIL.length - 1][1]; };
+const hemY = dx => TOP + SIL[60][1] - TOP + RIB_R * TILT * Math.sqrt(Math.max(0, 1 - (dx / RIB_R) ** 2));
+const openAt = t => OPEN.reduce((a, b) => a + .25 * Math.min(1.04, (x => x <= 0 ? 0 : x >= 1 ? 1 : 1 + 2.4 * Math.pow(x - 1, 3) + 1.4 * Math.pow(x - 1, 2))((t - b + .06) / .2)), 0);
+
+Film({
+  title: '工程蓝图 · 一把雨伞', DUR: 15, BPM, poster: 12.3,
+  fonts: [['500 17px "IBM Plex Mono"', 'UMBRELLA ASSY UMB-001 PARTS NO QTY Ø1100 820 66° 0123456789 mm ABCDEF 1:5'], ['500 18px "Noto Sans SC"', ZHTXT], ['700 24px "Noto Sans SC"', ZHTXT]],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, ease, easeOut, easeIn, hash, rrect } = F;
+    // ---------- helpers ----------
+    const line = (w = 2, a = 1, dash) => { c.strokeStyle = `rgba(234,243,255,${a})`; c.lineWidth = w; c.setLineDash(dash || []); c.lineCap = 'round'; c.lineJoin = 'round'; };
+    let tip = null;
+    // partial polyline by length; returns the pen tip if unfinished
+    const pl = (pts, u = 1, close) => {
+      if (u <= 0 || pts.length < 2) return;
+      if (close) pts = pts.concat([pts[0]]);
+      let tot = 0; const seg = []; for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); seg.push(d); tot += d; }
+      let l = tot * clamp(u, 0, 1); c.beginPath(); c.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length && l > 0; i++) { const f = Math.min(1, l / seg[i - 1]); const x = lerp(pts[i - 1][0], pts[i][0], f), y = lerp(pts[i - 1][1], pts[i][1], f); c.lineTo(x, y); if (u < 1) tip = [x, y]; l -= seg[i - 1]; }
+      c.stroke();
+    };
+    const arcPts = (x, y, r, a0, a1, n = 24) => { const p = []; for (let i = 0; i <= n; i++) { const a = lerp(a0, a1, i / n); p.push([x + Math.cos(a) * r, y + Math.sin(a) * r]); } return p; };
+    const arrow = (x, y, ang, s = 12) => { c.save(); c.translate(x, y); c.rotate(ang); c.beginPath(); c.moveTo(0, 0); c.lineTo(-s, -3.2); c.lineTo(-s, 3.2); c.closePath(); c.fillStyle = INK; c.fill(); c.restore(); };
+    const txt = (s, x, y, font, align = 'left', a = 1) => { c.font = font; c.textAlign = align; c.textBaseline = 'middle'; c.fillStyle = `rgba(234,243,255,${a})`; c.fillText(s, x, y); };
+    const ribPts = (phi, o, dy = 0) => { const p = []; for (let i = 0; i <= 24; i++) { const q = ribPt(phi, o, i / 24); p.push([q[0], q[1] + dy]); } return p; };
+
+    // ---------- sheet ----------
+    const bg = c.createRadialGradient(560, 330, 80, 640, 360, 820); bg.addColorStop(0, '#1A4E8A'); bg.addColorStop(1, '#0E3261');
+    c.fillStyle = bg; c.fillRect(0, 0, W, H);
+    c.save(); c.globalAlpha = .1; c.globalCompositeOperation = 'soft-light'; c.imageSmoothingEnabled = true; c.drawImage(MOT, 0, 0, W, H); c.restore();
+    const ga = easeOut(prog(t, 0, .7));
+    c.save(); c.beginPath(); c.rect(34, 34, W - 68, H - 68); c.clip();
+    for (let x = 40; x < W; x += 20) { line(1, x % 100 === 40 ? .13 * ga : .055 * ga); c.beginPath(); c.moveTo(x, 34); c.lineTo(x, H - 34); c.stroke(); }
+    for (let y = 40; y < H; y += 20) { line(1, y % 100 === 40 ? .13 * ga : .055 * ga); c.beginPath(); c.moveTo(34, y); c.lineTo(W - 34, y); c.stroke(); }
+    c.restore();
+    line(2, .9); pl([[14, 14], [W - 14, 14], [W - 14, H - 14], [14, H - 14]], easeOut(prog(t, 0, .8)), true);
+    line(1.2, .75); pl([[34, 34], [W - 34, 34], [W - 34, H - 34], [34, H - 34]], easeOut(prog(t, .1, .9)), true);
+    if (t > .5) { const a = prog(t, .5, .9); for (let k = 0; k < 6; k++) { const x = 34 + (k + .5) * (W - 68) / 6; txt(String(k + 1), x, 24, `500 11px ${MONO}`, 'center', .7 * a); txt(String(k + 1), x, H - 24, `500 11px ${MONO}`, 'center', .7 * a); if (k) { line(1, .6 * a); const xx = 34 + k * (W - 68) / 6; c.beginPath(); c.moveTo(xx, 14); c.lineTo(xx, 34); c.moveTo(xx, H - 34); c.lineTo(xx, H - 14); c.stroke(); } }
+      for (let k = 0; k < 4; k++) { const y = 34 + (k + .5) * (H - 68) / 4; txt('ABCD'[k], 24, y, `500 11px ${MONO}`, 'center', .7 * a); txt('ABCD'[k], W - 24, y, `500 11px ${MONO}`, 'center', .7 * a); } }
+
+    // ---------- the drawing, with a faint ink bleed ----------
+    c.save(); c.shadowColor = 'rgba(170,215,255,.55)'; c.shadowBlur = 4;
+    const o = openAt(t);
+    const dyOf = (k, t0) => { const e = EXPL[k]; if (t < t0 - .3) return e; const u = prog(t, t0 - .3, t0); return lerp(e, 0, easeIn(u)) + (t > t0 && t < t0 + .15 ? Math.sin(prog(t, t0, t0 + .15) * Math.PI) * -4 * Math.sign(e) : 0); };
+    const dyC = dyOf('canopy', ASM[0]), dyF = dyOf('ferrule', ASM[1]), dyH = dyOf('handle', ASM[2]);
+    const assembled = t >= ASM[0];
+    // centre line
+    if (t > T_SHAFT - .2) { line(1, .5, [26, 6, 4, 6]); pl([[CX, 40], [CX, 680]], easeOut(prog(t, T_SHAFT - .2, T_SHAFT + .3))); c.setLineDash([]); }
+    // shaft (tube) + top notch
+    const us = prog(t, T_SHAFT, T_SHAFT + .45);
+    if (us > 0) { c.fillStyle = FILL; if (us >= 1) { c.fillRect(CX - 4, TOP - 8, 8, SB - TOP + 8); c.fillRect(CX - 9, TOP - 8, 18, 14); } line(2); pl([[CX - 4, TOP + 6], [CX - 4, SB], [CX + 4, SB], [CX + 4, TOP + 6]], us); pl([[CX - 9, TOP + 6], [CX - 9, TOP - 8], [CX + 9, TOP - 8], [CX + 9, TOP + 6]], us, true); }
+    // skeleton: ribs, runner, stretchers
+    const ur = easeOut(prog(t, T_RIBS, T_RIBS + .45));
+    const runner = () => { const q = ribPt(0, o, .42); return TOP + q[3] + Math.sqrt(Math.max(0, 132 * 132 - q[2] * q[2])); };
+    const drawSkeleton = (hidden) => {
+      if (ur <= 0) return;
+      const ry = runner();
+      for (let k = 0; k < 8; k++) {
+        const phi = k * Math.PI / 4, back = Math.sin(phi) < -.01;
+        if (hidden && !back && assembled) continue;
+        line(back ? 1.4 : 2, hidden ? .55 : back ? .6 : 1, hidden || (back && assembled) ? [7, 5] : null);
+        pl(ribPts(phi, o), ur);
+        const q = ribPt(phi, o, .42); line(1.2, hidden ? .45 : back ? .45 : .85, hidden ? [7, 5] : null); pl([[CX + 5 * Math.cos(phi), ry - 12], [q[0], q[1]]], ur);
+        // rib tip cap
+        if (ur >= 1 && !hidden) { const p = ribPt(phi, o, 1); c.beginPath(); c.arc(p[0], p[1], 2.6, 0, 7); c.fillStyle = back ? 'rgba(234,243,255,.6)' : INK; c.fill(); }
+      }
+      c.setLineDash(hidden ? [7, 5] : []); line(1.8, hidden ? .55 : 1, hidden ? [7, 5] : null);
+      if (!hidden) { c.fillStyle = FILL; c.fillRect(CX - 8, ry - 18, 16, 34); }
+      pl([[CX - 8, ry - 18], [CX + 8, ry - 18], [CX + 8, ry + 16], [CX - 8, ry + 16]], ur, true);
+      c.setLineDash([]);
+    };
+    drawSkeleton(false);
+    // handle (J hook, drawn as a tube)
+    const uh = easeOut(prog(t, EXP[2], EXP[2] + .45));
+    if (uh > 0) {
+      const hp = [[CX, SB + 2 + dyH], [CX, SB + 20 + dyH], ...arcPts(CX - 28, SB + 20 + dyH, 28, 0, Math.PI, 20), [CX - 56, SB + 8 + dyH]];
+      c.strokeStyle = INK; c.lineWidth = 15; c.lineCap = 'round'; c.setLineDash([]); pl(hp, uh);
+      c.strokeStyle = FILL; c.lineWidth = 10.5; pl(hp, uh);
+      if (uh >= 1) { line(1, .5); c.beginPath(); c.moveTo(CX - 7, SB + 30 + dyH); c.lineTo(CX + 7, SB + 30 + dyH); c.stroke(); }
+    }
+    // canopy
+    const uc = easeOut(prog(t, EXP[0], EXP[0] + .5));
+    if (uc > 0) {
+      const tipAt = phi => { const p = ribPt(phi, 1, 1); return [p[0], p[1] + dyC]; };
+      const hem = []; for (let k = 0; k < 4; k++) { const a = k * Math.PI / 4, b = (k + 1) * Math.PI / 4, m = (a + b) / 2, A = tipAt(a), Bp = tipAt(b); const r = RIB_R * .93, cp = [CX + r * Math.cos(m), TOP + SIL[60][1] - TOP - 14 + r * Math.sin(m) * TILT + dyC]; for (let i = (k ? 1 : 0); i <= 10; i++) { const u = i / 10; hem.push([(1 - u) * (1 - u) * A[0] + 2 * u * (1 - u) * cp[0] + u * u * Bp[0], (1 - u) * (1 - u) * A[1] + 2 * u * (1 - u) * cp[1] + u * u * Bp[1]]); } }
+      const outline = [...ribPts(0, 1, dyC), ...hem, ...ribPts(Math.PI, 1, dyC).reverse()];
+      if (uc >= .6) {
+        c.save(); c.globalAlpha = prog(uc, .6, 1); c.beginPath(); outline.forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath();
+        c.fillStyle = 'rgba(28,80,142,.96)'; c.fill(); c.clip();
+        c.shadowBlur = 0; line(1, .17); for (let x = CX - 420; x < CX + 420; x += 11) { c.beginPath(); c.moveTo(x, TOP - 150 + dyC); c.lineTo(x + 420, TOP + 270 + dyC); c.stroke(); }
+        c.restore();
+      }
+      line(2.2); pl(outline, uc);
+      [Math.PI / 4, Math.PI / 2, 3 * Math.PI / 4].forEach(phi => { line(1.4, .85); pl(ribPts(phi, 1, dyC), uc); });
+      // back hem, hidden line
+      const bh = []; for (let i = 0; i <= 40; i++) { const a = Math.PI + i / 40 * Math.PI, p = ribPt(a, 1, 1); bh.push([p[0], p[1] + dyC]); }
+      line(1.2, .45, [7, 5]); pl(bh, uc); c.setLineDash([]);
+    }
+    if (assembled) drawSkeleton(true);
+    // ferrule
+    const uf = easeOut(prog(t, EXP[1], EXP[1] + .4));
+    if (uf > 0) { const fp = [[CX - 5, TOP - 8 + dyF], [CX - 3, TOP - 34 + dyF], [CX, TOP - 42 + dyF], [CX + 3, TOP - 34 + dyF], [CX + 5, TOP - 8 + dyF]]; if (uf >= 1) { c.beginPath(); fp.forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.fillStyle = FILL; c.fill(); } line(2); pl(fp, uf, true); }
+    // assembly direction arrows while exploded
+    const ea = (t > EXP[0] + .3 ? prog(t, EXP[0] + .3, EXP[0] + .6) : 0) * (1 - prog(t, ASM[0] - .35, ASM[0] - .1));
+    if (ea > 0) { c.save(); c.globalAlpha = ea; line(1.4, 1, [6, 5]); [[CX + 300, TOP - 90, TOP - 20], [CX - 300, TOP - 90, TOP - 20]].forEach(([x, y0, y1]) => { c.beginPath(); c.moveTo(x, y0); c.lineTo(x, y1); c.stroke(); c.setLineDash([]); arrow(x, y1 + 4, Math.PI / 2); c.setLineDash([6, 5]); });
+      c.beginPath(); c.moveTo(CX - 90, SB + 110); c.lineTo(CX - 90, SB + 60); c.stroke(); c.setLineDash([]); arrow(CX - 90, SB + 56, -Math.PI / 2); c.restore(); }
+    c.restore(); // end bleed
+
+    // ---------- dimensions ----------
+    const dimA = (t < EXP[0] ? 1 : lerp(1, .28, prog(t, EXP[0], EXP[0] + .3))) * (t > ASM[2] ? 1 : 1) ;
+    const dimBack = t > ASM[2] + .2 ? prog(t, ASM[2] + .2, ASM[2] + .5) : 0;
+    const da = u => Math.max(dimA, dimBack) * u;
+    // width Ø1100 (below the canopy)
+    let u = easeOut(prog(t, DIMS[0], DIMS[0] + .4));
+    if (u > 0) { const a = da(1), y = 470, xl = CX - RIB_R, xr = CX + RIB_R, tipY = ribPt(0, 1, 1)[1];
+      c.save(); c.globalAlpha = a; line(1); c.beginPath(); c.moveTo(xl, tipY + 10); c.lineTo(xl, lerp(tipY + 10, y + 12, u)); c.moveTo(xr, tipY + 10); c.lineTo(xr, lerp(tipY + 10, y + 12, u)); c.stroke();
+      const m = CX, hw = RIB_R * u; line(1.2); c.beginPath(); c.moveTo(m - hw, y); c.lineTo(m + hw, y); c.stroke(); arrow(m - hw, y, Math.PI); arrow(m + hw, y, 0);
+      if (u > .6) txt('Ø1100', CX + 150, y - 14, `500 18px ${MONO}`, 'center', prog(u, .6, 1)); c.restore(); }
+    // overall length 820 (right)
+    u = easeOut(prog(t, DIMS[1], DIMS[1] + .4));
+    if (u > 0) { const a = da(1), x = 900, y0 = TOP - 42, y1 = SB + 48;
+      c.save(); c.globalAlpha = a; line(1); c.beginPath(); c.moveTo(CX + 12, y0); c.lineTo(lerp(CX + 12, x + 12, u), y0); c.moveTo(CX + 14, y1); c.lineTo(lerp(CX + 14, x + 12, u), y1); c.stroke();
+      const my = (y0 + y1) / 2, hh = (y1 - y0) / 2 * u; line(1.2); c.beginPath(); c.moveTo(x, my - hh); c.lineTo(x, my + hh); c.stroke(); arrow(x, my - hh, -Math.PI / 2); arrow(x, my + hh, Math.PI / 2);
+      if (u > .6) { c.save(); c.translate(x - 14, my); c.rotate(-Math.PI / 2); txt('820', 0, 0, `500 18px ${MONO}`, 'center', prog(u, .6, 1)); c.restore(); } c.restore(); }
+    // opening angle 66°
+    u = easeOut(prog(t, DIMS[2], DIMS[2] + .4));
+    if (u > 0) { const a = da(1); c.save(); c.globalAlpha = a; line(1.1); const a0 = Math.PI / 2, a1 = Math.PI / 2 - TH_OPEN * u; pl(arcPts(CX, TOP, 150, a0, a1, 30)); arrow(CX + Math.cos(a0) * 150, TOP + Math.sin(a0) * 150, Math.PI); arrow(CX + Math.cos(a1) * 150, TOP + Math.sin(a1) * 150, a1 - Math.PI / 2);
+      if (u > .6) txt('66°', CX + Math.cos(Math.PI / 2 - TH_OPEN / 2) * 178, TOP + Math.sin(Math.PI / 2 - TH_OPEN / 2) * 178, `500 18px ${MONO}`, 'center', prog(u, .6, 1)); c.restore(); }
+
+    // ---------- balloons ----------
+    const ry = runner();
+    const BAL = [
+      [1, T_SHAFT + .3, [CX - 4, 500], [420, 512]],
+      [2, T_RIBS + .3, ribPt(Math.PI, o, .72), [180, 262]],
+      [3, T_RIBS + .55, [CX - 8, ry], [420, 420]],
+      [4, EXP[0] + .3, (p => [p[0], p[1] + dyC])(ribPt(Math.PI, 1, .5)), [180, 130]],
+      [5, EXP[1] + .3, [CX + 4, TOP - 25 + dyF], [690, 70]],
+      [6, EXP[2] + .3, [CX - 62, SB + 14 + dyH], [400, 640]]
+    ];
+    BAL.forEach(([n, t0, p, b]) => {
+      const k = easeOut(prog(t, t0, t0 + .3)); if (k <= 0) return;
+      const d = Math.hypot(p[0] - b[0], p[1] - b[1]), ex = b[0] + (p[0] - b[0]) / d * 16, ey = b[1] + (p[1] - b[1]) / d * 16;
+      line(1, .85); c.beginPath(); c.moveTo(ex, ey); c.lineTo(lerp(ex, p[0], k), lerp(ey, p[1], k)); c.stroke();
+      if (k >= 1) { c.beginPath(); c.arc(p[0], p[1], 2.8, 0, 7); c.fillStyle = INK; c.fill(); }
+      c.beginPath(); c.arc(b[0], b[1], 16 * Math.min(1, k * 1.5), 0, 7); c.fillStyle = BG; c.fill(); line(1.5); c.stroke();
+      txt(String(n), b[0], b[1] + 1, `600 16px ${MONO}`, 'center', k);
+    });
+
+    // ---------- parts list + title block ----------
+    const X0 = 960, X1 = 1246;
+    const la = easeOut(prog(t, .6, 1.0));
+    if (la > 0) {
+      c.save(); c.globalAlpha = la; line(1.2); c.strokeRect(X0, 48, X1 - X0, 34 + 30 * 6);
+      c.beginPath(); c.moveTo(X0, 82); c.lineTo(X1, 82); [995, 1085, 1190].forEach(x => { c.moveTo(x, 48); c.lineTo(x, 262); }); c.stroke();
+      txt('序号', 977, 66, `500 13px ${ZH}`, 'center', .8); txt('名称', 1040, 66, `500 13px ${ZH}`, 'center', .8); txt('材料', 1137, 66, `500 13px ${ZH}`, 'center', .8); txt('数量', 1218, 66, `500 13px ${ZH}`, 'center', .8);
+      PARTS.forEach(([n, nm, mat, q, t0], i) => { const y = 97 + i * 30, a = prog(t, t0 + .3, t0 + .5); if (i) { line(.8, .35); c.beginPath(); c.moveTo(X0, y - 15); c.lineTo(X1, y - 15); c.stroke(); } if (a <= 0) return; txt(String(n), 977, y, `500 15px ${MONO}`, 'center', a); txt(nm, 1040, y, `500 16px ${ZH}`, 'center', a); txt(mat, 1137, y, `500 15px ${ZH}`, 'center', a * .85); txt(q, 1218, y, `500 15px ${MONO}`, 'center', a); });
+      // title block
+      line(1.6); c.strokeRect(X0, 548, X1 - X0, 138); line(1); c.beginPath(); c.moveTo(X0, 598); c.lineTo(X1, 598); c.moveTo(X0, 642); c.lineTo(X1, 642); c.moveTo(1103, 598); c.lineTo(1103, 686); c.stroke();
+      txt('雨伞 · 总装图', X0 + 16, 574, `700 24px ${ZH}`, 'left'); txt('UMBRELLA ASSY', X1 - 12, 576, `500 12px ${MONO}`, 'right', .7);
+      txt('图号 UMB-001', X0 + 14, 620, `500 15px ${ZH}`); txt('比例 1:5', 1117, 620, `500 15px ${ZH}`);
+      txt('单位 mm', X0 + 14, 664, `500 15px ${ZH}`); txt('第 1 张 共 1 张', 1117, 664, `500 15px ${ZH}`);
+      c.restore();
+    }
+
+    // ---------- rain ----------
+    const rain = prog(t, RAIN, RAIN + .9);
+    if (rain > 0) {
+      const tipY = ribPt(0, 1, 1)[1];
+      for (let i = 0; i < 190; i++) {
+        if (hash(i * 7.1) > rain) continue;
+        const sp = 820 + hash(i * 3.3) * 240, span = 760, ph = hash(i * 9.7) * span, x0 = 40 + hash(i * 1.9) * 1240;
+        const cyc = Math.floor((t * sp + ph) / span), yy = (t * sp + ph) % span - 40, xs = x0 + hash(cyc * 13.7 + i) * 40 - yy * .16;
+        const dx = xs - CX, over = Math.abs(dx) < RIB_R - 4;
+        let stop = 700;
+        if (over) stop = lerp(silY(dx), hemY(dx), .15 + .7 * hash(i * 5.5 + cyc));
+        if (yy < stop) { if (yy > 36) { line(1.5, .78); c.beginPath(); c.moveTo(xs, yy); c.lineTo(xs + 4, yy - 26); c.stroke(); } }
+        else if (over) { const k = (yy - stop) / sp; if (k < .16) { const e = k / .16, sx = x0 + hash(cyc * 13.7 + i) * 40 - stop * .16; line(1.3, .85 * (1 - e)); for (const s of [-1, 1]) { c.beginPath(); c.moveTo(sx + s * 2, stop - 1); c.lineTo(sx + s * (3 + 9 * e), stop - 3 - 8 * Math.sin(e * Math.PI)); c.stroke(); } } }
+      }
+      // drips off the rib tips
+      [Math.PI / 4, Math.PI / 2, 3 * Math.PI / 4, 0, Math.PI].forEach((phi, k) => {
+        const p = ribPt(phi, 1, 1), per = .5, ph = (t - RAIN - .6 - k * .13); if (ph < 0) return; const f = (ph % per) / per;
+        line(1.4, .8); c.beginPath(); c.moveTo(p[0], p[1] + 6 + f * 230); c.lineTo(p[0], p[1] + 14 + f * 230); c.stroke();
+      });
+    }
+
+    // ---------- stamp ----------
+    if (t > STAMP) {
+      const k = easeOut(prog(t, STAMP, STAMP + .14)), s = lerp(1.7, 1, k);
+      c.save(); c.translate(1103, 420); c.rotate(-.12); c.scale(s, s); c.globalAlpha = Math.min(1, k * 1.3) * .92;
+      c.strokeStyle = '#FFD7A8'; c.lineWidth = 3.5; rrect(c, -118, -46, 236, 92, 10); c.stroke(); c.lineWidth = 1.4; rrect(c, -108, -37, 216, 74, 6); c.stroke();
+      c.fillStyle = '#FFD7A8'; c.font = `700 32px ${ZH}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('装配完成', 0, -6);
+      c.font = `600 13px ${MONO}`; c.fillText('ASSEMBLED · QC PASS', 0, 24);
+      c.fillStyle = BG; for (let i = 0; i < 70; i++) { c.beginPath(); c.arc(-118 + hash(i * 3.1) * 236, -46 + hash(i * 7.3) * 92, .8 + hash(i * 1.7) * 1.8, 0, 7); c.fill(); }
+      c.restore();
+    }
+    // plotter crosshair at the pen tip
+    if (tip) { line(1, .9); c.beginPath(); c.moveTo(tip[0] - 10, tip[1]); c.lineTo(tip[0] + 10, tip[1]); c.moveTo(tip[0], tip[1] - 10); c.lineTo(tip[0], tip[1] + 10); c.stroke(); c.beginPath(); c.arc(tip[0], tip[1], 4, 0, 7); c.stroke(); }
+    F.grain(c, t, .045);
+    F.vignette(c, .35, '4,14,32');
+    const fo = prog(t, OUT, 15); if (fo > 0) { c.fillStyle = `rgba(9,30,58,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    const NB = new WeakMap();
+    const nbuf = ctx => { let b = NB.get(ctx); if (!b) { b = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate); const d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; NB.set(ctx, b); } return b; };
+    const burst = (w, B, d, peak, type, f, q = 1, a = .002, dst = 'sfx') => { const X = B.sfx.context, s = X.createBufferSource(); s.buffer = nbuf(X); const fl = X.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; const g = X.createGain(); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(peak, w + a); g.gain.exponentialRampToValueAtTime(.0001, w + a + d); s.connect(fl); fl.connect(g); g.connect(B[dst]); s.start(w, Math.random()); s.stop(w + a + d + .05); };
+    const tone = (w, B, type, f, d, peak, f2) => { const X = B.sfx.context, o = X.createOscillator(), g = X.createGain(); o.type = type; o.frequency.setValueAtTime(f, w); if (f2) o.frequency.exponentialRampToValueAtTime(f2, w + d); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(peak, w + .002); g.gain.exponentialRampToValueAtTime(.0001, w + d); o.connect(g); g.connect(B.sfx); o.start(w); o.stop(w + d + .05); };
+    // mechanical sounds
+    const ratchet = (w, B) => { for (let i = 0; i < 4; i++) burst(w - .06 + i * .02, B, .012, .22, 'bandpass', 3600, 6); burst(w, B, .05, .35, 'bandpass', 1200, 3); tone(w, B, 'sine', 180, .12, .35, 90); };
+    const clack = (w, B, p = 1) => { burst(w, B, .06, .5, 'bandpass', 900 * p, 2); tone(w, B, 'triangle', 240 * p, .09, .3, 120 * p); burst(w + .03, B, .02, .15, 'highpass', 5000, 1); };
+    const plotter = (w, B, d) => { const X = B.sfx.context, o = X.createOscillator(), g = X.createGain(), fl = X.createBiquadFilter(); o.type = 'square'; o.frequency.setValueAtTime(95, w); o.frequency.linearRampToValueAtTime(140, w + d); fl.type = 'bandpass'; fl.frequency.value = 1400; fl.Q.value = 2; g.gain.setValueAtTime(.0001, w); g.gain.linearRampToValueAtTime(.06, w + .03); g.gain.setValueAtTime(.06, w + d - .04); g.gain.linearRampToValueAtTime(.0001, w + d); o.connect(fl); fl.connect(g); g.connect(B.sfx); o.start(w); o.stop(w + d + .05); };
+    const zip = (w, B) => { const X = B.sfx.context, s = X.createBufferSource(); s.buffer = nbuf(X); const fl = X.createBiquadFilter(); fl.type = 'bandpass'; fl.Q.value = 5; fl.frequency.setValueAtTime(800, w); fl.frequency.exponentialRampToValueAtTime(5000, w + .3); const g = X.createGain(); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.12, w + .05); g.gain.exponentialRampToValueAtTime(.0001, w + .32); s.connect(fl); fl.connect(g); g.connect(B.sfx); s.start(w); s.stop(w + .4); };
+    const rainBed = (w, B) => { const X = B.sfx.context, s = X.createBufferSource(); s.buffer = nbuf(X); s.loop = true; const hp = X.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900; const lp = X.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 6000; const g = X.createGain(); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.2, w + 1); g.gain.setValueAtTime(.2, w + 3.3); g.gain.exponentialRampToValueAtTime(.0001, w + 4.5); s.connect(hp); hp.connect(lp); lp.connect(g); g.connect(B.sfx); s.start(w); s.stop(w + 4.6); };
+    // music: minimal electronic, A minor, 120 BPM
+    const PR = [[57, 64, 69, 72], [53, 60, 65, 69], [48, 55, 60, 64], [55, 62, 67, 71]], RT = [33, 29, 36, 31];
+    S.padBars(PR, 0, 8, 'pad', .7);
+    for (let b = 0; b < 7; b++) { const t0 = b * bar, r = RT[b % 4]; for (let k = 0; k < 4; k++) S.at(t0 + k * beat, I.subbass, r + 12, .3, .8); if (b >= 1) { for (let k = 0; k < 4; k++) S.at(t0 + k * beat, I.kick, .55); for (let e = 0; e < 8; e++) if (e % 2) S.at(t0 + e * beat / 2, I.hat, .7); } }
+    // sixteenth arpeggio from the dimension section on
+    for (let x = DIMS[0]; x < 14; x += beat / 2) { const b = Math.floor(x / bar), ch = PR[b % 4]; S.at(x, I.pluck, ch[Math.round(x / (beat / 2)) % 4] + 12, .35); }
+    S.at(0, I.thud, .6); S.at(.1, (w, B) => plotter(w, B, .7));
+    S.at(T_SHAFT, (w, B) => plotter(w, B, .45));
+    S.at(T_RIBS, (w, B) => plotter(w, B, .45));
+    OPEN.forEach(x => S.at(x, ratchet));
+    DIMS.forEach(x => { S.at(x, zip); S.at(x + .4, I.tick, 1.4); });
+    PARTS.forEach(p => S.at(p[4] + .3, I.tick, 1));
+    EXP.forEach(x => S.at(x, (w, B) => plotter(w, B, .45)));
+    ASM.forEach((x, i) => { S.at(x - .3, I.swish); S.at(x, clack, [1, 1.4, .8][i]); });
+    S.at(STAMP, I.thud, 1.2); S.at(STAMP, I.impact);
+    S.at(RAIN - .2, rainBed);
+    for (let i = 0; i < 60; i++) S.at(RAIN + .4 + i * .061 + (i * 37 % 7) * .007, (w, B) => burst(w, B, .02, .05 + (i % 5) * .012, 'bandpass', 2400 + (i * 53 % 9) * 300, 3));
+    S.at(12.5, (w, B) => [57, 64, 69, 71, 76].forEach(m => I.keys(w, B, m, .9, 2.4)));
+    S.at(OUT - .1, (w, B) => [45, 57, 64, 69].forEach(m => I.keys(w, B, m, .8, 1.2)));
+  }
+});
+</script></body></html>

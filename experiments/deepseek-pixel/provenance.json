@@ -1,0 +1,30 @@
+{
+  "configured_model": "deepseek-flash",
+  "provider": "deepseek-official",
+  "harness_version": "0.2.0-rc.2",
+  "input_files": [
+    "_engine/core.js",
+    "pixel-game/STYLE.md"
+  ],
+  "original_demo_provided": false,
+  "source_written_by": "DeepSeek",
+  "packaging_change_by_codex": "relative script URL only",
+  "original_generated_sha256": "4ee951e3862511e0bd04a31822d39198a687b41e6e8ed23149ced0e1f22e650f",
+  "public_source_sha256": "2cff6905cc6c79d6fb8b8dac185566bda844051698793d823c8b6e929dcd8a03",
+  "input_sha256": {
+    "_engine/core.js": "4dd8e0b0cb281e3eab15eb526e7716c52024274fccb303eb8d79cef365d42018",
+    "pixel-game/STYLE.md": "2b7851785235188c40be4370d40f706fc0bc2a23d29ef9a281ade0fe1d29b0b6"
+  },
+  "output_video_sha256": "b56a65a6de9acc9d1218ebeb387289a5be882c64cf01770a4a62811f90e7b130",
+  "technical_check": {
+    "duration_seconds": 15,
+    "frames": 450,
+    "dimensions": [
+      1920,
+      1080
+    ],
+    "full_decode": "passed",
+    "repeat_time_pixels": "passed",
+    "audio_listening": "not verified"
+  }
+}

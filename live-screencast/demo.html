@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>活体录屏 · 纸团小人教你用表格</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700;900&text=表格示例排序筛选图表水果销量对比苹果香蕉橙子葡萄西瓜草莓全部显示已生成一键项（）·✓↓fx0123456789ABC>：">
+<script src="../_engine/core.js"></script></head><body><script>
+const SANS = '"Noto Sans SC", "PingFang SC", sans-serif';
+const BLUE = '#2F7DF6', INK = '#1F2733', GRID = '#E3E6EB', HEAD = '#F1F3F6', TEAL = '#35B28A';
+// ---- 时间表（120 BPM，一拍 0.5 秒）----
+const DROP = [.5, 1.0];
+const GRAB = 2.5, PUT = 3.0;                                // 拖动排序
+// 归位：每行的关键帧 [时刻, 第几行位, 右移比例]。右移 1 = 被拎到表格右侧的“通道”里（整行右移 LANE px，只盖住 C 列的数据条，不挡任何文字）。
+// 通道里的行只竖着走、彼此不重叠；表格里的行只挪进空位；进出通道都在自己那一行横着走。全部落在十六分音符（0.125 秒）上，3.0 放下 → 4.0 归位完成。
+const Q = .125, LANE = 310;
+const SORTK = {
+  0: [[2.65, 0, 0], [2.9, 1, 0], [PUT + 5 * Q, 1, 0], [PUT + 7 * Q, 2, 0]],                                   // 苹果：扛的时候下移让位；香蕉离开后再下移一格
+  1: [[2.65, 1, 0], [2.9, 2, 0], [PUT + 4 * Q, 2, 0], [PUT + 5 * Q, 2, 1], [PUT + 7 * Q, 5, 1], [PUT + 8 * Q, 5, 0]], // 香蕉：让位 → 拎出 → 通道下行 → 落回
+  3: [[PUT + 3 * Q, 3, 0], [PUT + 4 * Q, 4, 0]],                                                              // 葡萄：下移一格进西瓜腾出的空位
+  4: [[PUT, 4, 0], [PUT + Q, 4, 1], [PUT + 3 * Q, 1, 1], [PUT + 7 * Q, 1, 1], [PUT + 8 * Q, 1, 0]],            // 西瓜：拎出 → 通道上行 → 等苹果让开 → 落回
+  5: [[PUT, 5, 0], [PUT + Q, 5, 1], [PUT + 3 * Q, 3, 1], [PUT + 4 * Q, 3, 1], [PUT + 5 * Q, 3, 0]],            // 草莓：拎出 → 通道上行 → 等葡萄让开 → 落回
+};
+const SORT_TICKS = [3, 4, 5, 7, 8].map(n => PUT + n * Q);    // 每次有行到位的时刻
+const FBTN = 4.5, CHECK = 5.0, HIDE = [5.0, 5.5];          // 筛选
+const CBTN = 6.0, BARS = [6.5, 6.75, 7.0, 7.25];          // 一键出图表
+const STEP = [7.5, 8.0, 8.5, 9.0];                          // 在柱子上跳台阶
+const TOAST = 9.5, CAP = 12.0, FADE = 14.45;
+// 移动：[开始, 落地, 目标x, 目标脚底y, 弧高]
+const SHX = 200, SLIDE = [5.6, 6.1];                     // 开头表格居中，出图表前滑到左边
+const MOVES = [[2.0, 2.5, 600 + SHX, 390, 70], [2.5, 3.0, 600 + SHX, 294, 90], [4.0, FBTN, 268, 108, 90], [4.5, CHECK, 408, 196, 50],
+  [5.5, CBTN, 370, 108, 60], [7.0, 7.5, 790, 260, 60], [7.5, 8.0, 885, 315, 70], [8.0, 8.5, 980, 366, 60], [8.5, 9.0, 1075, 403, 55], [11.0, 11.5, 790, 260, 170]];
+const JOY = [10.0, 10.5, 12.5, 13.0];                      // 原地欢跳
+const LANDS = [DROP[1], ...MOVES.map(m => m[1]), ...JOY.map(x => x + .35)];
+const DATA = [['苹果', 42], ['香蕉', 17], ['橙子', 65], ['葡萄', 28], ['西瓜', 53], ['草莓', 34]];
+const FINAL = [2, 5, 0, 4, 1, 3];                           // 每项排序后的位置
+const CHART = [2, 4, 0, 5];                                 // 筛选后剩下的四项（按销量降序）
+// 纸团纹理：初始化时用随机数揉一次，之后每帧只贴图
+const paper = document.createElement('canvas'); paper.width = paper.height = 128;
+const RIM = Array.from({ length: 18 }, () => Math.random());
+{
+  const p = paper.getContext('2d'); p.fillStyle = '#F4F0E6'; p.fillRect(0, 0, 128, 128);
+  const pts = Array.from({ length: 34 }, () => [Math.random() * 128, Math.random() * 128]);
+  for (let i = 0; i < 70; i++) {
+    const a = pts[Math.floor(Math.random() * 34)], b = pts[Math.floor(Math.random() * 34)], cc = pts[Math.floor(Math.random() * 34)];
+    p.beginPath(); p.moveTo(...a); p.lineTo(...b); p.lineTo(...cc); p.closePath();
+    const v = Math.random(); p.fillStyle = v > .5 ? `rgba(255,255,255,${.25 * v})` : `rgba(120,105,80,${.12 * (1 - v)})`; p.fill();
+  }
+  p.lineCap = 'round';
+  for (let i = 0; i < 22; i++) { const a = pts[Math.floor(Math.random() * 34)], b = pts[Math.floor(Math.random() * 34)]; p.strokeStyle = `rgba(110,95,70,${.18 + Math.random() * .2})`; p.lineWidth = .8 + Math.random(); p.beginPath(); p.moveTo(...a); p.lineTo((a[0] + b[0]) / 2 + (Math.random() - .5) * 20, (a[1] + b[1]) / 2 + (Math.random() - .5) * 20); p.lineTo(...b); p.stroke(); p.strokeStyle = 'rgba(255,255,255,.6)'; p.lineWidth = .6; p.beginPath(); p.moveTo(a[0] + 1, a[1] + 1); p.lineTo(b[0] + 1, b[1] + 1); p.stroke(); }
+}
+Film({
+  title: '活体录屏 · 纸团小人教你用表格', DUR: 15, BPM: 120, poster: 8.25,
+  fonts: [['700 18px "Noto Sans SC"', '表格示例排序筛选图表水果销量对比苹果香蕉橙子葡萄西瓜草莓全部显示已生成一键项（）·✓↓fx0123456789ABC>：'], ['900 30px "Noto Sans SC"', '排序筛选一键出图表·']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, ease, easeOut, easeIn, back, hash, rrect } = F;
+    // ---------- 小人位置 ----------
+    function hero() {
+      let x = 560 + SHX, y = 246, air = 0, u = 1, vx = 0, carry = false;
+      if (t < DROP[1]) { const k = easeIn(prog(t, ...DROP)); return { x, y: lerp(-80, 246, k), air: t > DROP[0] ? 1 : 0, vx: 0, carry }; }
+      for (const [a, b, x1, y1, h] of MOVES) {
+        if (t < a) break;
+        if (t < b) { u = (t - a) / (b - a); const px = x, py = y; x = lerp(px, x1, u); y = lerp(py, y1, u) - h * 4 * u * (1 - u); air = 1; vx = x1 - px; carry = a === GRAB; return { x, y, air, vx, carry, u }; }
+        x = x1; y = y1;
+      }
+      for (const j of JOY) if (t > j && t < j + .35) { const q = (t - j) / .35; y -= 46 * 4 * q * (1 - q); air = 1; }
+      return { x, y, air, vx, carry };
+    }
+    const me = hero();
+    const landK = LANDS.reduce((a, l) => t >= l && t < l + .16 ? 1 - (t - l) / .16 : a, 0);
+    // ---------- 桌面 + 窗口 ----------
+    const bg = c.createLinearGradient(0, 0, W, H); bg.addColorStop(0, '#E9EEF4'); bg.addColorStop(1, '#DDE4EC'); c.fillStyle = bg; c.fillRect(0, 0, W, H);
+    const win = easeOut(prog(t, 0, .45));
+    c.save(); c.globalAlpha = win; c.translate(640, 360); c.scale(.96 + .04 * win, .96 + .04 * win); c.translate(-640, -360);
+    c.save(); c.shadowColor = 'rgba(30,40,60,.2)'; c.shadowBlur = 40; c.shadowOffsetY = 16; c.fillStyle = '#FFFFFF'; rrect(c, 90, 50, 1100, 612, 14); c.fill(); c.restore();
+    c.fillStyle = '#F6F7F9'; rrect(c, 90, 50, 1100, 44, 14); c.fill(); c.fillRect(90, 80, 1100, 14);
+    [0, 1, 2].forEach(i => { c.beginPath(); c.arc(114 + i * 20, 72, 6, 0, Math.PI * 2); c.fillStyle = '#CDD2DA'; c.fill(); });
+    c.font = `700 15px ${SANS}`; c.fillStyle = '#6B7684'; c.textAlign = 'center'; c.fillText('表格（示例）', 640, 77); c.textAlign = 'left';
+    c.fillStyle = '#FBFBFC'; c.fillRect(90, 94, 1100, 58); c.fillStyle = GRID; c.fillRect(90, 151, 1100, 1);
+    // 工具栏按钮
+    const btn = (x, label, icon, tHit, active) => {
+      const down = t > tHit - .02 && t < tHit + .16, lit = active;
+      c.save(); c.translate(0, down ? 3 : 0);
+      c.fillStyle = lit ? '#E8F0FE' : '#FFFFFF'; rrect(c, x, 108, 92, 36, 8); c.fill(); c.strokeStyle = lit ? BLUE : '#D9DEE5'; c.lineWidth = 1.5; c.stroke();
+      c.strokeStyle = lit ? BLUE : '#5A6573'; c.fillStyle = lit ? BLUE : '#5A6573'; c.lineWidth = 2; c.lineCap = 'round'; icon(x + 22, 126);
+      c.font = `700 15px ${SANS}`; c.fillText(label, x + 38, 131); c.restore();
+      if (t > tHit && t < tHit + .5) { const q = prog(t, tHit, tHit + .5); c.save(); c.globalAlpha = 1 - q; c.strokeStyle = BLUE; c.lineWidth = 3; rrect(c, x - 8 * q, 108 - 8 * q, 92 + 16 * q, 36 + 16 * q, 10); c.stroke(); c.restore(); }
+    };
+    btn(120, '排序', (x, y) => { c.beginPath(); c.moveTo(x - 5, y - 7); c.lineTo(x - 5, y + 7); c.moveTo(x - 9, y + 3); c.lineTo(x - 5, y + 7); c.lineTo(x - 1, y + 3); c.moveTo(x + 3, y - 5); c.lineTo(x + 10, y - 5); c.moveTo(x + 3, y); c.lineTo(x + 8, y); c.moveTo(x + 3, y + 5); c.lineTo(x + 6, y + 5); c.stroke(); }, GRAB, t > PUT && t < FBTN);
+    btn(222, '筛选', (x, y) => { c.beginPath(); c.moveTo(x - 8, y - 6); c.lineTo(x + 8, y - 6); c.lineTo(x + 2, y + 1); c.lineTo(x + 2, y + 7); c.lineTo(x - 2, y + 5); c.lineTo(x - 2, y + 1); c.closePath(); c.stroke(); }, FBTN, t > FBTN && t < CBTN);
+    btn(324, '图表', (x, y) => { c.fillRect(x - 8, y, 4, 7); c.fillRect(x - 2, y - 6, 4, 13); c.fillRect(x + 4, y - 2, 4, 9); }, CBTN, t > CBTN);
+    // 公式栏
+    const fx = t < GRAB ? ['A1', '水果'] : t < FBTN ? ['B2', '65'] : t < CBTN ? ['筛选', '销量 > 30'] : ['图表', '销量（4 项）'];
+    c.fillStyle = '#FFFFFF'; rrect(c, 450, 108, 420, 36, 8); c.fill(); c.strokeStyle = '#D9DEE5'; c.lineWidth = 1.5; c.stroke();
+    c.font = `700 14px ${SANS}`; c.fillStyle = '#8A94A3'; c.fillText(fx[0], 464, 131); c.fillStyle = '#C3C9D2'; c.fillText('fx', 520, 131); c.fillStyle = INK; c.font = `400 15px ${SANS}`; c.fillText(fx[1], 548, 131);
+    // ---------- 表格 ----------
+    const sx = SHX * (1 - ease(prog(t, ...SLIDE)));
+    c.save(); c.translate(sx, 0);
+    const X0 = 110, XA = 150, XB = 330, XC = 450, X1 = 650, Y0 = 170, YH = 198, RH = 48, YD = 246;
+    c.fillStyle = HEAD; c.fillRect(X0, Y0, X1 - X0, YH - Y0); c.fillRect(X0, Y0, XA - X0, 630 - Y0);
+    c.strokeStyle = GRID; c.lineWidth = 1;
+    for (let y = YH; y <= 630; y += RH) { c.beginPath(); c.moveTo(X0, y + .5); c.lineTo(X1, y + .5); c.stroke(); }
+    [X0, XA, XB, XC, X1].forEach(x => { c.beginPath(); c.moveTo(x + .5, Y0); c.lineTo(x + .5, 630); c.stroke(); });
+    c.beginPath(); c.moveTo(X0, Y0 + .5); c.lineTo(X1, Y0 + .5); c.stroke();
+    c.font = `700 13px ${SANS}`; c.fillStyle = '#8A94A3'; c.textAlign = 'center';
+    ['A', 'B', 'C'].forEach((s, i) => c.fillText(s, [XA + 90, XB + 60, XC + 100][i], Y0 + 19));
+    for (let r = 0; r < 9; r++) c.fillText(String(r + 1), 130, YH + r * RH + 29);
+    c.textAlign = 'left';
+    c.font = `700 16px ${SANS}`; c.fillStyle = INK; c.fillText('水果', XA + 16, YH + 30); c.fillText('销量', XB + 16, YH + 30); c.fillText('对比', XC + 16, YH + 30);
+    // 表头上的排序 / 筛选标记
+    if (t > PUT) { c.save(); c.globalAlpha = easeOut(prog(t, PUT, PUT + .3)); c.fillStyle = BLUE; c.font = `700 15px ${SANS}`; c.fillText('↓', XB + 58, YH + 30); c.restore(); }
+    if (t > CHECK) { c.save(); c.globalAlpha = easeOut(prog(t, CHECK, CHECK + .3)); c.strokeStyle = BLUE; c.lineWidth = 2; const x = XB + 90, y = YH + 24; c.beginPath(); c.moveTo(x - 7, y - 6); c.lineTo(x + 7, y - 6); c.lineTo(x + 2, y); c.lineTo(x + 2, y + 6); c.lineTo(x - 2, y + 4); c.lineTo(x - 2, y); c.closePath(); c.stroke(); c.restore(); }
+    // 行：位置随排序变化；被拖的一行跟着小人
+    // 行位置：{ y, l: 右移比例, mv: 是否正在移动 }
+    const rowPos = i => {
+      if (i === 2) return { y: t < GRAB ? YD + 2 * RH : t < PUT ? me.y - RH - 6 : YD, l: 0, mv: false };
+      const K = SORTK[i];
+      if (t <= K[0][0]) return { y: YD + K[0][1] * RH, l: K[0][2], mv: false };
+      for (let j = 1; j < K.length; j++) if (t < K[j][0]) {
+        const [a, b0, l0] = K[j - 1], [b, b1, l1] = K[j], k = ease(prog(t, a, b));
+        return { y: YD + lerp(b0, b1, k) * RH, l: lerp(l0, l1, k), mv: b0 !== b1 || l0 !== l1 };
+      }
+      const L = K[K.length - 1]; return { y: YD + L[1] * RH, l: L[2], mv: false };
+    };
+    const divs = (y, h) => { c.fillStyle = GRID; c.fillRect(XB, y, 1, h); c.fillRect(XC, y, 1, h); };
+    const drawRow = (i, lifted) => {
+      const p = rowPos(i), y = p.y, [name, v] = DATA[i], hid = (i === 3 || i === 1) ? easeOut(prog(t, ...HIDE)) : 0;
+      if (hid >= 1) return;
+      c.save(); c.globalAlpha *= 1 - hid;
+      if (lifted) { c.shadowColor = 'rgba(30,40,60,.25)'; c.shadowBlur = 18; c.shadowOffsetY = 8; c.fillStyle = '#FFFFFF'; c.fillRect(XA - 4, y, X1 - XA + 8, RH); c.shadowColor = 'transparent'; c.strokeStyle = BLUE; c.lineWidth = 2; c.strokeRect(XA - 4, y, X1 - XA + 8, RH); }
+      else if (p.l > 0) {
+        // 被拎到右侧通道：整行右移 + 放大 3% + 投影，像被捏起来
+        const s = 1 + .03 * p.l, mx = (XA + X1) / 2, my = y + RH / 2;
+        c.translate(mx + p.l * LANE, my); c.scale(s, s); c.translate(-mx, -my);
+        c.shadowColor = `rgba(30,40,60,${.22 * p.l})`; c.shadowBlur = 16; c.shadowOffsetY = 6 * p.l; c.fillStyle = '#FFFFFF'; c.fillRect(XA - 4, y, X1 - XA + 8, RH); c.shadowColor = 'transparent';
+        divs(y, RH); c.strokeStyle = '#C9D3E1'; c.lineWidth = 1.5; c.strokeRect(XA - 4, y, X1 - XA + 8, RH);
+      }
+      else if (p.mv) { c.fillStyle = '#FFFFFF'; c.fillRect(XA + 1, y + 1, X1 - XA - 1, RH - 1); divs(y + 1, RH - 1); }
+      else if (i === 2 && t > PUT && t < PUT + .8) { c.fillStyle = `rgba(47,125,246,${.12 * (1 - prog(t, PUT, PUT + .8))})`; c.fillRect(XA, y, X1 - XA, RH); }
+      c.font = `400 17px ${SANS}`; c.fillStyle = INK; c.fillText(name, XA + 16, y + 31);
+      c.textAlign = 'right'; c.fillText(String(v), XB + 100, y + 31); c.textAlign = 'left';
+      c.fillStyle = TEAL; rrect(c, XC + 14, y + 16, 170 * v / 65, 16, 4); c.fill();
+      c.restore();
+    };
+    // 先画静止的行，再画表格里正在挪的行，最后画通道里的行（在最上层）
+    [0, 1, 2, 3, 4, 5].filter(i => !(i === 2 && t > GRAB && t < PUT)).map(i => [i, rowPos(i)]).sort((a, b) => (a[1].l > 0 ? 2 : +a[1].mv) - (b[1].l > 0 ? 2 : +b[1].mv)).forEach(([i]) => drawRow(i, false));
+    c.restore();
+    // ---------- 筛选下拉 ----------
+    if (t > FBTN + .05 && t < 5.75) {
+      const k = back(prog(t, FBTN + .05, FBTN + .35)) * (1 - prog(t, 5.5, 5.75));
+      c.save(); c.translate(222, 152); c.scale(1, clamp(k, 0, 1.2)); c.globalAlpha = clamp(k * 1.5, 0, 1);
+      c.shadowColor = 'rgba(30,40,60,.2)'; c.shadowBlur = 20; c.shadowOffsetY = 8; c.fillStyle = '#FFFFFF'; rrect(c, 0, 6, 220, 96, 10); c.fill(); c.shadowColor = 'transparent';
+      const on = t > CHECK;
+      [['销量 > 30', on], ['全部显示', !on]].forEach(([s, v], r) => {
+        const y = 22 + r * 42;
+        c.fillStyle = v ? BLUE : '#FFFFFF'; rrect(c, 14, y, 22, 22, 5); c.fill(); c.strokeStyle = v ? BLUE : '#B9C1CC'; c.lineWidth = 1.5; c.stroke();
+        if (v) { c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(19, y + 11); c.lineTo(24, y + 16); c.lineTo(32, y + 6); c.stroke(); }
+        c.font = `700 16px ${SANS}`; c.fillStyle = INK; c.fillText(s, 58, y + 17);
+      });
+      c.restore();
+    }
+    // ---------- 图表面板 ----------
+    if (t > CBTN) {
+      const k = back(prog(t, CBTN, CBTN + .45));
+      c.save(); c.translate(930, 400); c.scale(clamp(k, 0, 1.1), clamp(k, 0, 1.1)); c.translate(-930, -400);
+      c.shadowColor = 'rgba(30,40,60,.16)'; c.shadowBlur = 30; c.shadowOffsetY = 10; c.fillStyle = '#FFFFFF'; rrect(c, 700, 176, 460, 450, 14); c.fill(); c.shadowColor = 'transparent';
+      c.strokeStyle = GRID; c.lineWidth = 1; c.stroke();
+      c.font = `700 18px ${SANS}`; c.fillStyle = INK; c.fillText('销量', 728, 212);
+      c.strokeStyle = '#EEF0F3'; for (let g = 1; g <= 3; g++) { c.beginPath(); c.moveTo(740, 560 - g * 100 + .5); c.lineTo(1130, 560 - g * 100 + .5); c.stroke(); }
+      c.strokeStyle = '#B9C1CC'; c.lineWidth = 2; c.beginPath(); c.moveTo(740, 561); c.lineTo(1130, 561); c.stroke();
+      CHART.forEach((d, j) => {
+        const [name, v] = DATA[d], cx = 790 + j * 95, grow = back(prog(t, BARS[j], BARS[j] + .4)), hFull = 300 * v / 65;
+        const sq = STEP.reduce((a, s) => t >= s && t < s + .2 && s === STEP[j] ? Math.sin((t - s) / .2 * Math.PI) : a, 0) + (t >= 11.5 && t < 11.7 && j === 0 ? Math.sin((t - 11.5) / .2 * Math.PI) : 0);
+        const h = hFull * grow - sq * 10;
+        if (grow > 0) { const g = c.createLinearGradient(0, 560 - h, 0, 560); g.addColorStop(0, '#6FA0FF'); g.addColorStop(1, BLUE); c.fillStyle = g; rrect(c, cx - 30, 560 - h, 60, h, 8); c.fill(); c.fillRect(cx - 30, 560 - Math.min(h, 10), 60, Math.min(h, 10)); }
+        c.font = `400 15px ${SANS}`; c.fillStyle = '#5A6573'; c.textAlign = 'center'; c.fillText(name, cx, 588);
+        if (t > STEP[j]) { const q = back(prog(t, STEP[j], STEP[j] + .3)); c.save(); c.translate(cx + 44, 560 - hFull + 6); c.scale(q, q); c.font = `900 16px ${SANS}`; c.fillStyle = BLUE; c.fillText(String(v), 0, 0); c.restore(); }
+        c.textAlign = 'left';
+      });
+      c.restore();
+    }
+    // 被拖动的行画在最上层（小人前面一层之下）
+    if (t > GRAB && t < PUT) { c.save(); c.translate(sx, 0); drawRow(2, true); c.restore(); }
+    // ---------- 纸团小人 ----------
+    drawHero(me);
+    // 被拖的行在小人手里时，小人的手要在行的前面
+    if (me.carry) { const y = me.y - 38; c.fillStyle = '#F4F0E6'; c.strokeStyle = '#8C8373'; c.lineWidth = 1.5; [[-28, y - 14], [28, y - 14]].forEach(([dx, yy]) => { c.beginPath(); c.arc(me.x + dx, yy, 6, 0, Math.PI * 2); c.fill(); c.stroke(); }); }
+    // ---------- toast ----------
+    if (t > TOAST && t < TOAST + 2) {
+      const k = easeOut(prog(t, TOAST, TOAST + .35)) * (1 - prog(t, TOAST + 1.6, TOAST + 2));
+      c.save(); c.globalAlpha = k; c.fillStyle = INK; rrect(c, 250, 612 - 16 * k, 220, 40, 20); c.fill();
+      c.font = `700 16px ${SANS}`; c.fillStyle = '#FFFFFF'; c.fillText('✓ 图表已生成', 304, 638 - 16 * k); c.restore();
+    }
+    c.restore();   // 窗口
+    // ---------- 片尾字幕 ----------
+    if (t > CAP) {
+      const k = back(prog(t, CAP, CAP + .4));
+      c.save(); c.translate(380, 612); c.scale(k, k); c.rotate(-.03);
+      c.font = `900 30px ${SANS}`; const w = c.measureText('排序 · 筛选 · 一键出图表').width + 56;
+      c.shadowColor = 'rgba(30,40,60,.2)'; c.shadowBlur = 16; c.shadowOffsetY = 6; c.fillStyle = '#FFD84D'; rrect(c, -w / 2, -30, w, 60, 30); c.fill(); c.shadowColor = 'transparent';
+      c.fillStyle = INK; c.textAlign = 'center'; c.fillText('排序 · 筛选 · 一键出图表', 0, 11); c.restore();
+    }
+    const fo = prog(t, FADE, 15); if (fo > 0) { c.fillStyle = `rgba(228,234,241,${fo})`; c.fillRect(0, 0, W, H); }
+
+    function drawHero(m) {
+      const R = 26, air = m.air, run = air ? 0 : 0;
+      let sx = 1, sy = 1;
+      if (air) { sx = .92; sy = 1.1; }
+      if (landK > 0) { sx = 1 + .25 * landK; sy = 1 - .22 * landK; }
+      const bx = m.x, by = m.y - 12 - R * sy;         // 身体中心
+      // 影子
+      if (t > DROP[0]) { c.save(); c.globalAlpha = .18; c.fillStyle = '#1F2733'; c.beginPath(); c.ellipse(m.x, m.y + 1, 22 * (air ? .7 : 1), 5, 0, 0, Math.PI * 2); c.fill(); c.restore(); }
+      // 腿
+      c.strokeStyle = '#3B3A36'; c.lineWidth = 3.2; c.lineCap = 'round';
+      const legSw = air ? .5 : 0;
+      [-1, 1].forEach(s => { c.beginPath(); c.moveTo(bx + s * 8, by + R * sy - 4); c.lineTo(bx + s * (10 + legSw * 4), m.y - (air ? 4 : 0)); c.stroke(); c.beginPath(); c.moveTo(bx + s * (10 + legSw * 4), m.y - (air ? 4 : 0)); c.lineTo(bx + s * (15 + legSw * 4), m.y - (air ? 4 : 0)); c.stroke(); });
+      // 手臂
+      const wave = (t > 1.3 && t < 2.0) || t > 13.4 ? Math.sin(t * 18) : 0, cheer = (t > PUT && t < 3.5) || (t > 12.0 && t < 12.5) || (t > 9.0 && t < 9.4) || JOY.some(j => t > j && t < j + .35) || m.carry;
+      [-1, 1].forEach(s => {
+        let hx, hy;
+        if (m.carry) { hx = bx + s * 28; hy = by - 14; }
+        else if (cheer) { hx = bx + s * 30; hy = by - 32; }
+        else if (s === 1 && wave) { hx = bx + 32; hy = by - 26 + wave * 8; }
+        else if (air) { hx = bx + s * 34; hy = by - 6; }
+        else { hx = bx + s * 30; hy = by + 16 + Math.sin(t * 6 + s) * 2; }
+        c.beginPath(); c.moveTo(bx + s * R * .8, by + 4); c.quadraticCurveTo(bx + s * (R + 6), (by + hy) / 2 + 4, hx, hy); c.stroke();
+        if (!m.carry) { c.fillStyle = '#F4F0E6'; c.beginPath(); c.arc(hx, hy, 5, 0, Math.PI * 2); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#8C8373'; c.stroke(); c.lineWidth = 3.2; c.strokeStyle = '#3B3A36'; }
+      });
+      // 身体：不规则轮廓 + 揉皱纹理，空中滚动
+      c.save(); c.translate(bx, by); c.scale(sx, sy);
+      c.beginPath(); RIM.forEach((j, i) => { const a = i / RIM.length * Math.PI * 2, r = R * (.94 + j * .1); i ? c.lineTo(Math.cos(a) * r, Math.sin(a) * r) : c.moveTo(Math.cos(a) * r, Math.sin(a) * r); }); c.closePath();
+      c.save(); c.shadowColor = 'rgba(60,50,30,.25)'; c.shadowBlur = 6; c.shadowOffsetY = 3; c.fillStyle = '#F4F0E6'; c.fill(); c.restore();
+      c.save(); c.clip(); c.rotate(m.x * .02); c.drawImage(paper, -R * 1.3, -R * 1.3, R * 2.6, R * 2.6); c.restore();
+      const sh = c.createRadialGradient(-8, -10, 4, 0, 0, R * 1.1); sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(1, 'rgba(110,95,70,.28)'); c.fillStyle = sh; c.fill();
+      c.strokeStyle = '#8C8373'; c.lineWidth = 1.6; c.stroke();
+      // 脸：小眼睛 + 腮红
+      const look = m.vx ? clamp(m.vx / 300, -1, 1) * 4 : 0, blink = (hash(Math.floor(t * 1.5)) > .7 && (t * 1.5) % 1 < .12) || landK > .6;
+      c.fillStyle = '#1F1B16';
+      [-8, 8].forEach(ex => { c.beginPath(); c.ellipse(ex + look, -3, 3.2, blink ? .8 : 4.4, 0, 0, Math.PI * 2); c.fill(); if (!blink) { c.fillStyle = '#fff'; c.beginPath(); c.arc(ex + look + 1, -5, 1.1, 0, Math.PI * 2); c.fill(); c.fillStyle = '#1F1B16'; } });
+      c.fillStyle = 'rgba(242,123,107,.45)'; [-15, 15].forEach(ex => { c.beginPath(); c.ellipse(ex + look, 6, 4, 2.5, 0, 0, Math.PI * 2); c.fill(); });
+      c.strokeStyle = '#1F1B16'; c.lineWidth = 1.6; c.beginPath(); if (cheer || air) c.arc(look, 5, 4, 0, Math.PI); else c.arc(look, 3, 3.5, .2 * Math.PI, .8 * Math.PI); c.stroke();
+      c.restore();
+    }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    // C – Am – F – G，马林巴 + 拨弦
+    const PR = [[60, 64, 67, 72], [57, 60, 64, 69], [53, 57, 60, 65], [55, 59, 62, 67]], RT = [48, 45, 41, 43];
+    S.comp(PR, 0, 7, 'keys', .8, [0, 1.5, 2.5]);
+    S.drums(1, 7, 'groove', .55);
+    S.bassLine(RT, 1, 7, .6);
+    for (let b = 1; b < 7; b++) [0, 1, 2, 3].forEach(k => S.at(b * bar + k * beat + beat / 2, I.pluck, PR[b % 4][k % 4] + 12, .35));
+    // 纸团落下、每次起跳 / 落地
+    S.at(DROP[0], I.whoosh, .6); S.at(DROP[1], I.paper); S.at(DROP[1], I.boing);
+    MOVES.forEach(([a, b], i) => { S.at(a, I.jump); S.at(b, I.boop, 1 + (i % 3) * .15); S.at(b, I.paper); });
+    JOY.forEach(j => { S.at(j, I.jump); S.at(j + .35, I.boop, 1.3); });
+    // 排序
+    S.at(GRAB, I.pop2); S.at(PUT, I.thud, .8); SORT_TICKS.forEach(x => S.at(x, I.tick, .8));
+    // 筛选
+    S.at(FBTN, I.click); S.at(FBTN + .05, I.swish); S.at(CHECK, I.click); S.at(CHECK + .05, I.pop); S.at(HIDE[0] + .1, I.swish);
+    // 图表
+    S.at(CBTN, I.click); S.at(CBTN + .02, I.pop, 1.3);
+    BARS.forEach((x, i) => S.at(x, I.marimba, [72, 76, 79, 84][i]));
+    STEP.forEach((x, i) => S.at(x, I.blip, 8 - i * 2));
+    S.at(TOAST, I.ding);
+    S.at(CAP, I.chime);
+    S.at(14.0, (w, B) => [60, 64, 67, 72, 76].forEach(m => I.keys(w, B, m, 1, 1.4)));
+  }
+});
+</script></body></html>

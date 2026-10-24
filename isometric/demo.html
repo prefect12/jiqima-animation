@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>等距信息图 · 一封邮件的旅程</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@500;900&text=一封邮件的旅程你电脑路由器服务卫星对方手机新已送达全只要几秒发·✓">
+<script src="../_engine/core.js"></script></head><body><script>
+const CN = '"Noto Sans SC", "PingFang SC", sans-serif';
+const S = 30;                                     // 1 个等距单位：x 方向 (30, 15)，y 方向 (-30, 15)，z 方向 (0, -30)
+const CORAL = '#F27B6B', INK = '#34405A', MUTE = '#7C879C';
+// ---- 时间表（120 BPM，一拍 0.5 秒），draw() 和 score() 共用 ----
+const POP = [0, .5, 1, 1.5], SAT_IN = 2.0;       // 四座小岛 + 卫星依次出场
+const SEND = 2.5;                                 // 电脑点“发送”，信封飞出
+const SEG = [[2.5, 4.0], [4.5, 6.0], [6.5, 8.5], [9.0, 11.0]];   // 四段飞行：电脑→路由器→服务器→卫星→手机
+const ARR = SEG.map(s => s[1]);
+const CAP = 12.0, FADE = 14.45;
+// 小岛锚点（屏幕坐标）
+const ISL = [[190, 418], [440, 545], [735, 448], [1075, 400]];
+const SAT = [905, 150];
+const ARC = [110, 120, 70, 50];              // 每段飞行的弧高（px）
+const NAMES = ['你的电脑', '路由器', '服务器', '卫星', '对方手机'];
+const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const shade = (h, k) => 'rgb(' + hex(h).map(v => Math.round(k > 0 ? v + (255 - v) * k : v * (1 + k))).join(',') + ')';
+Film({
+  title: '等距信息图 · 一封邮件的旅程', DUR: 15, BPM: 120, poster: 9.9,
+  fonts: [['900 40px "Noto Sans SC"', '一封邮件的旅程你电脑路由器服务卫星对方手机新已送达全只要几秒发·✓'], ['500 18px "Noto Sans SC"', '你的电脑路由器服务器卫星对方手机新邮件']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, ease, easeOut, back, hash, rrect } = F;
+    // ---------- 等距工具 ----------
+    let O = [0, 0];
+    const P = (x, y, z) => [O[0] + (x - y) * S, O[1] + (x + y) * S / 2 - z * S];
+    const quad = (pts, col, line) => { c.beginPath(); pts.forEach((p, i) => { const q = P(...p); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); c.closePath(); c.fillStyle = col; c.fill(); if (line) { c.strokeStyle = line; c.lineWidth = 1; c.stroke(); } };
+    // 方块：顶面最亮、左面（朝 +y）中间、右面（朝 +x）最暗 —— 三档明暗
+    const box = (x, y, z, w, d, h, col, k = [.28, 0, -.2]) => {
+      quad([[x, y + d, z + h], [x + w, y + d, z + h], [x + w, y + d, z], [x, y + d, z]], shade(col, k[1]));
+      quad([[x + w, y, z + h], [x + w, y + d, z + h], [x + w, y + d, z], [x + w, y, z]], shade(col, k[2]));
+      quad([[x, y, z + h], [x + w, y, z + h], [x + w, y + d, z + h], [x, y + d, z + h]], shade(col, k[0]));
+    };
+    // 把 2D 画到等距面上：左面（x 轴方向）或右面（-y 方向）
+    const onLeft = (x, y, z, fn) => { const p = P(x, y, z); c.save(); c.transform(1, .5, 0, 1, p[0], p[1]); c.scale(S / 26, S / 26); fn(); c.restore(); };   // 面内单位按 S=26 设计
+    const bob = i => Math.sin(t * Math.PI * .5 + i * 1.7) * 4;
+    const popK = i => back(prog(t, POP[i], POP[i] + .45));
+    const anchor = i => [ISL[i][0], ISL[i][1] + bob(i) + (1 - popK(i)) * 240];
+    const satPos = () => [SAT[0] + (1 - easeOut(prog(t, SAT_IN, SAT_IN + .6))) * 420, SAT[1] + Math.sin(t * 2.2) * 5];
+    // ---------- 背景 ----------
+    const bg = c.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#DCEAF6'); bg.addColorStop(1, '#F7EFE6'); c.fillStyle = bg; c.fillRect(0, 0, W, H);
+    // 淡淡的等距网格
+    c.save(); c.strokeStyle = 'rgba(120,140,170,.10)'; c.lineWidth = 1;
+    for (let k = -40; k < 60; k++) { c.beginPath(); c.moveTo(k * 52 - 400, -20); c.lineTo(k * 52 - 400 + 1480, 720); c.stroke(); c.beginPath(); c.moveTo(k * 52 + 400, -20); c.lineTo(k * 52 + 400 - 1480, 720); c.stroke(); }
+    c.restore();
+    // 镜头：开场从 1.12 慢慢拉到 1.0，并轻轻跟着信封
+    const env = envelope();
+    const zoom = lerp(1.12, 1, ease(prog(t, 0, 3))) + .035 * ease(prog(t, 11, 14.5));
+    const fx = 640 + (env ? (env.p[0] - 640) * .1 : 0);
+    c.save(); c.translate(640, 380); c.scale(zoom, zoom); c.translate(-fx, -380);
+    // 漂浮的小方块云
+    [[160, 120, 0], [520, 90, 1], [1120, 200, 2], [330, 250, 3]].forEach(([x, y, i]) => {
+      O = [((x + t * (8 + i * 3)) % 1500) - 110, y + Math.sin(t + i) * 3];
+      c.globalAlpha = .9; box(-1, -.6, 0, 2, 1.2, .5, '#FFFFFF', [0, -.04, -.1]); box(-.3, -.4, .5, 1, .8, .45, '#FFFFFF', [0, -.04, -.1]); c.globalAlpha = 1;
+    });
+    // 飞行路径（先画虚线，信封走过的部分变实线）
+    drawPath();
+    // ---------- 四座小岛 ----------
+    for (let i = 0; i < 4; i++) {
+      if (t < POP[i]) continue;
+      const [ax, ay] = anchor(i); O = [ax, ay];
+      // 岛下的影子
+      c.save(); c.globalAlpha = .18 * clamp(popK(i), 0, 1); c.fillStyle = '#5A6F8C'; c.beginPath(); c.ellipse(ax, ISL[i][1] + 4.6 * S, 3.6 * S, .8 * S, 0, 0, Math.PI * 2); c.fill(); c.restore();
+      box(-2, -2, -1.5, 4, 4, 1.15, '#E3B98B', [.2, 0, -.18]);
+      box(-2, -2, -.35, 4, 4, .35, '#8FD3AE');
+      // 顶面格子
+      c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1;
+      for (let g = -1; g <= 1; g++) { let a = P(g, -2, 0), b = P(g, 2, 0); c.beginPath(); c.moveTo(...a); c.lineTo(...b); c.stroke(); a = P(-2, g, 0); b = P(2, g, 0); c.beginPath(); c.moveTo(...a); c.lineTo(...b); c.stroke(); }
+      [drawHome, drawRouter, drawServer, drawPhone][i]();
+    }
+    // ---------- 卫星 ----------
+    if (t > SAT_IN) drawSat();
+    // 信封
+    if (env && env.show) drawEnvelope(env);
+    // 粒子 / 彩色小方块庆祝
+    if (t > ARR[3]) for (let k = 0; k < 18; k++) {
+      const u = prog(t, ARR[3], ARR[3] + 1.6); if (u >= 1) break;
+      const a = hash(k) * Math.PI * 2, r = 40 + 130 * easeOut(u) * (.5 + hash(k + 9)), [px, py] = anchor(3);
+      O = [px + 20 + Math.cos(a) * r, py - 60 + Math.sin(a) * r * .6 - 80 * u + 160 * u * u];
+      c.globalAlpha = 1 - u; box(-.15, -.15, 0, .3, .3, .3, ['#F27B6B', '#F6C35B', '#6FB7E8', '#8FD3AE'][k % 4]); c.globalAlpha = 1;
+    }
+    // 标签
+    for (let i = 0; i < 5; i++) {
+      const tOn = [SEND - .2, ARR[0], ARR[1], ARR[2], ARR[3]][i]; if (t < tOn) continue;
+      const k = back(prog(t, tOn, tOn + .35));
+      let x, y;
+      if (i < 3) { const a = anchor(i); x = a[0]; y = a[1] + 3.3 * S; } else if (i === 3) { const s = satPos(); x = s[0] + 118; y = s[1] - 36; } else { const a = anchor(3); x = a[0]; y = a[1] + 3.3 * S; }
+      tag(NAMES[i], x, y, k, i === 4 && t > ARR[3]);
+    }
+    c.restore();
+    // ---------- 标题 ----------
+    const ti = easeOut(prog(t, .2, .8));
+    c.save(); c.globalAlpha = ti * (1 - prog(t, CAP - .5, CAP)); c.font = `900 38px ${CN}`; c.fillStyle = INK; c.textBaseline = 'alphabetic'; c.fillText('一封邮件的旅程', 60, 84 - (1 - ti) * 16);
+    c.fillStyle = CORAL; rrect(c, 62, 100, 56 * ti, 6, 3); c.fill(); c.restore();
+    // 结尾字幕
+    if (t > CAP) {
+      const k = back(prog(t, CAP, CAP + .4));
+      c.save(); c.translate(260, 84); c.scale(k, k);
+      c.font = `900 32px ${CN}`; const cw = c.measureText('已送达 · 全程只要几秒').width + 128;
+      c.shadowColor = 'rgba(52,64,90,.18)'; c.shadowBlur = 20; c.shadowOffsetY = 8; c.fillStyle = '#FFFFFF'; rrect(c, -200, -40, cw, 80, 40); c.fill(); c.shadowColor = 'transparent';
+      c.beginPath(); c.arc(-148, 0, 22, 0, Math.PI * 2); c.fillStyle = '#4CB88A'; c.fill();
+      c.strokeStyle = '#fff'; c.lineWidth = 5; c.lineCap = 'round'; c.lineJoin = 'round'; c.beginPath(); c.moveTo(-158, 1); c.lineTo(-151, 8); c.lineTo(-137, -7); c.stroke();
+      c.font = `900 32px ${CN}`; c.fillStyle = INK; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText('已送达 · 全程只要几秒', -112, 2);
+      c.restore();
+    }
+    const fo = prog(t, FADE, 15); if (fo > 0) { c.fillStyle = `rgba(240,238,236,${fo})`; c.fillRect(0, 0, W, H); }
+
+    // ================= 物件 =================
+    function drawHome() {
+      // 桌子
+      box(-1.4, -1.2, 0, 2.2, 1.3, .08, '#E8C597'); box(-1.3, -.05, 0, .12, .12, .7, '#C9A376'); box(.66, -.05, 0, .12, .12, .7, '#C9A376');
+      box(-1.4, -1.2, .7, 2.2, 1.3, .1, '#F0CFA2');
+      // 笔记本
+      box(-1.25, -1.05, .8, 1.9, 1.05, .07, '#D5DCE8');
+      const lit = t > SEND - .5, pressed = t > SEND && t < SEND + .12;
+      const scr = [[-1.17, -1.05, .95], [.57, -1.05, .95], [.57, -1.05, 1.98], [-1.17, -1.05, 1.98]];
+      quad([[-1.25, -1.05, .87], [.65, -1.05, .87], [.65, -1.05, 2.06], [-1.25, -1.05, 2.06]], '#AEB8CA');
+      quad(scr, lit ? '#3C5A8A' : '#2E3A55');
+      if (lit) onLeft(-1.17, -1.05, 1.98, () => {
+        c.fillStyle = 'rgba(255,255,255,.85)'; c.fillRect(5, 4, 26, 3); c.fillRect(5, 10, 18, 3);
+        c.fillStyle = pressed ? '#D9604F' : CORAL; rrect(c, 5, 17 + (pressed ? 1 : 0), 26, 7, 2); c.fill();
+      });
+      // 发送时屏幕一闪
+      if (t > SEND && t < SEND + .4) { c.save(); c.globalAlpha = 1 - prog(t, SEND, SEND + .4); quad(scr, '#FFFFFF'); c.restore(); }
+      // 台灯 + 盆栽 + 树
+      box(1.1, 1, 0, .5, .5, .35, '#E07A5F'); box(1.15, 1.05, .35, .4, .4, .45, '#6DBE8C');
+      box(-1.8, 1.1, 0, .2, .2, .7, '#A0764E'); box(-1.95, .95, .7, .5, .5, .7, '#5DAE7E'); box(-1.85, 1.05, 1.4, .3, .3, .3, '#6CC08E');
+    }
+    function drawRouter() {
+      box(-1.7, -1.6, 0, .2, .2, .6, '#A0764E'); box(-1.85, -1.75, .6, .5, .5, .8, '#5DAE7E');
+      box(-.8, -.5, 0, 1.6, 1, .42, '#F3F5FA');
+      box(-.55, -.45, .42, .08, .08, .9, '#C3CAD8'); box(.45, -.45, .42, .08, .08, .9, '#C3CAD8');
+      const act = (t > ARR[0] - .1 && t < SEG[1][0] + .6);
+      onLeft(-.8, .5, .42, () => { for (let k = 0; k < 4; k++) { const on = act ? hash(Math.floor(t * 12) + k) > .35 : k < 2; c.fillStyle = on ? '#4CD08A' : '#B9C2D3'; c.fillRect(8 + k * 9, 4, 5, 4); } });
+      // Wi-Fi 波纹
+      if (t > ARR[0] - .1 && t < SEG[1][0] + .9) for (let k = 0; k < 3; k++) {
+        const u = ((t - ARR[0] + .1) * 1.6 + k / 3) % 1, q = P(0, 0, 1.4);
+        c.save(); c.globalAlpha = (1 - u) * .8; c.strokeStyle = '#6FB7E8'; c.lineWidth = 4; c.lineCap = 'round';
+        c.beginPath(); c.arc(q[0], q[1], 14 + u * 46, -Math.PI * .8, -Math.PI * .2); c.stroke(); c.restore();
+      }
+      box(1.1, 1.1, 0, .6, .6, .3, '#6DBE8C');
+    }
+    function drawServer() {
+      const scan = t > ARR[1] - .05 && t < SEG[2][0] + .3;
+      for (let r = 0; r < 3; r++) {
+        const x = -1.6 + r * 1.0;
+        box(x, -1.3, 0, .8, 1.3, 2.1, '#56678A');
+        onLeft(x, 0, 2.1, () => {
+          for (let k = 0; k < 7; k++) {
+            c.fillStyle = '#3F4E6D'; c.fillRect(2, 4 + k * 7.4, 17, 5);
+            const on = scan ? hash(Math.floor(t * 16) * 3 + k + r * 7) > .3 : hash(Math.floor(t * 3) + k * 5 + r) > .45;
+            c.fillStyle = on ? (scan ? '#F6C35B' : '#5FE0A6') : '#2B3650'; c.fillRect(15, 5 + k * 7.4, 3, 3);
+          }
+        });
+      }
+      // 扫描光带
+      if (scan) { const u = prog(t, ARR[1], SEG[2][0]); c.save(); c.globalAlpha = .55 * Math.sin(Math.PI * u); quad([[-1.6, 0.02, 2.1 * (1 - u)], [.8, 0.02, 2.1 * (1 - u)], [.8, 0.02, 2.1 * (1 - u) + .18], [-1.6, 0.02, 2.1 * (1 - u) + .18]], '#FFE9A8'); c.restore(); }
+      // 屋顶小锅
+      box(1.3, -1.6, 0, .5, .5, .9, '#C3CAD8'); box(1.2, -1.7, .9, .7, .7, .1, '#E6EAF2');
+      box(1.2, 1.1, 0, .6, .6, .3, '#6DBE8C');
+    }
+    function drawPhone() {
+      // 信号塔
+      for (let z = 0; z < 3.4; z += .5) box(-1.55 + z * .04, -1.55 + z * .04, z, .34 - z * .06, .34 - z * .06, .5, '#C9D0DC');
+      box(-1.5, -1.5, 3.4, .22, .22, .22, CORAL);
+      const got = t > ARR[3], hop = got ? Math.max(0, Math.sin(prog(t, ARR[3], ARR[3] + .5) * Math.PI)) * .5 : 0;
+      // 手机（立着，屏幕朝左前方）
+      box(-.55, -.1, hop, 1.8, .24, 2.9, '#2E3A55', [.35, 0, -.25]);
+      const lit = t > ARR[3] - .6;
+      quad([[-.43, .14, hop + .16], [1.13, .14, hop + .16], [1.13, .14, hop + 2.74], [-.43, .14, hop + 2.74]], lit ? '#BFE3FF' : '#1D2740');
+      if (lit) onLeft(-.43, .14, hop + 2.74, () => {
+        c.fillStyle = 'rgba(52,64,90,.35)'; c.fillRect(14, 5, 13, 2);
+        if (got) {
+          const k = back(prog(t, ARR[3], ARR[3] + .35));
+          c.save(); c.translate(20.3, 24); c.scale(k * 1.25, k * 1.25);
+          c.fillStyle = '#FFFFFF'; rrect(c, -13, -8, 26, 16, 3); c.fill();
+          c.fillStyle = CORAL; c.fillRect(-10, -5, 6, 5);
+          c.fillStyle = INK; c.fillRect(-2, -5, 11, 2); c.fillRect(-2, -1, 8, 2); c.restore();
+          c.fillStyle = '#4CB88A'; c.beginPath(); c.arc(20.3, 48, 6 * clamp(back(prog(t, ARR[3] + .2, ARR[3] + .5)), 0, 2), 0, Math.PI * 2); c.fill();
+        }
+      });
+      box(1.5, -1.6, 0, .2, .2, .6, '#A0764E'); box(1.35, -1.75, .6, .5, .5, .6, '#5DAE7E'); box(-1.7, 1.2, 0, .6, .6, .3, '#6DBE8C');
+    }
+    function drawSat() {
+      const [sx, sy] = satPos(); O = [sx, sy];
+      const glow = t > ARR[2] - .1 && t < SEG[3][0] + .5;
+      // 下行光束
+      if (t > SEG[3][0] - .1 && t < ARR[3] + .3) {
+        const a = anchor(3), k = prog(t, SEG[3][0] - .1, SEG[3][0] + .3) * (1 - prog(t, ARR[3], ARR[3] + .3));
+        const g = c.createLinearGradient(sx, sy, a[0], a[1] - 40); g.addColorStop(0, 'rgba(246,195,91,.45)'); g.addColorStop(1, 'rgba(246,195,91,0)');
+        c.save(); c.globalAlpha = k; c.fillStyle = g; c.beginPath(); c.moveTo(sx - 8, sy + 16); c.lineTo(a[0] - 60, a[1] - 20); c.lineTo(a[0] + 80, a[1] - 20); c.lineTo(sx + 8, sy + 16); c.fill(); c.restore();
+      }
+      if (glow) { c.save(); const g = c.createRadialGradient(sx, sy, 0, sx, sy, 90); g.addColorStop(0, 'rgba(255,233,168,.8)'); g.addColorStop(1, 'rgba(255,233,168,0)'); c.fillStyle = g; c.fillRect(sx - 90, sy - 90, 180, 180); c.restore(); }
+      box(-2.6, -.3, .2, 1.9, .6, .06, '#4A7BD0', [.3, 0, -.2]);
+      box(.7, -.3, .2, 1.9, .6, .06, '#4A7BD0', [.3, 0, -.2]);
+      [-2.3, -1.9, -1.5, -1.1, 1, 1.4, 1.8, 2.2].forEach(x => { const a = P(x, -.3, .26), b = P(x, .3, .26); c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 1; c.beginPath(); c.moveTo(...a); c.lineTo(...b); c.stroke(); });
+      box(-.6, -.5, -.3, 1.2, 1, 1, '#F2C14E');
+      box(-.1, -.1, .7, .2, .2, .35, '#C3CAD8');
+      const d = P(0, 0, 1.15); c.beginPath(); c.ellipse(d[0], d[1], 16, 8, 0, 0, Math.PI * 2); c.fillStyle = glow ? '#FFF3CC' : '#E6EAF2'; c.fill(); c.strokeStyle = '#AEB8CA'; c.lineWidth = 1.5; c.stroke();
+    }
+    function tag(s, x, y, k, done) {
+      c.save(); c.translate(x, y); c.scale(k, k); c.font = `500 18px ${CN}`;
+      const w = c.measureText(s).width + 42;
+      c.shadowColor = 'rgba(52,64,90,.15)'; c.shadowBlur = 10; c.shadowOffsetY = 4; c.fillStyle = done ? '#34405A' : '#FFFFFF'; rrect(c, -w / 2, -17, w, 34, 17); c.fill(); c.shadowColor = 'transparent';
+      c.beginPath(); c.arc(-w / 2 + 17, 0, 5, 0, Math.PI * 2); c.fillStyle = done ? '#8FD3AE' : CORAL; c.fill();
+      c.fillStyle = done ? '#FFFFFF' : INK; c.textBaseline = 'middle'; c.fillText(s, -w / 2 + 29, 1); c.restore();
+    }
+    // ================= 路径与信封 =================
+    function nodes() {
+      const at = (i, x, y, z) => { const a = anchor(i); return [a[0] + (x - y) * S, a[1] + (x + y) * S / 2 - z * S]; }, Sp = satPos();
+      return [at(0, -.3, -1.05, 1.47), at(1, 0, 0, 1.5), at(2, -.7, 0, 1.3), [Sp[0], Sp[1] + 8], at(3, .35, .14, 1.45)];
+    }
+    function segPoint(i, u) {
+      const N = nodes(), a = N[i], b = N[i + 1];
+      return [lerp(a[0], b[0], u), lerp(a[1], b[1], u) - Math.sin(Math.PI * u) * ARC[i]];
+    }
+    function envelope() {
+      if (t < SEND) return null;
+      for (let i = 0; i < 4; i++) {
+        const [a, b] = SEG[i];
+        if (t < a) { const p = segPoint(i, 0); return { p, ang: 0, show: !(i === 2), idle: true, i }; }  // 在节点停留
+        if (t <= b) { const u = ease(prog(t, a, b)), p = segPoint(i, u), q = segPoint(i, Math.min(1, u + .02)); return { p, ang: Math.atan2(q[1] - p[1], q[0] - p[0]) * .35, show: true, u, i }; }
+      }
+      const p = segPoint(3, 1); return { p, ang: 0, show: t < ARR[3] + .25, i: 4, land: prog(t, ARR[3], ARR[3] + .25) };
+    }
+    function drawPath() {
+      if (t < SAT_IN + .3) return;
+      const vis = prog(t, SAT_IN + .3, SEND);
+      c.save(); c.lineCap = 'round';
+      for (let i = 0; i < 4; i++) {
+        const done = t > SEG[i][1] ? 1 : t > SEG[i][0] ? ease(prog(t, SEG[i][0], SEG[i][1])) : 0;
+        c.setLineDash([2, 10]); c.lineWidth = 4; c.strokeStyle = `rgba(124,135,156,${.55 * vis})`;
+        c.beginPath(); for (let k = 0; k <= 40; k++) { const p = segPoint(i, k / 40); k ? c.lineTo(...p) : c.moveTo(...p); } c.stroke();
+        if (done > 0) { c.setLineDash([]); c.lineWidth = 4; c.strokeStyle = 'rgba(242,123,107,.75)'; c.beginPath(); for (let k = 0; k <= 40 * done; k++) { const p = segPoint(i, k / 40); k ? c.lineTo(...p) : c.moveTo(...p); } c.stroke(); }
+      }
+      c.restore();
+    }
+    function drawEnvelope(e) {
+      let [x, y] = e.p, sx = 1, sy = 1;
+      if (e.idle) { const k = Math.sin(t * 14) * .06; sx = 1 + k; sy = 1 - k; y -= 6; }
+      if (e.u !== undefined) { const st = 1 + .18 * Math.sin(Math.PI * e.u); sx = st; sy = 1 / st; }
+      if (e.land !== undefined) { sx = sy = 1 - e.land; }
+      // 发送出场：从屏幕里长出来
+      const born = easeOut(prog(t, SEND, SEND + .3)); sx *= born; sy *= born;
+      // 拖尾
+      if (e.u !== undefined) for (let k = 1; k < 6; k++) { const u = e.u - k * .025; if (u < 0) break; const p = segPoint(e.i, ease(u)); c.fillStyle = `rgba(242,123,107,${.4 - k * .06})`; c.beginPath(); c.arc(p[0], p[1], 6 - k * .8, 0, Math.PI * 2); c.fill(); }
+      c.save(); c.translate(x, y); c.rotate(e.ang); c.scale(sx, sy);
+      c.fillStyle = 'rgba(52,64,90,.18)'; rrect(c, -20, -10, 44, 30, 5); c.fill();
+      c.fillStyle = '#FFFFFF'; rrect(c, -22, -15, 44, 30, 5); c.fill(); c.strokeStyle = CORAL; c.lineWidth = 2.5; c.stroke();
+      c.beginPath(); c.moveTo(-20, -13); c.lineTo(0, 3); c.lineTo(20, -13); c.stroke();
+      c.fillStyle = '#F6C35B'; c.fillRect(10, 4, 7, 7);
+      c.restore();
+    }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    // F – Dm – Bb – C，轻快拨弦
+    const PR = [[65, 69, 72, 76], [62, 65, 69, 74], [58, 62, 65, 70], [60, 64, 67, 72]], RT = [41, 38, 34, 36];
+    S.comp(PR, 1, 7, 'pluck', .7, [0, 1, 1.5, 2.5, 3]);
+    S.drums(1, 7, 'soft', .9);
+    for (let b = 1; b < 7; b++) { const r = RT[b % 4]; [0, 1.5, 2, 3].forEach((x, k) => S.at(b * bar + x * beat, I.pizz, r + (k === 3 ? 7 : 0) + 12, .8)); }
+    // 小岛弹出：马林巴上行
+    POP.forEach((x, i) => { S.at(x, I.marimba, [72, 76, 79, 84][i]); S.at(x, I.pop2); });
+    S.at(SAT_IN, I.swish); S.at(SAT_IN + .5, I.marimba, 88);
+    S.at(SEND, I.click); S.at(SEND + .05, I.pop, 1.2);
+    SEG.forEach(([a, b], i) => { S.at(a, I.whip); S.at(b, I.blip, i * 2); S.at(b + .12, I.blip, i * 2 + 2); });
+    // 路由器 Wi-Fi、服务器扫描、卫星
+    for (let k = 0; k < 3; k++) S.at(ARR[0] + .1 + k * .18, I.tick, .7);
+    for (let k = 0; k < 8; k++) S.at(ARR[1] + k * .06, I.tick, .5);
+    S.at(ARR[2], I.shimmer); S.at(SEG[3][0], I.riser, 1.6);
+    S.at(ARR[3], I.chime); S.at(ARR[3], I.pop);
+    S.at(CAP, I.boop, 1.4);
+    S.at(12.5, (w, B) => [65, 69, 72, 77].forEach(m => I.pluck(w, B, m, 1)));
+    S.at(13.0, (w, B) => [53, 65, 72, 76, 81].forEach(m => I.keys(w, B, m, 1.1, 1.8)));
+  }
+});
+</script></body></html>

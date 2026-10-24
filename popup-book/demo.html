@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>纸片立体书 · 龙与城堡</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=ZCOOL+XiaoWei&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 时间常量（画面和声音共用），96 BPM，一拍 0.625 秒 */
+const BPM = 96, BEAT = 60 / BPM;
+const T_OPEN = [1, 4].map(b => b * BEAT);        // 翻开封面，城堡立起
+const T_PULL1 = [7, 8].map(b => b * BEAT);       // 拉条 1：太阳升起、旗子升上去
+const T_TURN = [11, 14].map(b => b * BEAT);      // 翻页：城堡倒下，龙立起
+const T_PEEK = 15 * BEAT;                        // 龙往前探出头
+const T_PULL2 = [18, 19].map(b => b * BEAT);     // 拉条 2：张嘴喷出纸火焰
+const PW = 4.2, PH = 5.4, HB = .2;               // 单页宽、高、书块高度（世界单位）
+const TXT = '龙与城堡从前，山上有一座城堡。城堡后面的山洞里，住着一条龙。拉';
+Film({
+  title: '纸片立体书 · 龙与城堡', DUR: 15, BPM, poster: 12.4,
+  fonts: [['40px "ZCOOL XiaoWei"', TXT]],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, ease, easeOut, back, hash } = F;
+    const PI = Math.PI, D2R = PI / 180;
+    /* ---------- 相机：透视 lookAt ---------- */
+    const [tx, ey, ez, fo] = F.keyframes([[0, 2.2, -6.3, 7.4, 1380], [T_OPEN[0], 2.2, -6.3, 7.4, 1340], [T_OPEN[1] + .3, 0, -6.6, 7.2, 1090], [T_TURN[0], 0, -6.3, 6.9, 1100], [(T_TURN[0] + T_TURN[1]) / 2, 1.0, -6.3, 6.9, 1080], [T_PEEK + .6, .2, -6.1, 6.5, 1090], [13.2, .35, -6.0, 6.3, 1080], [15, .2, -6.4, 6.9, 1060]], t);
+    const eye = [tx * .9, ey, ez], tgt = [tx, 2.2, .9];
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const nrm = a => { const l = Math.hypot(...a); return a.map(x => x / l); }, cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const fw = nrm(sub(tgt, eye)), rt = nrm(cross(fw, [0, 0, 1])), up = cross(rt, fw);
+    const P = p => { const d = sub(p, eye), z = dot(d, fw); return [W / 2 + fo * dot(d, rt) / z, H / 2 + 44 - fo * dot(d, up) / z, z]; };
+    const LD = nrm([.55, .35, -1]);                                  // 光的行进方向（左后上方打过来）
+    const hexA = s => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
+    const lit = (hex, n, extra = 0) => { const k = .64 + .36 * Math.max(0, -dot(n, LD)) + extra, r = hexA(hex); return `rgb(${Math.min(255, r[0] * k) | 0},${Math.min(255, r[1] * k) | 0},${Math.min(255, r[2] * k) | 0})`; };
+    const path = pts => { c.beginPath(); pts.forEach((p, i) => { const q = P(p); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); c.closePath(); };
+    const fill3 = (pts, col, stroke) => { path(pts); c.fillStyle = col; c.fill(); if (stroke) { c.strokeStyle = stroke; c.lineWidth = 1.1; c.stroke(); } };
+    /* ---------- 桌面 ---------- */
+    const bg = c.createRadialGradient(560, 300, 80, 640, 380, 900); bg.addColorStop(0, '#7A5A43'); bg.addColorStop(1, '#2C1E16');
+    c.fillStyle = bg; c.fillRect(0, 0, W, H);
+    /* ---------- 页（leaf）：绕书脊（y 轴）转，θ=0 平躺在右边，θ=π 平躺在左边 ---------- */
+    const leafXf = (th, h) => (u, v, w = 0) => [u * Math.cos(th) - w * Math.sin(th), v, h + u * Math.sin(th) + w * Math.cos(th)];
+    const leafN = th => [-Math.sin(th), 0, Math.cos(th)];
+    const th0 = PI * ease(prog(t, T_OPEN[0], T_OPEN[1])), th1 = PI * ease(prog(t, T_TURN[0], T_TURN[1]));
+    // 立体机关的立起角度（度）
+    const castleUp = easeOut(prog(th0, .35 * PI, .93 * PI)) * (1 - ease(prog(th1, 0, .42 * PI)));
+    const dragonUp = easeOut(prog(th1, .55 * PI, .98 * PI));
+    const peek = back(prog(t, T_PEEK - .4, T_PEEK)) * 22 + (t > T_PEEK ? Math.sin((t - T_PEEK) * 2.6) * 3 : 0);
+    const pull1 = ease(prog(t, T_PULL1[0], T_PULL1[1])), pull2 = ease(prog(t, T_PULL2[0], T_PULL2[1]));
+    /* ---------- 书的底座：封底硬壳 + 书页块 + 桌上的影子 ---------- */
+    const openK = clamp(th0 / PI * 1.6, 0, 1);
+    c.save(); c.shadowColor = 'rgba(15,8,4,.55)'; c.shadowBlur = 40; c.shadowOffsetX = 18; c.shadowOffsetY = 10;
+    fill3([[-(PW + .15) * openK, -.15, 0], [PW + .15, -.15, 0], [PW + .15, PH + .15, 0], [-(PW + .15) * openK, PH + .15, 0]], '#1D4454'); c.restore();
+    fill3([[0, -.15, 0], [PW + .15, -.15, 0], [PW + .15, -.15, .05], [0, -.15, .05]], '#163844');
+    // 右书页块（前沿看得到一层层纸边）
+    fill3([[0, 0, .05], [PW, 0, .05], [PW, 0, HB], [0, 0, HB]], '#EFE6D0');
+    c.strokeStyle = 'rgba(120,100,70,.35)'; c.lineWidth = .8; for (let k = 1; k < 5; k++) { const z = .05 + k * .03; path([[0, 0, z], [PW, 0, z]]); c.stroke(); }
+    if (openK > 0) { fill3([[-PW * openK, 0, .05], [0, 0, .05], [0, 0, HB * openK], [-PW * openK, 0, HB * openK]], '#EFE6D0'); }
+    /* ---------- 立体机关：以折痕 v0 为轴从页面立起 ---------- */
+    const pieceXf = (xf, v0, phi, w0 = .004) => (a, b) => xf(a, v0 + b * Math.cos(phi), w0 + b * Math.sin(phi));
+    const pieceN = (th, phi) => { const n = [0, -Math.sin(phi), Math.cos(phi)]; return [n[0] * Math.cos(th) - n[2] * Math.sin(th), n[1], n[0] * Math.sin(th) + n[2] * Math.cos(th)]; };
+    const shadowOn = (pts, th, h) => {                              // 把机关的轮廓沿光线投到页面上
+      const n = leafN(th), p0 = [0, 0, h], ln = dot(LD, n); if (Math.abs(ln) < .05) return null;
+      return pts.map(p => { const k = dot(sub(p, p0), n) / ln; return [p[0] - LD[0] * k, p[1] - LD[1] * k, p[2] - LD[2] * k]; });
+    };
+    // 一个机关件：shape = [[a,b],…]，deco(pxf) 在同一平面上画印刷细节
+    const piece = (xf, th, h, v0, phi, shape, col, deco, opt = {}) => ({
+      depth: (() => { const m = shape.reduce((s, p) => [s[0] + p[0] / shape.length, s[1] + p[1] / shape.length], [0, 0]); return P(pieceXf(xf, v0, phi)(m[0], m[1]))[2]; })(),
+      shadow: () => { if (phi < .02) return; const s = shadowOn(shape.map(([a, b]) => pieceXf(xf, v0, phi)(a, b)), th, h); if (s) { fill3(s, `rgba(50,30,15,${.2 * Math.min(1, phi * 2)})`); } },
+      draw: () => {
+        const px = pieceXf(xf, v0, phi, opt.w0), n = pieceN(th, phi), toCam = dot(n, sub(eye, px(shape[0][0], shape[0][1]))) > 0 ? n : n.map(x => -x);
+        // 侧面三角支撑（折起来的小纸条）
+        (opt.struts || []).forEach(a => { const hs = opt.sh || .5; fill3([xf(a, v0, .004), px(a, hs), xf(a, v0 + hs, .004)], lit('#D8CDB4', [1, 0, 0]), 'rgba(90,70,40,.5)'); });
+        fill3(shape.map(([a, b]) => px(a, b)), lit(col, toCam), 'rgba(70,50,30,.55)');
+        if (deco) deco(px, toCam);
+        // 纸边：沿轮廓一条细亮线
+        path(shape.map(([a, b]) => px(a, b + .012))); c.strokeStyle = 'rgba(255,250,235,.35)'; c.lineWidth = .8; c.stroke();
+      }
+    });
+    const drawPieces = (list, clipPts) => {
+      if (clipPts) { c.save(); path(clipPts); c.clip(); list.forEach(p => p.shadow()); c.restore(); } else list.forEach(p => p.shadow());
+      list.sort((a, b) => b.depth - a.depth).forEach(p => p.draw());
+    };
+    const circle = (cx, cy, r, n = 20) => Array.from({ length: n }, (_, i) => [cx + Math.cos(i / n * PI * 2) * r, cy + Math.sin(i / n * PI * 2) * r]);
+    // 在页面上写字：用三个投影点求仿射，局部足够准
+    const textOn = (xf, u, v, str, size, col, dir = 1, align = 'left') => {
+      const p0 = P(xf(u, v)), pu = P(xf(u + dir * .01, v)), pv = P(xf(u, v - .01));
+      c.save(); c.transform(pu[0] - p0[0], pu[1] - p0[1], pv[0] - p0[0], pv[1] - p0[1], p0[0], p0[1]);
+      c.font = `${size * 100}px "ZCOOL XiaoWei", "Songti SC", serif`; c.fillStyle = col; c.textAlign = align; c.textBaseline = 'middle'; c.fillText(str, 0, 0); c.restore();
+    };
+    /* ---------- 拉条机关（从页面前沿伸出来的纸条） ---------- */
+    const tab = (xf, u0, k) => {
+      const ext = .32 + k * .55, y0 = -ext;
+      fill3([xf(u0, .9, .003), xf(u0 + .5, .9, .003), xf(u0 + .5, y0, .003), xf(u0, y0, .003)], '#E9C46A', 'rgba(90,60,20,.6)');
+      fill3([xf(u0 + .1, y0 + .04, .005), xf(u0 + .4, y0 + .04, .005), xf(u0 + .4, y0 + .28, .005), xf(u0 + .1, y0 + .28, .005)], '#C0392B');
+      textOn(xf, u0 + .25, y0 + .16, '拉', .2, '#FFF4DC', 1, 'center');
+      // 页面上开的槽
+      fill3([xf(u0 - .03, .02, .004), xf(u0 + .53, .02, .004), xf(u0 + .53, .07, .004), xf(u0 - .03, .07, .004)], 'rgba(60,40,20,.55)');
+    };
+    /* ================= 各页内容 ================= */
+    const paper = '#F4EBD5';
+    // 第 1 页（封面内侧，左页）
+    const page1 = (xf) => {
+      const s = u => PW - u;                                           // 左页用“从左边算”的坐标
+      fill3([xf(0, 0, 0), xf(PW, 0, 0), xf(PW, PH, 0), xf(0, PH, 0)], paper);
+      fill3([xf(s(.35), .35), xf(s(PW - .35), .35), xf(s(PW - .35), PH - .35), xf(s(.35), PH - .35)].map(p => [p[0], p[1], p[2] + .001]), '#EFE3C6', 'rgba(150,110,60,.5)');
+      textOn(xf, s(.75), 3.9, '从前，', .34, '#4A3526', -1);
+      textOn(xf, s(.75), 3.35, '山上有一座城堡。', .34, '#4A3526', -1);
+      for (let i = 0; i < 9; i++) { const a = .8 + i * .3; fill3([xf(s(a), 1.2), xf(s(a + .12), 1.45), xf(s(a + .24), 1.2)], i % 2 ? '#8BBF6A' : '#6FA35A'); }
+    };
+    // 第 3 页（翻过去之后的左页）
+    const page3 = (xf) => {
+      const s = u => PW - u;
+      fill3([xf(0, 0, 0), xf(PW, 0, 0), xf(PW, PH, 0), xf(0, PH, 0)], paper);
+      fill3([xf(s(.35), .35), xf(s(PW - .35), .35), xf(s(PW - .35), PH - .35), xf(s(.35), PH - .35)].map(p => [p[0], p[1], p[2] + .001]), '#EDE0C2', 'rgba(150,110,60,.5)');
+      textOn(xf, s(.75), 3.9, '城堡后面的山洞里，', .3, '#4A3526', -1);
+      textOn(xf, s(.75), 3.35, '住着一条龙。', .34, '#4A3526', -1);
+      for (let i = 0; i < 5; i++) fill3(circle(s(1.0 + i * .55), 1.3, .1 + (i % 2) * .05, 8).map(([a, b]) => xf(a, b)), '#B8A48A');
+    };
+    // 第 2 页：城堡（右页）
+    const page2 = (xf, th, h) => {
+      fill3([xf(0, 0), xf(PW, 0), xf(PW, PH), xf(0, PH)], paper);
+      // 印刷的底图：远处天空淡彩、近处草地、小路
+      fill3([xf(.2, 2.6, .001), xf(PW - .2, 2.6, .001), xf(PW - .2, PH - .2, .001), xf(.2, PH - .2, .001)], '#CFE3EA');
+      fill3([xf(.2, .2, .001), xf(PW - .2, .2, .001), xf(PW - .2, 2.6, .001), xf(.2, 2.6, .001)], '#A9CF8A');
+      fill3([xf(1.9, 3.0, .002), xf(2.3, 3.0, .002), xf(2.9, .2, .002), xf(1.3, .2, .002)], '#E8D3A6');
+      const phi = castleUp * PI / 2, L = [];
+      if (phi > .001) {
+        // 太阳：一根纸条撑着的圆片，拉条一拉就升起来
+        const sb = lerp(.35, 1.95, pull1);
+        L.push(piece(xf, th, h, 4.35, phi, [[3.05, 0], [3.15, 0], [3.15, sb], [3.05, sb]], '#D8CDB4'));
+        L.push(piece(xf, th, h, 4.34, phi, circle(3.1, sb + .05, .38), '#F6B93B', (px) => { fill3(circle(3.1, sb + .05, .26).map(([a, b]) => px(a, b)), '#FAD06A'); }));
+        L.push(piece(xf, th, h, 4.0, phi, [[.25, 0], [.25, .7], [.8, 1.05], [1.4, .9], [2.0, 1.2], [2.7, .85], [3.3, 1.1], [3.95, .75], [3.95, 0]], '#7DB35E', (px) => { fill3([[.4, 0], [.9, .7], [1.4, .55], [1.3, 0]].map(([a, b]) => px(a, b)), '#6CA052'); fill3([[2.6, 0], [3.1, .8], [3.7, .6], [3.8, 0]].map(([a, b]) => px(a, b)), '#6CA052'); }, { struts: [.5, 3.7], sh: .4 }));
+        // 城堡本体
+        // 城垛放在墙顶（从右往左接）
+        const wallTop = []; for (let a = 2.9 - .15; a >= 1.3; a -= .3) wallTop.push([a + .15, 1.5], [a + .15, 1.68], [a, 1.68], [a, 1.5]);
+        const castleShape = [[.7, 0], [3.5, 0], [3.5, 2.25], [3.2, 2.9], [2.9, 2.25], [2.9, 1.5], ...wallTop.filter(p => p[0] > 2.5 || p[0] < 1.7), [1.3, 1.5], [1.3, 2.25], [1.0, 2.9], [.7, 2.25]];
+        L.push(piece(xf, th, h, 3.0, phi, castleShape, '#DCCDAE', (px, n) => {
+          fill3([[1.7, 1.5], [2.5, 1.5], [2.5, 2.15], [1.7, 2.15]].map(([a, b]) => px(a, b)), lit('#E6D8BA', n));      // 主楼
+          [[.7, 2.25, 1.3, 1.0, 2.9], [2.9, 2.25, 3.5, 3.2, 2.9], [1.62, 2.15, 2.58, 2.1, 2.95]].forEach(([a0, b0, a1, am, bt]) => fill3([[a0, b0], [a1, b0], [am, bt]].map(([a, b]) => px(a, b)), lit('#C8553D', n), 'rgba(90,30,20,.5)'));
+          for (let r = 0; r < 5; r++) for (let k = 0; k < 9; k++) { const a = .78 + k * .31 + (r % 2) * .15, b = .12 + r * .28; if (a > 3.35) continue; path([px(a, b), px(a + .22, b)].map(q => q)); c.strokeStyle = 'rgba(140,115,80,.35)'; c.lineWidth = .8; c.stroke(); }
+          fill3([[1.82, 0], [2.38, 0], [2.38, .55], [2.1, .82], [1.82, .55]].map(([a, b]) => px(a, b)), '#5B3A29');
+          for (let k = 0; k < 4; k++) { path([px(1.88 + k * .15, .02), px(1.88 + k * .15, .6)]); c.strokeStyle = 'rgba(30,20,10,.6)'; c.lineWidth = 1; c.stroke(); }
+          [[.92, 1.6], [3.12, 1.6], [2.0, 1.72], [2.2, 1.72], [.92, 1.0], [3.12, 1.0]].forEach(([a, b]) => fill3([[a, b], [a + .16, b], [a + .16, b + .28], [a + .08, b + .36], [a, b + .28]].map(([x, y]) => px(x, y)), '#3E4A61'));
+          // 旗杆 + 旗子（跟着拉条升起）
+          path([px(2.1, 2.95), px(2.1, 3.75)]); c.strokeStyle = '#5B3A29'; c.lineWidth = 2; c.stroke();
+          const fb = lerp(2.98, 3.42, pull1), wav = Math.sin(t * 6) * .04;
+          fill3([[2.1, fb], [2.62, fb + .08 + wav], [2.58, fb + .2 + wav], [2.1, fb + .3]].map(([a, b]) => px(a, b)), '#F2C14E', 'rgba(120,70,20,.6)');
+        }, { struts: [.9, 3.3], sh: .6 }));
+        // 前景树：圆树冠 + 树干，一整片纸
+        const tree = (cx, cy, r, tw) => { const pts = []; for (let i = 0; i <= 16; i++) { const a = -PI / 2 + .35 + i / 16 * (PI * 2 - .7); pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); } return pts.concat([[cx - tw, 0], [cx + tw, 0]]); };
+        L.push(piece(xf, th, h, 1.7, phi, tree(.62, .78, .42, .07), '#4F8A4B', (px) => fill3([[.55, 0], [.69, 0], [.69, .4], [.55, .4]].map(([a, b]) => px(a, b)), '#7A5230'), { struts: [.62], sh: .35 }));
+        L.push(piece(xf, th, h, 1.5, phi, tree(3.7, .62, .34, .06), '#5E9A55', (px) => fill3([[3.64, 0], [3.76, 0], [3.76, .32], [3.64, .32]].map(([a, b]) => px(a, b)), '#7A5230'), { struts: [3.7], sh: .3 }));
+      }
+      tab(xf, 2.9, pull1);
+      drawPieces(L, [xf(0, 0), xf(PW, 0), xf(PW, PH), xf(0, PH)]);
+    };
+    // 第 4 页：山洞和龙（右页）
+    const page4 = (xf, th, h) => {
+      fill3([xf(0, 0), xf(PW, 0), xf(PW, PH), xf(0, PH)], paper);
+      fill3([xf(.2, 2.4, .001), xf(PW - .2, 2.4, .001), xf(PW - .2, PH - .2, .001), xf(.2, PH - .2, .001)], '#D9D2E6');
+      fill3([xf(.2, .2, .001), xf(PW - .2, .2, .001), xf(PW - .2, 2.4, .001), xf(.2, 2.4, .001)], '#8FB27A');
+      const up = dragonUp, L = [];
+      if (up > .001) {
+        const phi = up * PI / 2;
+        // 远山 + 山洞
+        L.push(piece(xf, th, h, 3.8, phi, [[.2, 0], [.2, 1.3], [.9, 2.3], [1.4, 1.8], [2.1, 2.7], [2.9, 1.7], [3.4, 2.1], [4.0, 1.2], [4.0, 0]], '#8C7BA3', (px, n) => {
+          [[.9, 2.3, .65, 2.0, 1.1, 2.05], [2.1, 2.7, 1.8, 2.35, 2.35, 2.4], [3.4, 2.1, 3.2, 1.85, 3.6, 1.88]].forEach(([a, b, a1, b1, a2, b2]) => fill3([[a, b], [a1, b1], [a2, b2]].map(([x, y]) => px(x, y)), '#F4F0FA'));
+          fill3([[1.35, 0], [2.85, 0], [2.85, .9], [2.6, 1.35], [2.1, 1.55], [1.6, 1.35], [1.35, .9]].map(([a, b]) => px(a, b)), '#2F2438');
+        }, { struts: [.5, 3.7], sh: .6 }));
+        // 翅膀（在龙脖子后面一点）
+        const wphi = up * 78 * D2R;
+        L.push(piece(xf, th, h, 2.45, wphi, [[1.85, .95], [2.35, 1.55], [2.25, 2.95], [1.9, 2.45], [1.5, 2.65], [1.28, 2.1], [.9, 2.15], [1.05, 1.45]], '#2F6E47', (px) => { [[2.1, 1.25, 1.9, 2.45], [2.1, 1.25, 1.28, 2.1], [2.1, 1.25, .95, 2.1]].forEach(([a, b, a1, b1]) => { path([px(a, b), px(a1, b1)]); c.strokeStyle = 'rgba(20,50,30,.8)'; c.lineWidth = 1.5; c.stroke(); }); }));
+        // 龙：脖子 + 头（往前探出来），下巴和火焰
+        const dphi = (up * 90 + (up > .98 ? peek : 0)) * D2R, jaw = pull2 * 24 * D2R;
+        const body = [[1.25, 0], [2.15, 0], [2.3, .6], [2.55, 1.25], [2.75, 1.75], [2.95, 1.95], [3.1, 2.05], [3.55, 2.12], [3.6, 2.28], [3.2, 2.42], [2.95, 2.6], [2.62, 2.5], [2.4, 2.2], [2.15, 1.6], [1.75, .95], [1.45, .5]];
+        L.push(piece(xf, th, h, 2.2, dphi, body, '#3E8E5B', (px, n) => {
+          fill3([[2.15, 0], [2.3, .6], [2.55, 1.25], [2.75, 1.75], [2.6, 1.8], [2.4, 1.3], [2.1, .7], [1.95, 0]].map(([a, b]) => px(a, b)), lit('#8CCB7E', n));
+          for (let k = 0; k < 6; k++) { const a = 2.02 + k * .12, b = .15 + k * .3; path([px(a, b), px(a + .2, b + .02)]); c.strokeStyle = 'rgba(40,90,50,.5)'; c.lineWidth = 1; c.stroke(); }
+          const BE = [[1.25, 0], [1.45, .5], [1.75, .95], [2.15, 1.6], [2.4, 2.2], [2.62, 2.5]];                 // 背脊：沿脖子后缘长出三角刺
+          for (let k = 1; k < BE.length - 1; k++) { const [a0, b0] = BE[k], [a1, b1] = BE[k + 1], dx = a1 - a0, dy = b1 - b0, l = Math.hypot(dx, dy), m = [a0 + dx * .5, b0 + dy * .5]; fill3([[a0 + dx * .2, b0 + dy * .2], [m[0] - dy / l * .2, m[1] + dx / l * .2], [a0 + dx * .8, b0 + dy * .8]].map(([x, y]) => px(x, y)), '#2F6E47'); }
+          fill3([[2.72, 2.55], [2.5, 2.95], [2.86, 2.62]].map(([a, b]) => px(a, b)), '#F2E3B3');
+          fill3([[2.9, 2.6], [2.8, 2.98], [3.02, 2.62]].map(([a, b]) => px(a, b)), '#F2E3B3');
+          const blink = (t % 2.6) > 2.45 ? .2 : 1;
+          fill3(circle(3.0, 2.34, .1, 12).map(([a, b]) => px(a, 2.34 + (b - 2.34) * blink)), '#FFFBEA');
+          fill3(circle(3.03, 2.34, .05, 10).map(([a, b]) => px(a, 2.34 + (b - 2.34) * blink)), '#1D1A16');
+          fill3(circle(3.45, 2.22, .03, 8).map(([a, b]) => px(a, b)), '#1D3A26');
+          // 下巴：绕嘴角转开
+          const R = ([a, b]) => { const pa = 3.0, pb = 2.08, da = a - pa, db = b - pb; return [pa + da * Math.cos(jaw) + db * Math.sin(jaw), pb - da * Math.sin(jaw) + db * Math.cos(jaw)]; };
+          if (pull2 > 0) fill3([[3.05, 2.1], [3.52, 2.14], [3.2, 2.2]].map(([a, b]) => px(a, b)), '#7A2E2E');
+          // 火焰：一层层纸片，长度跟拉条走，靠两组形状交替“抖”
+          if (pull2 > .05) {
+            const fl = pull2, fz = Math.floor(t * 8) % 2;
+            [['#E4572E', 1.0, .3], ['#F28B30', .8, .21], ['#FFD166', .58, .12]].forEach(([col, len, wd], i) => {
+              const L2 = len * fl, pts = [[3.52, 2.14]];
+              for (let k = 1; k <= 6; k++) { const a = 3.52 + L2 * k / 6, sp = wd * (k / 6) * (1 + (k % 2 === fz ? .35 : -.1)); pts.push([a, 2.14 + sp]); }
+              pts.push([3.52 + L2 + .12, 2.1]);
+              for (let k = 6; k >= 1; k--) { const a = 3.52 + L2 * k / 6, sp = wd * (k / 6) * (1 + ((k + 1) % 2 === fz ? .3 : -.1)); pts.push([a, 2.14 - sp * .8]); }
+              fill3(pts.map(([a, b]) => px(a, b + i * .002)), col, 'rgba(120,40,10,.45)');
+            });
+          }
+          fill3([[3.0, 2.08], [3.55, 2.12], [3.45, 1.98], [3.1, 1.95]].map(R).map(([a, b]) => px(a, b)), lit('#3E8E5B', n, -.05), 'rgba(40,60,40,.6)');
+          for (let k = 0; k < 3; k++) { const a = 3.15 + k * .12; fill3([[a, 2.12], [a + .05, 2.04], [a + .1, 2.12]].map(q => px(q[0], q[1] + .001)), '#FFFBEA'); }
+        }, { struts: [1.6], sh: .5 }));
+        // 前景石头
+        L.push(piece(xf, th, h, 1.0, phi, [[.2, 0], [.25, .35], [.55, .55], [.9, .4], [1.1, 0]], '#9C8F83', null, { struts: [.6], sh: .3 }));
+        L.push(piece(xf, th, h, .9, phi, [[3.1, 0], [3.2, .3], [3.55, .45], [3.9, .3], [4.0, 0]], '#A89A8C', null, { struts: [3.5], sh: .25 }));
+      }
+      tab(xf, 3.25, pull2);
+      drawPieces(L, [xf(0, 0), xf(PW, 0), xf(PW, PH), xf(0, PH)]);
+    };
+    // 封面（厚板）：外侧印书名，内侧就是第 1 页
+    const cover = (th) => {
+      const xf = leafXf(th, HB), n = leafN(th), camSide = dot(n, sub(eye, xf(PW / 2, PH / 2, .1)));
+      const o = .15;
+      // 板的前沿厚度
+      fill3([xf(0, -o, 0), xf(PW + o, -o, 0), xf(PW + o, -o, .2), xf(0, -o, .2)], '#163844');
+      fill3([xf(PW + o, -o, 0), xf(PW + o, PH + o, 0), xf(PW + o, PH + o, .2), xf(PW + o, -o, .2)], '#1A3E4C');
+      if (camSide > 0) {
+        fill3([xf(0, -o, .2), xf(PW + o, -o, .2), xf(PW + o, PH + o, .2), xf(0, PH + o, .2)], lit('#20576A', n.map(x => x)));
+        fill3([xf(.35, .35, .201), xf(PW - .2, .35, .201), xf(PW - .2, PH - .2, .201), xf(.35, PH - .2, .201)], 'rgba(0,0,0,0)', '#D9B45A');
+        const tf = (u, v) => xf(u, v, .202);
+        textOn(tf, PW / 2 + .1, 3.55, '龙与城堡', .6, '#E8C66A', 1, 'center');
+        fill3(circle(PW / 2 + .1, 2.0, .5, 24).map(([a, b]) => tf(a, b)), 'rgba(0,0,0,0)', '#D9B45A');
+        fill3([[1.85, 1.7], [2.55, 1.7], [2.55, 2.05], [2.47, 2.05], [2.47, 1.97], [2.39, 1.97], [2.39, 2.05], [2.31, 2.05], [2.31, 2.25], [2.2, 2.4], [2.09, 2.25], [2.09, 2.05], [2.01, 2.05], [2.01, 1.97], [1.93, 1.97], [1.93, 2.05], [1.85, 2.05]].map(([a, b]) => tf(a + .1, b)), '#D9B45A');   // 小城堡徽章
+      } else {
+        page1((u, v, w = 0) => xf(u, v, -w));
+      }
+    };
+    /* ================= 按左右分组画：先左后右，每组从下到上 ================= */
+    const r1 = leafXf(th1, HB + .012), r2 = leafXf(0, HB + .006);
+    const onLeft = th => th >= PI / 2;
+    // 左边
+    if (onLeft(th0)) cover(th0);
+    if (onLeft(th1)) {
+      const xf = r1, n = leafN(th1);
+      if (dot(n, sub(eye, xf(PW / 2, PH / 2))) < 0) page3((u, v, w = 0) => xf(u, v, -w)); else page2(xf, th1, HB + .012);
+    }
+    // 右边（从下往上）
+    if (th1 > .001) page4(r2, 0, HB + .006);
+    if (!onLeft(th1)) {
+      const xf = r1, n = leafN(th1);
+      // 抬起的页先在下面一页上投影子，再画它自己
+      if (th1 > .01) { const s = shadowOn([xf(0, 0), xf(PW, 0), xf(PW, PH), xf(0, PH)], 0, HB + .006); if (s) { c.save(); path([r2(0, 0), r2(PW, 0), r2(PW, PH), r2(0, PH)]); c.clip(); fill3(s, `rgba(40,25,10,${.25 * Math.sin(th1)})`); c.restore(); } }
+      if (dot(n, sub(eye, xf(PW / 2, PH / 2))) > 0) page2(xf, th1, HB + .012); else page3((u, v, w = 0) => xf(u, v, -w));
+    }
+    if (!onLeft(th0)) cover(th0);
+    // 书脊的折痕阴影
+    if (th0 > .5) { const a = P([0, 0, HB]), b = P([0, PH, HB]); const g = c.createLinearGradient(a[0] - 30, 0, a[0] + 30, 0); g.addColorStop(0, 'rgba(60,40,20,0)'); g.addColorStop(.5, 'rgba(60,40,20,.28)'); g.addColorStop(1, 'rgba(60,40,20,0)'); c.fillStyle = g; c.beginPath(); c.moveTo(a[0] - 26, a[1]); c.lineTo(a[0] + 26, a[1]); c.lineTo(b[0] + 14, b[1]); c.lineTo(b[0] - 14, b[1]); c.closePath(); c.fill(); }
+    // 台灯暖光 + 纸纹颗粒 + 暗角
+    const lg = c.createRadialGradient(420, 120, 50, 520, 300, 800); lg.addColorStop(0, 'rgba(255,220,160,.14)'); lg.addColorStop(1, 'rgba(255,220,160,0)'); c.fillStyle = lg; c.fillRect(0, 0, W, H);
+    F.grain(c, t, .05); F.vignette(c, .45, '25,12,5');
+    const fd = prog(t, 14.45, 15); if (fd > 0) { c.fillStyle = `rgba(20,12,8,${fd})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    // 童话拨奏：Dm – Bb – F – C，四分音符拨弦 + 高音八分琶音
+    const PR = [[62, 65, 69], [58, 62, 65], [53, 57, 60], [55, 60, 64]], RT = [38, 34, 41, 36];
+    for (let b = 0; b < 6; b++) {
+      const ch = PR[b % 4], t0 = b * bar;
+      for (let k = 0; k < 4; k++) S.at(t0 + k * beat, I.pizz, (k % 2 ? ch[1] : ch[0]) - 12, .9);
+      [0, 1, 2, 1, 2, 0, 1, 2].forEach((i, e) => { if (b > 0 || e > 1) S.at(t0 + e * beat / 2, I.pluck, ch[i] + 12, .45); });
+      S.at(t0, I.bass, RT[b % 4], .9, .7);
+      if (b >= 2) S.at(t0, I.strings, ch, bar, .7);
+    }
+    S.at(6 * bar, I.strings, [62, 65, 69, 74], 1.4, .8); S.at(6 * bar, I.bass, 38, 1.4, .8); S.at(6 * bar, I.bell, 86, .7);
+    // 画面同步
+    S.at(T_OPEN[0], I.whoosh, .5); S.at(T_OPEN[0] + .1, I.paper); S.at(T_OPEN[1] - .35, I.paper); S.at(T_OPEN[1], I.thud, .5);
+    [74, 77, 81, 86].forEach((m, i) => S.at(T_OPEN[1] - .3 + i * .08, I.pluck, m, .8));             // 城堡立起：一串上行拨弦
+    S.at(T_PULL1[0], I.paper); S.at(T_PULL1[0] + .3, I.paper); S.at(T_PULL1[1], I.chime);            // 拉条 → 太阳升起
+    S.at(T_TURN[0], I.paper); S.at(T_TURN[0] + .5, I.whoosh, .6); S.at(T_TURN[0] + 1.1, I.paper); S.at(T_TURN[1], I.thud, .6);
+    S.at(T_PEEK - .4, I.tom, 40, 1.1); S.at(T_PEEK, I.tom, 33, 1.3); S.at(T_PEEK, I.subbass, 26, 1, 1);   // 龙探头：低音 tom
+    S.at(T_PULL2[0], I.paper); S.at(T_PULL2[0] + .2, I.riser, .6); S.at(T_PULL2[1] - .1, I.whoosh, 1); S.at(T_PULL2[1], I.tom, 36, 1);
+    for (let i = 0; i < 10; i++) S.at(T_PULL2[1] + .1 + i * .12, I.crackle);                          // 纸火苗的噼啪
+    S.at(T_PULL2[1] + .1, (w, B) => { const ctx = B.sfx.context, o = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter(); o.type = 'sawtooth'; o.frequency.setValueAtTime(70, w); o.frequency.linearRampToValueAtTime(55, w + 1.3); lp.type = 'lowpass'; lp.frequency.value = 300; g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.16, w + .15); g.gain.exponentialRampToValueAtTime(.0001, w + 1.4); o.connect(lp); lp.connect(g); g.connect(B.sfx); o.start(w); o.stop(w + 1.5); });
+  }
+});
+</script></body></html>

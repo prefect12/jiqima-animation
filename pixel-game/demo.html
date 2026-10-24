@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>像素游戏 · BUG HUNT</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+const BPM = 128, BEAT = 60 / BPM;
+const STOMP = [4, 8, 12].map(b => b * BEAT);          // small bugs
+const HITS = [20, 22, 24].map(b => b * BEAT);         // boss hits
+const LVUP = 12.6 * BEAT, BOSS_IN = 16 * BEAT, BOSS_DIE = 24.4 * BEAT, CLEAR = 26 * BEAT;
+const off = document.createElement('canvas'); off.width = 320; off.height = 180;
+const p = off.getContext('2d');
+Film({
+  title: '像素游戏 · BUG HUNT', DUR: 15, BPM, poster: 10.6,
+  fonts: [['8px "Press Start 2P"', 'BUGHNTLEVUPSAGCRXP0123456789+!->']],
+  draw(c, t, F) {
+    const { W, H, prog, clamp, lerp } = F;
+    const rect = (x, y, w, h, col) => { p.fillStyle = col; p.fillRect(Math.round(x), Math.round(y), w, h); };
+    const txt = (s, x, y, col, size = 8, center) => { p.font = `${size}px "Press Start 2P", monospace`; p.textBaseline = 'top'; p.textAlign = center ? 'center' : 'left'; p.fillStyle = '#1D1D24'; p.fillText(s, x + 1, y + 1); p.fillStyle = col; p.fillText(s, x, y); };
+    const hero = (x, y, fr, sparkle) => {
+      rect(x, y, 16, 11, '#FF8C42'); rect(x, y + 11, 16, 1, '#C4602B');
+      rect(x + 4, y + 3, 2, 4, '#1D1D24'); rect(x + 10, y + 3, 2, 4, '#1D1D24');
+      rect(x - 2, y + 5, 2, 3, '#FF8C42'); rect(x + 16, y + 5, 2, 3, '#FF8C42');
+      const lh = fr ? [3, 2, 3, 2] : [2, 3, 2, 3]; [1, 4, 11, 14].forEach((lx, i) => rect(x + lx, y + 12, 1, lh[i], '#FF8C42'));
+      if (sparkle) for (let i = 0; i < 4; i++) { const a = sparkle * 6 + i * 1.57; rect(x + 8 + Math.cos(a) * 14, y + 5 + Math.sin(a) * 10, 2, 2, '#FFF27A'); }
+    };
+    const bug = (x, y, fr, flat, k = 1, hurt) => {
+      const R = hurt ? '#FFFFFF' : '#E0504A';
+      if (flat) { rect(x, y + 7 * k, 12 * k, 3 * k, R); rect(x + 9 * k, y + 6 * k, 3 * k, 2 * k, '#1D1D24'); return; }
+      rect(x + 1 * k, y + 2 * k, 9 * k, 7 * k, R); rect(x + 9 * k, y + 3 * k, 3 * k, 5 * k, '#1D1D24'); rect(x + 5 * k, y + 2 * k, k, 7 * k, '#8B1E1E');
+      rect(x + 3 * k, y + 4 * k, k, k, '#1D1D24'); rect(x + 7 * k, y + 6 * k, k, k, '#1D1D24');
+      rect(x + 10 * k, y + 1 * k, k, 2 * k, '#1D1D24'); rect(x + 12 * k, y, k, 2 * k, '#1D1D24');
+      rect(x + (2 + (fr ? 1 : 0)) * k, y + 9 * k, k, k, '#1D1D24'); rect(x + (7 - (fr ? 1 : 0)) * k, y + 9 * k, k, k, '#1D1D24');
+      if (k > 1) { rect(x + 9.5 * k, y + 3.5 * k, k, k, '#FF3030'); }
+    };
+    p.clearRect(0, 0, 320, 180);
+    const scroll = Math.min(t, BOSS_IN) * 42;
+    ['#8BD3FF', '#76C6F7', '#63B7EE', '#52A6E3'].forEach((col, i) => rect(0, i * 36, 320, i === 3 ? 72 : 36, col));
+    for (let i = 0; i < 4; i++) { const x = ((i * 110 - scroll * .25 - t * 4) % 440 + 440) % 440 - 60; rect(x, 18 + i % 2 * 14, 26, 6, '#FFFFFF'); rect(x + 5, 13 + i % 2 * 14, 14, 5, '#FFFFFF'); }
+    for (let i = 0; i < 6; i++) { const bx = ((i * 80 - scroll * .5) % 480 + 480) % 480 - 80; for (let k = 0; k < 60; k++) { const h = Math.min(k, 60 - k) * 1.4; rect(bx + k, 140 - h, 1, h, '#3C6E9E'); if (h > 32) rect(bx + k, 140 - h, 1, h - 32, '#E8F4FF'); } }
+    for (let x = -16; x < 336; x += 8) { const gx = x - (scroll % 8); rect(gx, 140, 8, 3, '#34C759'); rect(gx, 143, 8, 37, (Math.floor((x + scroll) / 8) % 2) ? '#9A5A32' : '#A8643A'); rect(gx + 2, 150, 2, 2, '#7A4526'); }
+    // hero jump arcs land exactly on the beat
+    let hy = 0, hx = 58;
+    STOMP.forEach(s => { if (t >= s - .45 && t < s) hy = -26 * Math.sin(Math.PI * (t - s + .45) / .45); if (t >= s && t < s + .3) hy = -10 * Math.sin(Math.PI * (t - s) / .3); });
+    const bossX = lerp(330, 130, prog(t, BOSS_IN, BOSS_IN + 1.1));
+    HITS.forEach(h => { if (t >= h - .5 && t < h + .45) { const u = t < h ? prog(t, h - .5, h) : 1 - prog(t, h, h + .45); hx = lerp(58, bossX + 6, u); hy = t < h ? -44 * Math.sin(Math.PI * u * .5) - (u > .9 ? 0 : 0) - 18 * u : -22 - 30 * Math.sin(Math.PI * prog(t, h, h + .45)); } });
+    const lv = t < LVUP ? 4 : 5, xp = clamp(.28 + STOMP.filter(s => t >= s).length * .24, 0, 1);
+    STOMP.forEach(s => {
+      if (t < s) { const x = 64 + (s - t) * 70; if (x < 330) { bug(x, 129, Math.floor(t * 8) % 2); txt('BUG', x - 3, 118, '#FFD1D1', 6); } }
+      else if (t < s + .9) { bug(64, 129, 0, true); txt('+10XP', 58, 108 - (t - s) * 30, '#FFF27A', 7); }
+    });
+    // boss
+    const hp = 3 - HITS.filter(h => t >= h).length;
+    if (t >= BOSS_IN && t < BOSS_DIE) {
+      const hurt = HITS.some(h => t >= h && t < h + .15);
+      const shake = hurt ? (Math.random() - .5) * 4 : 0;
+      bug(bossX + shake, 105, Math.floor(t * 6) % 2, false, 3, hurt);
+      txt('BIG BUG', bossX - 2, 90, '#FFD1D1', 6);
+      rect(238, 8, 76, 14, 'rgba(29,29,36,.75)'); txt('BOSS', 242, 11, '#FFFFFF', 6);
+      for (let k = 0; k < 3; k++) rect(278 + k * 11, 11, 9, 7, k < hp ? '#E0504A' : '#3A3A46');
+    }
+    if (t >= BOSS_DIE && t < BOSS_DIE + 1.2) {
+      const u = prog(t, BOSS_DIE, BOSS_DIE + 1.2);
+      for (let k = 0; k < 10; k++) { const a = k / 10 * Math.PI * 2; rect(bossX + 18 + Math.cos(a) * 50 * u, 118 + Math.sin(a) * 34 * u - 20 * u, 4, 4, k % 2 ? '#FFF27A' : '#FF8C42'); }
+    }
+    hero(hx, 128 + hy, Math.floor(t * 8) % 2, (t > LVUP && t < LVUP + 1.6) || t > CLEAR ? t : 0);
+    rect(6, 6, 90, 22, 'rgba(29,29,36,.75)'); txt('AGENT', 10, 9, '#FFFFFF', 6); txt('LV' + lv, 60, 9, '#FFF27A', 6);
+    rect(10, 19, 80, 5, '#1D1D24'); rect(11, 20, 78 * (t > LVUP ? prog(t, LVUP, LVUP + 1.4) * .3 : xp), 3, '#34C759');
+    if (t < 1.4) txt('BUG HUNT', 160, 56, '#FFFFFF', 12, true);
+    if (t > LVUP && t < LVUP + 1.6 && Math.floor(t * 6) % 2 === 0) txt('LEVEL UP!', 160, 56, '#FFF27A', 16, true);
+    if (t >= CLEAR) { txt('STAGE CLEAR!', 160, 52, '#FFF27A', 16, true); txt('SCORE 1250', 160, 80, '#FFFFFF', 8, true); }
+    c.imageSmoothingEnabled = false; c.drawImage(off, 0, 0, W, H);
+    c.fillStyle = 'rgba(0,0,0,.08)'; for (let y = 0; y < H; y += 4) c.fillRect(0, y, W, 1);
+    const f = prog(t, 14.5, 15); if (f > 0) { c.fillStyle = `rgba(0,0,0,${f})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    const LEAD = [72, 76, 79, 76, 74, 77, 81, 77, 72, 76, 79, 84, 83, 79, 76, 74];
+    const BOSS = [69, 72, 76, 72, 68, 71, 76, 71, 69, 72, 76, 79, 77, 76, 74, 71];
+    const bassA = [48, 48, 53, 55], bassB = [45, 45, 44, 44];
+    for (let b = 0; b < 8; b++) {
+      const t0 = b * bar, boss = b >= 4 && b < 6, clear = b >= 6;
+      const mel = boss ? BOSS : LEAD;
+      for (let e = 0; e < 16; e++) if (e % 2 === 0 || boss) S.at(t0 + e * beat / 4 * (boss ? 1 : 1), I.chip, mel[(e + b * 4) % 16] + (clear ? 12 : 0), .7, boss ? .1 : .16);
+      const root = (boss ? bassB : bassA)[b % 4];
+      for (let k = 0; k < 4; k++) S.at(t0 + k * beat, I.chipTri, root + (k % 2 ? 12 : 0), .2);
+      if (b >= 1) { S.at(t0, I.kick, .7); S.at(t0 + 2 * beat, I.kick, .7); S.at(t0 + beat, I.snare, .5); S.at(t0 + 3 * beat, I.snare, .5); for (let e = 0; e < 8; e++) S.at(t0 + e * beat / 2, I.hat, .6); }
+    }
+    STOMP.forEach(s => { S.at(s - .45, I.jump); S.at(s, I.coin); });
+    HITS.forEach(h => { S.at(h - .5, I.jump); S.at(h, I.thud, .8); S.at(h + .02, I.pop, 1.6); });
+    [72, 76, 79, 84].forEach((m, i) => S.at(LVUP + i * .09, I.chip, m, 1, .12));
+    S.at(BOSS_IN, I.riser, .8);
+    S.at(BOSS_DIE, I.impact);
+    [72, 76, 79, 84, 88].forEach((m, i) => S.at(CLEAR + i * .12, I.chip, m, 1, i === 4 ? .6 : .12));
+  }
+});
+</script></body></html>

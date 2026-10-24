@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>一笔画 · 一杯咖啡的侧脸</title>
+<script src="../_engine/core.js"></script></head><body><script>
+/* 一笔画：整部片只有一根线。所有形状写成一串控制点 → Catmull-Rom 平滑 → 按 3px 重采样成一条折线，
+   按弧长逐步画出来。热气→侧脸→签名是同一段点列（等点数）逐点插值变形，线从头到尾不断。 */
+const BPM = 92, BEAT = 60 / BPM;                                  // 0.652 s
+const T = { cup: [.4, 5 * BEAT], face: [5 * BEAT, 12 * BEAT], hold: 12 * BEAT, morph: [13 * BEAT, 15.5 * BEAT], flourish: [15.5 * BEAT, 17.5 * BEAT], lift: 17.5 * BEAT, fade: 14.4 };
+const INKC = '#1E1B18', BG = '#F3EEE4';
+
+function catmull(P, seg = 8) { const out = []; for (let i = 0; i < P.length - 1; i++) { const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(P.length - 1, i + 2)];
+  for (let k = 0; k < seg; k++) { const u = k / seg, u2 = u * u, u3 = u2 * u; out.push([0, 1].map(j => .5 * (2 * p1[j] + (-p0[j] + p2[j]) * u + (2 * p0[j] - 5 * p1[j] + 4 * p2[j] - p3[j]) * u2 + (-p0[j] + 3 * p1[j] - 3 * p2[j] + p3[j]) * u3))); } }
+  out.push(P[P.length - 1]); return out; }
+function resampleN(P, n) { const d = [0]; for (let i = 1; i < P.length; i++) d.push(d[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1])); const L = d[d.length - 1], out = []; let j = 1;
+  for (let k = 0; k < n; k++) { const s = L * k / (n - 1); while (j < P.length - 1 && d[j] < s) j++; const f = (s - d[j - 1]) / (d[j] - d[j - 1] || 1); out.push([P[j - 1][0] + (P[j][0] - P[j - 1][0]) * f, P[j - 1][1] + (P[j][1] - P[j - 1][1]) * f]); } return out; }
+const lenOf = P => P.reduce((s, p, i) => i ? s + Math.hypot(p[0] - P[i - 1][0], p[1] - P[i - 1][1]) : 0, 0);
+const ellArc = (cx, cy, rx, ry, a0, a1, n = 24) => Array.from({ length: n + 1 }, (_, i) => { const a = a0 + (a1 - a0) * i / n; return [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]; });
+
+/* ---------- A：桌面 → 托盘 → 杯身 → 把手 → 杯口 ---------- */
+const PART_A = (() => {
+  const P = [[-20, 574], [200, 572], [420, 573], [488, 566]];
+  P.push(...ellArc(640, 563, 152, 13, Math.PI, -Math.PI * .96, 30).slice(1));          // 托盘绕一圈
+  P.push([520, 558], [566, 552], [640, 561], [712, 552],                                // 杯底
+    [720, 528], [760, 532], [792, 506], [786, 470], [754, 458], [730, 472],              // 把手绕出去再回来
+    [736, 446], [742, 420]);
+  P.push(...ellArc(640, 420, 102, 15, 0, Math.PI, 18).slice(1));                         // 杯口前沿
+  P.push(...ellArc(640, 420, 102, 15, Math.PI, Math.PI * 1.5, 10).slice(1));             // 杯口后沿到正中
+  return resampleN(catmull(P, 6), 900);
+})();
+/* ---------- B：热气 → 侧脸（与签名等点数，方便变形） ---------- */
+const NB = 1100;
+const PART_B = resampleN(catmull([[640, 405], [628, 372], [656, 342], [626, 310], [648, 284], [660, 268],
+  [672, 258], [700, 250], [707, 238], [698, 230], [709, 221], [703, 212], [729, 196], [712, 178], [704, 168],
+  [690, 167], [678, 161], [668, 166], [690, 156], [708, 146], [712, 132], [706, 108], [684, 80], [642, 64],
+  [604, 70], [584, 58], [558, 66], [556, 92], [582, 94], [566, 124], [562, 156], [574, 188], [592, 214], [600, 252], [598, 296], [584, 330], [560, 326], [566, 302], [582, 310]], 8), NB);
+/* ---------- S：签名（草书连环）——热气从杯口升起，写成一个签名 ---------- */
+const SIGN = (() => {
+  const P = [[640, 405], [628, 372], [654, 346], [690, 330], [740, 322], [786, 330], [806, 280], [822, 216], [812, 182], [792, 194], [790, 250], [798, 320], [806, 366], [822, 360], [834, 330]];
+  const H = [26, 64, 24, 26, 70, 22], x0 = 840, a = 44 / (2 * Math.PI), b = 11, base = 332;
+  for (let k = 0; k < H.length; k++) for (let i = 1; i <= 10; i++) { const th = (k + i / 10) * Math.PI * 2; P.push([x0 + a * th + k * 4 + b * Math.sin(th), base - H[k] * (1 - Math.cos(th)) / 2]); }
+  P.push([1128, 316], [1146, 282]);
+  return resampleN(catmull(P, 8), NB);
+})();
+const FLOURISH = resampleN(catmull([[1146, 282], [1164, 326], [1130, 360], [1000, 374], [860, 376], [790, 370], [772, 360]], 10), 260);
+const LEN_A = lenOf(PART_A), LEN_B = lenOf(PART_B);
+
+// 衬底色块：手撕纸一样的不规则圆
+const blobPts = (seed, n = 48) => Array.from({ length: n }, (_, i) => { const a = i / n * Math.PI * 2; return 1 + .06 * Math.sin(a * 3 + seed) + .04 * Math.sin(a * 5 + seed * 2) + .03 * Math.sin(a * 9 + seed); });
+const BLOB = { cup: blobPts(1), face: blobPts(2), sign: blobPts(3) };
+
+Film({
+  title: '一笔画 · 一杯咖啡的侧脸', DUR: 15, BPM, poster: 7.9,
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, hash, ease, easeOut, back } = F;
+    c.fillStyle = BG; c.fillRect(0, 0, W, H);
+    // 镜头：先框住杯子和侧脸，变签名时平移到“杯子 + 签名”，收笔后慢慢推近
+    const cm = ease(prog(t, T.morph[0] - .2, T.morph[1] + .3)), zoom = lerp(1.15, 1.1, cm) * (1 + .04 * ease(prog(t, T.lift, 15)));
+    c.save(); c.translate(W / 2, H / 2); c.scale(zoom, zoom); c.translate(-lerp(640, 822, cm), -lerp(310, 404, cm));
+    // 色块
+    const blob = (B, cx, cy, r, col, k) => { if (k <= 0) return; c.save(); c.fillStyle = col; c.globalAlpha = .9; c.beginPath(); B.forEach((m, i) => { const a = i / B.length * Math.PI * 2, rr = r * m * k; i ? c.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr) : c.moveTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); }); c.closePath(); c.fill(); c.restore(); };
+    blob(BLOB.cup, 640, 490, 118, '#E7AE8F', back(prog(t, 2.8, 3.4)));
+    const mu = ease(prog(t, ...T.morph));
+    blob(BLOB.face, lerp(640, 960, mu), lerp(172, 296, mu), lerp(122, 92, mu), `rgb(${[[188, 233], [200, 203], [173, 120]].map(([a, b]) => Math.round(lerp(a, b, mu))).join(',')})`, back(prog(t, 4.6, 5.3)));
+
+    // 当前这根线：A +（B 与 S 按点插值）+ 收尾花线
+    let B = PART_B;
+    if (t > T.morph[0]) B = PART_B.map((p, i) => { const q = SIGN[i], u = ease(clamp((t - T.morph[0] - i / NB * .6) / (T.morph[1] - T.morph[0] - .6), 0, 1)); return [lerp(p[0], q[0], u), lerp(p[1], q[1], u)]; });
+    const fl = prog(t, ...T.flourish);
+    let pts, tip = null;
+    const ua = prog(t, ...T.cup), ub = prog(t, ...T.face);
+    if (ub <= 0) { const n = Math.max(1, Math.floor(PART_A.length * ua)); pts = PART_A.slice(0, n); if (ua < 1) tip = pts[pts.length - 1]; }
+    else { const n = Math.max(1, Math.floor(NB * ease(ub) * .15 + NB * ub * .85)); pts = PART_A.concat(B.slice(0, n)); if (ub < 1) tip = pts[pts.length - 1];
+      if (fl > 0) { const m = Math.max(1, Math.floor(FLOURISH.length * easeOut(fl))); pts = pts.concat(FLOURISH.slice(1, m)); if (fl < 1) tip = pts[pts.length - 1]; } }
+    // 画线：按 14 个点一段，线宽随“笔压”起伏
+    c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = INKC;
+    for (let i = 0; i < pts.length - 1; i += 14) {
+      const w = 3.3 + 1.1 * Math.sin(i * .013) + .5 * Math.sin(i * .051);
+      const endTaper = t > T.lift ? 1 : Math.min(1, (pts.length - i) / 40 + .55);
+      c.lineWidth = w * endTaper; c.beginPath(); c.moveTo(...pts[i]); for (let j = i + 1; j <= Math.min(pts.length - 1, i + 14); j++) c.lineTo(...pts[j]); c.stroke();
+    }
+    // 笔尖：一颗墨珠
+    if (tip) { c.fillStyle = INKC; c.beginPath(); c.arc(tip[0], tip[1], 4.2, 0, Math.PI * 2); c.fill(); c.fillStyle = 'rgba(30,27,24,.12)'; c.beginPath(); c.arc(tip[0], tip[1], 11 + Math.sin(t * 20) * 1.5, 0, Math.PI * 2); c.fill(); }
+    // 收笔：线尾留下一个小墨点，轻轻一顿
+    if (t > T.lift) { const e = FLOURISH[FLOURISH.length - 1], k = back(prog(t, T.lift, T.lift + .3)); c.fillStyle = INKC; c.beginPath(); c.arc(e[0] - 6, e[1] - 2, 4.6 * k, 0, Math.PI * 2); c.fill(); }
+    c.restore();
+    F.grain(c, t, .05);
+    F.vignette(c, .12, '120,100,80');
+    const fo = prog(t, T.fade, 15); if (fo > 0) { c.fillStyle = `rgba(243,238,228,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    const ac = B => B.sfx.context;
+    const hashN = i => { const n = Math.sin(i * 12.9898) * 43758.5453; return n - Math.floor(n); };
+    // 笔尖在纸上走：一段带通噪声，音量按笔速轻轻起伏
+    const pen = (w, B, d, v = .05) => { const x = ac(B), len = Math.ceil(x.sampleRate * (d + .1)), buf = x.createBuffer(1, len, x.sampleRate), ch = buf.getChannelData(0); for (let i = 0; i < len; i++) ch[i] = (hashN(i + 11) * 2 - 1) * (.6 + .4 * Math.sin(i / x.sampleRate * 9) ** 2);
+      const s = x.createBufferSource(); s.buffer = buf; const f = x.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 3800; f.Q.value = 1.4;
+      const g = x.createGain(); g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(v, w + .08); g.gain.setValueAtTime(v, w + d - .1); g.gain.exponentialRampToValueAtTime(.0001, w + d); s.connect(f); f.connect(g); g.connect(B.sfx); s.start(w); s.stop(w + d + .05); };
+    S.at(T.cup[0], pen, T.cup[1] - T.cup[0], .06); S.at(T.face[0], pen, T.face[1] - T.face[0], .05); S.at(T.flourish[0], pen, T.flourish[1] - T.flourish[0], .07);
+    // 钢琴：Fmaj7 – Em7 – Dm7 – Cmaj7，每拍一个音，干净
+    const PR = [[53, 57, 60, 64], [52, 55, 59, 62], [50, 53, 57, 60], [48, 52, 55, 59]];
+    for (let b = 0; b < 6; b++) { const ch = PR[b % 4], t0 = b * bar; if (t0 > 14.4) break;
+      S.at(t0, I.pad, ch, bar + .3, .5);
+      [0, 2, 1, 3].forEach((k, j) => S.at(t0 + j * beat, I.piano, ch[k] + 12, j ? .45 : .6, 1.6));
+      S.at(t0, I.bass, ch[0] - 12, bar * .8, .45); }
+    // 旋律：画脸时一句，签名时一句
+    S.melody([76, 0, 79, 81, 0, 79, 76, 74], T.face[0] + beat, beat / 2, 'keys', 1.1);
+    S.melody([72, 74, 76, 79, 81, 84, 0, 83], T.morph[0], beat / 2, 'keys', 1.1);
+    S.at(2.8, I.pluck, 72, .6); S.at(T.cup[1], I.pluck, 79, .6); S.at(4.6, I.pluck, 76, .6);
+    S.at(T.face[1], I.chime);
+    S.at(T.morph[0], I.whoosh, .4); S.at(T.morph[0] + .4, I.shimmer);
+    S.at(T.flourish[0], I.swish);
+    S.at(T.lift, I.pop2); S.at(T.lift, (w, B) => I.bell(w, B, 84, .6));
+    S.at(T.lift + beat, (w, B) => [60, 64, 67, 71, 74].forEach((m, i) => I.piano(w + i * .07, B, m + 12, .7, 2.6)));
+  }
+});
+</script></body></html>

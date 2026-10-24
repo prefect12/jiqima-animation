@@ -1,0 +1,31 @@
+name: Source and render checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: npm run render -- pixel-game
+        env:
+          OFFLINE: '1'
+      - name: Validate video duration, frames and audio
+        run: |
+          ffmpeg -v error -i pixel-game/demo.mp4 -f null -
+          python3 - <<'PY'
+          import subprocess,json
+          p=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-of','json','pixel-game/demo.mp4']))
+          v=next(s for s in p['streams'] if s['codec_type']=='video')
+          assert int(v['nb_frames'])==450 and float(v['duration'])==15
+          assert any(s['codec_type']=='audio' for s in p['streams'])
+          PY

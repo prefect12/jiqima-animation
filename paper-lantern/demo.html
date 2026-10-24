@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>纸雕灯影 · 走马灯</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 纸雕灯影：一盏走马灯，灯面是五层叠起来的纸雕，背后一盏灯。越靠后的纸越亮越虚，越靠前越暗越虚，中间那层最清楚。
+   时间表（BPM 72，一拍 0.833 秒，一小节 3.33 秒）——draw() 和 score() 共用。 */
+const BPM = 72, BEAT = 60 / BPM;
+const T = {
+  light: [.3, 1.4], zoomIn: [2.4, 3.4], walk: [3.6, 11.0], occ: [7 * BEAT, 10 * BEAT],   // 两次长大：5.83 / 8.33 秒
+  doorClose: [4.1, 4.5], doorOpen: [11.25, 11.7], hug: [12.0, 12.5], zoomOut: [12.6, 13.8], fade: [14.45, 15]
+};
+const LOOP = 1500, FIGX = 560, DOOR = 470, KITE_GO = 5.2;   // 走一圈 1500px 回到同一座房子；5.2 秒松手，风筝飞走
+const PANEL = { x: 440, y: 250, w: 400, h: 225 }, ZMAX = 3.32;   // 灯面是 16:9，放大 3.32 倍把灯框推出画面
+const CX = PANEL.x + PANEL.w / 2, CY = PANEL.y + PANEL.h / 2;
+const SERIF = '"Noto Serif SC", "Songti SC", serif';
+
+/* 初始化：纸纹（只在这里用 Math.random），离屏画布 */
+const FIBER = document.createElement('canvas'); FIBER.width = FIBER.height = 300;
+{ const g = FIBER.getContext('2d');
+  for (let i = 0; i < 2600; i++) { g.fillStyle = `rgba(${Math.random() < .5 ? '255,240,210' : '60,25,5'},${Math.random() * .09})`; g.fillRect(Math.random() * 300, Math.random() * 300, 1 + Math.random() * 2, 1 + Math.random() * 2); }
+  for (let i = 0; i < 220; i++) { g.strokeStyle = `rgba(255,236,200,${.04 + Math.random() * .08})`; g.lineWidth = .5 + Math.random() * .8; g.beginPath(); let x = Math.random() * 300, y = Math.random() * 300; g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += Math.random() * 18 - 9; y += Math.random() * 18 - 9; g.lineTo(x, y); } g.stroke(); } }
+const mk = () => { const cv = document.createElement('canvas'); cv.width = 1920; cv.height = 1080; return cv; };
+const DIO = mk(), LY = mk();                              // 整个纸雕场景 / 单层（每帧清空）
+
+// 人物的世界坐标：3.6 秒出门，11.0 秒停在（绕了一圈的）同一扇门前
+const walkU = t => { const u = Math.min(1, Math.max(0, (t - T.walk[0]) / (T.walk[1] - T.walk[0]))), a = .08, k = 2 * a * (1 - a); return u < a ? u * u / k : u < 1 - a ? (u - a / 2) / (1 - a) : 1 - (1 - u) * (1 - u) / k; };   // 匀速走，头尾各 8% 加减速
+const figW = t => DOOR + (LOOP - 35) * walkU(t);
+const camS = t => Math.max(0, figW(t) - FIGX);
+const PAR5 = 2.6, OCC5 = T.occ.map(x => FIGX + PAR5 * camS(x));   // 最前面那层的树正好在长大的那一刻挡住人
+
+function smoothPath(g, pts) { const n = pts.length; g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < n - 1; i++) { const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2; g.quadraticCurveTo(pts[i][0], pts[i][1], mx, my); } g.lineTo(pts[n - 1][0], pts[n - 1][1]); }
+function ridge(g, x0, x1, base, amp, seed, step, H) { const P = []; for (let x = x0 - step; x <= x1 + step; x += step) { const k = Math.floor(x / step); const h = amp * (.55 + .45 * Math.sin(k * 1.7 + seed) * Math.cos(k * .63 + seed * 2)); P.push([x, base - h]); } g.beginPath(); smoothPath(g, P); g.lineTo(x1 + step, 720); g.lineTo(x0 - step, 720); g.closePath(); g.fill(); }
+function tree(g, x, y, s) { g.fillRect(x - 5 * s, y - 60 * s, 10 * s, 60 * s); g.beginPath(); [[0, -86, 34], [-24, -70, 24], [24, -72, 26], [0, -110, 24]].forEach(([dx, dy, r]) => { g.moveTo(x + dx * s + r * s, y + dy * s); g.arc(x + dx * s, y + dy * s, r * s, 0, Math.PI * 2); }); g.fill(); }
+function person(g, x, y, h, ph, kind, o = {}) {
+  const sw = o.stand ? 0 : Math.sin(ph * Math.PI * 2), head = h * (kind === 0 ? .14 : kind === 3 ? .115 : .11);
+  const hipY = y - h * .45, neckY = y - h * .8, lean = kind === 3 ? .12 : 0;
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  [1, -1].forEach(s => { const a = s * sw * .42; g.beginPath(); g.moveTo(x, hipY); g.lineTo(x + Math.sin(a) * h * .23 + (a < 0 ? -2 : 2), hipY + h * .22); g.lineTo(x + Math.sin(a) * h * .45, y - 2); g.lineWidth = h * .08; g.stroke(); });
+  const coat = kind >= 2 ? h * .22 : 0;
+  g.beginPath(); g.moveTo(x - h * .09 + lean * h * .3, neckY); g.lineTo(x + h * .09 + lean * h * .3, neckY); g.lineTo(x + h * .1 + coat * .35, hipY + coat); g.lineTo(x - h * .1 - coat * .35, hipY + coat); g.closePath(); g.fill();
+  const up = o.hug || 0;
+  [1, -1].forEach(s => { const a = -s * sw * .5; const sx = x + lean * h * .3, sy = neckY + h * .04; const ex = sx + Math.sin(a) * h * .2 + up * h * .14, ey = sy + Math.cos(a) * h * .2 - up * h * .08; g.beginPath(); g.moveTo(sx, sy); g.lineTo(ex, ey); g.lineTo(ex + Math.sin(a) * h * .16 + up * h * .12, ey + Math.cos(a) * h * .16 - up * h * .12); g.lineWidth = h * .065; g.stroke(); });
+  g.beginPath(); g.arc(x + lean * h * .45, neckY - head * 1.05, head, 0, Math.PI * 2); g.fill();
+  if (kind === 0) { g.beginPath(); g.arc(x - head * .9, neckY - head * 1.5, head * .45, 0, Math.PI * 2); g.fill(); }        // 小辫
+  if (kind === 1) { g.beginPath(); g.roundRect(x - h * .2, neckY + h * .04, h * .12, h * .22, 4); g.fill(); }             // 书包
+  if (kind === 3) { g.beginPath(); g.arc(x + lean * h * .45 - head * .8, neckY - head * 1.4, head * .5, 0, Math.PI * 2); g.fill(); }   // 发髻
+}
+
+Film({
+  title: '纸雕灯影 · 走马灯', DUR: 15, BPM, poster: 13.3,
+  fonts: [['600 34px "Noto Serif SC"', '走马灯回家']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, ease, easeOut, easeIn, hash } = F;
+    const n = t * 7, i0 = Math.floor(n), fr = n - i0, flick = .95 + .05 * lerp(hash(i0), hash(i0 + 1), fr * fr * (3 - 2 * fr));
+    const L = easeOut(prog(t, ...T.light)) * flick;                 // 灯的亮度
+    const s = camS(t), fw = figW(t), X = (wx, par) => wx - s * par;
+    const night = ease(prog(t, 6, 11));                              // 一路从白天走到夜里
+
+    // ================= 纸雕场景画进 DIO =================
+    const D = DIO.getContext('2d'); D.setTransform(1, 0, 0, 1, 0, 0); D.clearRect(0, 0, 1920, 1080); D.setTransform(1.5, 0, 0, 1.5, 0, 0);
+    // 背光板
+    const bg = D.createRadialGradient(640, 300, 40, 640, 330, 900);
+    bg.addColorStop(0, lerpCol('#FFF1CF', '#FFD39A', night)); bg.addColorStop(.45, lerpCol('#FBC77E', '#E48A48', night)); bg.addColorStop(1, lerpCol('#D98A45', '#7A2C12', night));
+    D.fillStyle = bg; D.fillRect(0, 0, W, H);
+    const sunX = lerp(360, 960, prog(t, 3, 12)), sunY = 150 + 60 * Math.pow(prog(t, 3, 12), 2);
+    const sg = D.createRadialGradient(sunX, sunY, 10, sunX, sunY, 120); sg.addColorStop(0, 'rgba(255,252,236,1)'); sg.addColorStop(.45, 'rgba(255,246,214,.9)'); sg.addColorStop(1, 'rgba(255,240,200,0)'); D.fillStyle = sg; D.fillRect(0, 0, W, H);
+    // 单层纸：先画黑色形状 → 用本层渐变上色 → 叠纸纹 → 挖洞 → 带投影贴进 DIO
+    const layer = (cols, blur, shapes, holes, after) => {
+      const g = LY.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, 1920, 1080); g.setTransform(1.5, 0, 0, 1.5, 0, 0);
+      g.fillStyle = '#000'; g.strokeStyle = '#000'; shapes(g);
+      const gr = g.createRadialGradient(640, 300, 60, 640, 360, 820); gr.addColorStop(0, cols[0]); gr.addColorStop(1, cols[1]);
+      g.globalCompositeOperation = 'source-in'; g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      g.globalCompositeOperation = 'source-atop'; g.fillStyle = g.createPattern(FIBER, 'repeat'); g.fillRect(0, 0, W, H);
+      if (holes) { g.globalCompositeOperation = 'destination-out'; g.fillStyle = '#000'; holes(g); }
+      g.globalCompositeOperation = 'source-over'; if (after) { g.fillStyle = gr; after(g); }
+      D.save(); D.setTransform(1, 0, 0, 1, 0, 0);
+      D.shadowColor = 'rgba(50,15,2,.55)'; D.shadowBlur = 22; D.shadowOffsetY = 9;
+      if (blur) D.filter = `blur(${blur}px)`;
+      D.drawImage(LY, 0, 0); D.restore();
+    };
+    // L1 远山（0.1 倍）
+    layer(['#FAD9A2', '#E6A864'], 2.2, g => ridge(g, -100 - (s * .1) % 90, 1400, 420, 90, 1, 90, H));
+    // L2 丘陵 + 远处城市（0.3 倍）
+    layer(['#F0B670', '#CF8444'], 1.3, g => { ridge(g, -100 - (s * .3) % 70, 1400, 488, 44, 3, 70, H); const ox = X(820, .3); for (let k = 0; k < 11; k++) { const bw = 26 + 18 * hash(k + 2), bh = 40 + 70 * hash(k + 7); g.fillRect(ox + k * 36, 470 - bh, bw, bh + 20); } g.fillRect(ox + 180, 330, 8, 60); });
+    // L3 树丘（0.6 倍）
+    layer(['#DA8F4A', '#A4552A'], .6, g => { const o = (s * .6) % 260; ridge(g, -100 - (s * .6) % 60, 1400, 540, 26, 5, 60, H); for (let k = -1; k < 7; k++) { const x = k * 260 - o + 60, kk = k + Math.floor(s * .6 / 260); tree(g, x + 50 * hash(kk), 530, .75 + .35 * hash(kk + 3)); } });
+    // L4 主层：地面、房子、树、人（1 倍）
+    const age = t < T.occ[0] ? 0 : t < T.occ[1] ? 1 : 2, HGT = [112, 152, 184][age];
+    const doorOpen1 = 1 - ease(prog(t, ...T.doorClose)), doorOpen2 = ease(prog(t, ...T.doorOpen));
+    const house = (g, wx) => { const x = X(wx, 1); g.fillRect(x + 300 - 470, 470, 260, 110); g.beginPath(); g.moveTo(x - 196, 478); g.quadraticCurveTo(x - 176, 470, x - 170, 458); g.lineTo(x - 40, 414); g.lineTo(x + 90, 458); g.quadraticCurveTo(x + 96, 470, x + 116, 478); g.closePath(); g.fill(); g.fillRect(x + 40, 410, 18, 40); };
+    const houseHoles = (g, wx, open) => { const x = X(wx, 1); [[-130, 494], [-100, 494], [-130, 520], [-100, 520], [52, 494], [72, 494], [52, 514], [72, 514]].forEach(([dx, dy]) => g.fillRect(x + dx, dy, 16, 16)); g.fillRect(x - 18, 518, 36, 58); if (!open) {} };
+    const doorLeaf = (g, wx, open) => { const x = X(wx, 1), w = 36 * (1 - open * .82); g.fillRect(x - 18, 518, w, 58); };
+    // L3.5 房子单独一层（比人那层浅），人站在门口才看得清
+    layer(['#B8662F', '#7A3A18'], .3, g => { [0, LOOP].forEach(k => house(g, DOOR + k)); }, g => { [0, LOOP].forEach(k => houseHoles(g, DOOR + k)); }, g => { doorLeaf(g, DOOR, doorOpen1); doorLeaf(g, DOOR + LOOP, doorOpen2); });
+    const night2 = ease(prog(t, 9.5, 11.2));   // 夜里窗子亮起来
+    if (night2 > 0) { D.save(); D.globalCompositeOperation = 'lighter'; [0, LOOP].forEach(k => { const x = X(DOOR + k, 1); if (x < -300 || x > 1600) return; [[-114, 510], [68, 506]].forEach(([dx, dy]) => { const lg = D.createRadialGradient(x + dx, dy, 4, x + dx, dy, 70); lg.addColorStop(0, `rgba(255,220,150,${.5 * night2})`); lg.addColorStop(1, 'rgba(255,200,120,0)'); D.fillStyle = lg; D.fillRect(x + dx - 80, dy - 80, 160, 160); }); }); D.restore(); }
+    layer(['#8E4520', '#4E200D'], 0, g => {
+      g.beginPath(); const P = []; for (let x = -40; x <= 1340; x += 40) P.push([x, 576 + 5 * Math.sin((x + s) / 130)]); smoothPath(g, P); g.lineTo(1340, 720); g.lineTo(-40, 720); g.closePath(); g.fill();
+      [[160, 1.1], [720, 1.25], [1050, .9], [1380, 1.2], [160 + LOOP, 1.1], [720 + LOOP, 1.25]].forEach(([wx, sc]) => { const x = X(wx, 1); if (x > -200 && x < 1500) tree(g, x, 580, sc); });
+      for (let k = 0; k < 2; k++) { const x0 = X(DOOR + 150 + k * LOOP, 1); for (let q = 0; q < 6; q++) g.fillRect(x0 + q * 22, 548, 6, 30); g.fillRect(x0, 556, 116, 5); }
+      // 桥（少年段）
+      const bx = X(980, 1); g.beginPath(); g.moveTo(bx - 120, 580); g.quadraticCurveTo(bx, 520, bx + 120, 580); g.lineTo(bx + 120, 586); g.quadraticCurveTo(bx, 530, bx - 120, 586); g.closePath(); g.fill(); for (let q = -4; q <= 4; q++) { const px = bx + q * 26, py = 580 - 60 * (1 - (q / 4.6) ** 2) * .85; g.fillRect(px - 2, py - 18, 4, 18); } g.beginPath(); g.moveTo(bx - 110, 562); g.quadraticCurveTo(bx, 494, bx + 110, 562); g.lineWidth = 3; g.stroke();
+      // 路灯（成年段）
+      [1180, 1290].forEach(wx => { const x = X(wx, 1); g.fillRect(x - 2, 500, 4, 80); g.beginPath(); g.arc(x, 498, 7, 0, Math.PI * 2); g.fill(); });
+    }, null, g => { g.strokeStyle = g.fillStyle;
+      // 人
+      const walking = t > T.walk[0] && t < T.walk[1] - .05, fx = fw - s;
+      const ph = (fw - DOOR) / (HGT * .62);
+      const hug = ease(prog(t, ...T.hug));
+      person(g, fx + 6 * hug, 578, HGT, ph, age, { stand: !walking, hug });
+      const rel = easeIn(prog(t, KITE_GO, T.occ[0] + .6)); if (rel < 1) { const kx = fx + 150 + 700 * rel, ky = 330 + 16 * Math.sin(t * 2.1) - 380 * rel; if (rel === 0) { g.beginPath(); g.moveTo(fx + 12, 578 - HGT * .62); g.quadraticCurveTo(fx + 90, 470, kx, ky + 20); g.lineWidth = 1.4; g.stroke(); } g.beginPath(); g.moveTo(kx, ky - 22); g.lineTo(kx + 16, ky); g.lineTo(kx, ky + 22); g.lineTo(kx - 16, ky); g.closePath(); g.fill(); for (let q = 0; q < 4; q++) { g.beginPath(); g.arc(kx - 6 - q * 12, ky + 30 + q * 10 + 4 * Math.sin(t * 5 + q), 3.5, 0, Math.PI * 2); g.fill(); } }
+      if (age === 2) { const put = t > T.walk[1] + .1; const sx = put ? fx - 34 : fx + 16, sy = put ? 578 : 578 - HGT * .3; g.beginPath(); g.roundRect(sx - 14, sy - 30, 28, 30, 3); g.fill(); g.fillRect(sx - 5, sy - 36, 10, 4); }
+      if (t > T.doorOpen[0] + .1) { const u = ease(prog(t, T.doorOpen[0] + .1, T.hug[0])), hx = X(DOOR + LOOP, 1) + lerp(4, 26, u) - 10 * hug; person(g, hx, 578, 160, 0, 3, { stand: true, hug }); }
+    });
+    // 门口透出来的光
+    [[DOOR, doorOpen1], [DOOR + LOOP, doorOpen2]].forEach(([wx, o]) => { if (o <= 0) return; const x = X(wx, 1); if (x < -200 || x > 1500) return; D.save(); D.globalCompositeOperation = 'lighter'; const lg = D.createRadialGradient(x, 560, 5, x, 560, 160); lg.addColorStop(0, `rgba(255,214,140,${.45 * o})`); lg.addColorStop(1, 'rgba(255,190,110,0)'); D.fillStyle = lg; D.fillRect(x - 200, 400, 400, 320); D.restore(); });
+    // L5 前景：草、灌木、两棵挡住人的大树（1.5 倍，最虚）
+    layer(['#3A170A', '#1C0905'], 3.5, g => {
+      const P = []; for (let x = -40; x <= 1340; x += 16) { const k = Math.floor((x + s * 1.5) / 16); P.push([x - (s * 1.5) % 16, 690 - 26 * hash(k) - 18 * Math.max(0, Math.sin(k * .21))]); } g.beginPath(); g.moveTo(-60, 720); P.forEach(([x, y], i) => { g.lineTo(x, y); g.lineTo(x + 8, 706); }); g.lineTo(1360, 720); g.closePath(); g.fill();
+      OCC5.forEach(wx => { const x = X(wx, PAR5); if (x < -400 || x > 1700) return; g.fillRect(x - 20, 320, 40, 400); g.beginPath(); [[0, 350, 100], [-86, 392, 72], [86, 400, 76], [-46, 300, 66], [52, 292, 70], [0, 470, 84]].forEach(([dx, y, r]) => { g.moveTo(x + dx + r, y); g.arc(x + dx, y, r, 0, Math.PI * 2); }); g.fill(); });
+    });
+    // 光里飘的尘
+    D.save(); D.globalCompositeOperation = 'lighter';
+    for (let k = 0; k < 26; k++) { const x = (hash(k) * 1400 + 20 * Math.sin(t * .7 + k) - s * .8) % 1400, xx = x < 0 ? x + 1400 : x, y = 720 - ((hash(k + 5) * 720 + t * (14 + 10 * hash(k + 9))) % 720); D.fillStyle = `rgba(255,230,170,${.25 + .25 * Math.sin(t * 2 + k)})`; D.beginPath(); D.arc(xx * 1.5 - 60, y * 1.5, 2 + 2 * hash(k + 3), 0, Math.PI * 2); D.fill(); }
+    D.restore();
+
+    // ================= 灯（外景）+ 推拉镜头 =================
+    const zi = ease(prog(t, ...T.zoomIn)), zo = ease(prog(t, ...T.zoomOut));
+    const Z = 1 + (ZMAX - 1) * (zi - zo);
+    c.fillStyle = '#120A07'; c.fillRect(0, 0, W, H);
+    c.save(); c.translate(CX, CY); c.scale(Z, Z); c.translate(-CX, -CY);
+    // 灯周围的暖光
+    const halo = c.createRadialGradient(CX, CY, 60, CX, CY, 520); halo.addColorStop(0, `rgba(255,170,80,${.35 * L})`); halo.addColorStop(1, 'rgba(255,140,60,0)'); c.fillStyle = halo; c.fillRect(CX - 700, CY - 700, 1400, 1400);
+    c.strokeStyle = '#2A1810'; c.lineWidth = 3; c.beginPath(); c.moveTo(CX, -2000); c.lineTo(CX, 176); c.stroke();
+    // 侧面两块灯纸 + 转动的竹骨
+    const rot = t * .9 * clamp(prog(t, .8, 2.4), .05, 1);
+    [[372, 416], [864, 908]].forEach(([a, b], side) => { const sgp = c.createLinearGradient(a, 0, b, 0); const lc = `rgba(${Math.round(250 * L)},${Math.round(170 * L)},${Math.round(90 * L)},1)`, dc = `rgba(${Math.round(120 * L)},${Math.round(60 * L)},${Math.round(25 * L)},1)`; sgp.addColorStop(side ? 0 : 1, lc); sgp.addColorStop(side ? 1 : 0, dc); c.fillStyle = sgp; c.beginPath(); c.moveTo(a, 262); c.lineTo(b, side ? 270 : 262); c.lineTo(b, side ? 458 : 466); c.lineTo(a, 466); c.closePath(); c.fill(); c.strokeStyle = 'rgba(40,15,5,.5)'; c.lineWidth = 2; for (let k = 0; k < 3; k++) { const ph = ((rot / (Math.PI / 3) + k / 3) % 1), x = side ? a + (b - a) * ph : b - (b - a) * ph; c.beginPath(); c.moveTo(x, 266); c.lineTo(x, 462); c.stroke(); } });
+    // 正面灯纸 = 纸雕场景
+    c.save(); c.beginPath(); c.rect(PANEL.x, PANEL.y, PANEL.w, PANEL.h); c.clip();
+    c.drawImage(DIO, PANEL.x, PANEL.y, PANEL.w, PANEL.h);
+    if (L < 1) { c.fillStyle = `rgba(14,7,4,${(1 - L) * .96})`; c.fillRect(PANEL.x, PANEL.y, PANEL.w, PANEL.h); }
+    const ev = 1 - Math.max(zi, 0) + zo * 0; const vg = c.createLinearGradient(PANEL.x, 0, PANEL.x + PANEL.w, 0); const va = .45 * (1 - (Z - 1) / (ZMAX - 1)); vg.addColorStop(0, `rgba(30,10,2,${va})`); vg.addColorStop(.18, 'rgba(30,10,2,0)'); vg.addColorStop(.82, 'rgba(30,10,2,0)'); vg.addColorStop(1, `rgba(30,10,2,${va})`); c.fillStyle = vg; c.fillRect(PANEL.x, PANEL.y, PANEL.w, PANEL.h); void ev;
+    c.restore();
+    // 灯架：立柱、顶盖、底座、流苏
+    const wood = '#4A140C', gold = '#C99A4A';
+    [[416, 440], [840, 864]].forEach(([a, b]) => { c.fillStyle = wood; c.fillRect(a, 240, b - a, 248); c.fillStyle = gold; c.fillRect(a + 4, 244, 2, 240); });
+    c.fillStyle = wood; c.beginPath(); c.moveTo(352, 252); c.lineTo(928, 252); c.quadraticCurveTo(920, 230, 944, 214); c.quadraticCurveTo(880, 224, 832, 204); c.lineTo(640, 184); c.lineTo(448, 204); c.quadraticCurveTo(400, 224, 336, 214); c.quadraticCurveTo(360, 230, 352, 252); c.closePath(); c.fill();
+    c.strokeStyle = gold; c.lineWidth = 2; c.beginPath(); c.moveTo(364, 244); c.lineTo(916, 244); c.stroke();
+    c.fillStyle = wood; c.beginPath(); c.arc(CX, 180, 12, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.moveTo(376, 474); c.lineTo(904, 474); c.lineTo(876, 506); c.lineTo(404, 506); c.closePath(); c.fill();
+    c.strokeStyle = gold; c.beginPath(); c.moveTo(390, 482); c.lineTo(890, 482); c.stroke();
+    [460, 640, 820].forEach((x, k) => { const sw = 3 * Math.sin(t * 1.3 + k); c.strokeStyle = '#9C1E14'; c.lineWidth = 2; c.beginPath(); c.moveTo(x, 506); c.lineTo(x + sw, 560); c.stroke(); c.fillStyle = '#B8261A'; c.beginPath(); c.moveTo(x + sw - 7, 556); c.lineTo(x + sw + 7, 556); c.lineTo(x + sw * 1.4 + 9, 612); c.lineTo(x + sw * 1.4 - 9, 612); c.closePath(); c.fill(); c.fillStyle = gold; c.fillRect(x + sw - 7, 552, 14, 6); });
+    c.restore();
+    // 片名 / 片尾（只在外景出现）
+    const ta = prog(t, .9, 1.6) * (1 - prog(t, 2.2, 2.6)), te = prog(t, 13.6, 14.1);
+    if (ta > 0 || te > 0) { c.save(); c.font = `600 34px ${SERIF}`; c.textAlign = 'center'; c.fillStyle = `rgba(248,214,160,${Math.max(ta, te) * .9})`; c.fillText(te > 0 ? '回家' : '走马灯', CX, 680); c.restore(); }
+    const fo = prog(t, ...T.fade); if (fo > 0) { c.fillStyle = `rgba(12,6,4,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    // 点灯
+    S.at(T.light[0] - .05, I.whip); S.at(T.light[0], (w, B) => I.whoosh(w, B, .35)); S.at(T.light[0] + .1, I.shimmer);
+    // 八音盒旋律（C 大调，温暖）+ 弦乐铺底
+    const MEL = [                                      // 拍号：7 = 第一次长大，10 = 第二次长大，13.5 = 开门，14 = 拥抱
+      [0, 72], [.5, 76], [1, 79], [1.5, 84], [2, 83], [3, 79],
+      [4, 76], [4.5, 79], [5, 81], [6, 79], [6.5, 76],
+      [7, 84], [8, 81], [8.5, 79], [9, 77],
+      [10, 84], [11, 83], [11.5, 81], [12, 79], [12.5, 77], [13, 76],
+      [14, 76], [14.5, 79], [15, 84], [16, 83], [16.5, 79], [17, 72]];
+    MEL.forEach(([b, m]) => S.at(b * beat, I.mbox, m, 1.1));
+    MEL.forEach(([b, m]) => { if (b % 1 === 0 && b < 17) S.at(b * beat + beat / 2, I.mbox, m - 12, .45); });
+    const PR = [[48, 55, 64], [45, 52, 60], [41, 48, 57], [43, 50, 59], [48, 55, 64]];
+    S.padBars(PR, 0, 5, 'strings', .9);
+    PR.forEach((ch, b) => { S.at(b * bar, I.bass, ch[0] - 12, 1.2, .4); S.at(b * bar + 2 * beat, I.bass, ch[1] - 12, .8, .3); });
+    // 推进灯里、长大、开门、拥抱、拉出来
+    S.at(T.zoomIn[0], I.whoosh, .6); S.at(T.zoomIn[1] - .2, I.shimmer);
+    S.at(T.walk[0], I.paper); S.at(T.doorClose[1], I.thud, .35);
+    T.occ.forEach(x => { S.at(x - .15, I.swish); S.at(x, I.chime); });
+    S.at(T.doorOpen[0], (w, B) => creak(w, B)); S.at(T.doorOpen[1], I.bell, 72, .8);
+    S.at(T.hug[0], (w, B) => [60, 64, 67, 72, 76].forEach((m, i) => I.mbox(w + i * .09, B, m, 1)));
+    S.at(T.zoomOut[0], I.whoosh, .5);
+    S.at(13.9, I.bell, 60, .7); S.at(13.9, (w, B) => I.strings(w, B, [48, 55, 60, 64], 1.6, 1));
+  }
+});
+function lerpCol(a, b, u) { const pa = [1, 3, 5].map(i => parseInt(a.slice(i, i + 2), 16)), pb = [1, 3, 5].map(i => parseInt(b.slice(i, i + 2), 16)); return `rgb(${pa.map((v, i) => Math.round(v + (pb[i] - v) * u)).join(',')})`; }
+function creak(w, B) { const ctx = B.sfx.context, o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter(); o.type = 'sawtooth'; o.frequency.setValueAtTime(90, w); o.frequency.linearRampToValueAtTime(140, w + .25); o.frequency.linearRampToValueAtTime(70, w + .5); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 4; g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.18, w + .05); g.gain.exponentialRampToValueAtTime(.0001, w + .55); o.connect(f); f.connect(g); g.connect(B.sfx); o.start(w); o.stop(w + .6); }
+</script></body></html>

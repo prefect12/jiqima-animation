@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>移轴微缩 · 早高峰的十字路口</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@500;900&display=swap">
+<script src="../_engine/core.js"></script></head><body><script>
+/* 时间常量（画面和声音共用），124 BPM */
+const BPM = 124, BEAT = 60 / BPM;
+const T_EW_Y = 12 * BEAT, T_EW_R = 14 * BEAT;      // 东西向：黄灯 → 红灯
+const T_GO = 16 * BEAT;                            // 南北向绿灯：排队的车一齐出发（高潮）
+const T_PED_END = T_GO + 6 * BEAT;                 // 行人绿灯结束
+const VMAX = 34, ACC = 26, GAP = 7.2;              // 延时摄影的“快”：车速 34m/s、加速度、排队车距
+const hsh = n => { n = Math.sin(n * 127.1 + 311.7) * 43758.5453; return n - Math.floor(n); };
+const softmin = (a, q, D = 3) => { const x = (q - a) / D; return x > 30 ? a : q - D * Math.log(1 + Math.exp(x)); };
+/* ---------- 车流：每条车道一组车，位置是 t 的纯函数 ---------- */
+// 车道坐标 s：沿行驶方向，停止线处 s=0
+const LANES = [
+  { d: 'N', o: 1.8 }, { d: 'N', o: 5.2 }, { d: 'S', o: -1.8 }, { d: 'S', o: -5.2 },
+  { d: 'E', o: -1.8 }, { d: 'E', o: -5.2 }, { d: 'W', o: 1.8 }, { d: 'W', o: 5.2 }];
+const COLORS = ['#E63946', '#F4A261', '#2A9D8F', '#FFD000', '#FFFFFF', '#1D7FE0', '#FF6B9A', '#8AC926', '#FFD000', '#F1F1F1', '#6A4C93', '#FF7F11'];
+const CARS = [];
+LANES.forEach((L, li) => {
+  const ns = L.d === 'N' || L.d === 'S';
+  let q = 0;
+  // 红灯方向：先到的车排队（有的车一开始就在排队），等绿灯
+  // 绿灯方向：自由行驶，变灯后到的车开始排队
+  for (let i = 0; i < 16; i++) {
+    const h = hsh(li * 31 + i * 7.3), bus = hsh(li * 13 + i * 3.1) > .9 && li % 2 === 1;
+    const e = ns ? -3.2 + i * 1.25 + h * .5 : -4 + i * 1.02 + h * .35;   // 进入时刻（从 s=-90 出发）
+    const car = { li, L, col: COLORS[(li * 5 + i * 3) % COLORS.length], len: bus ? 10.5 : 4.3 + h * .5, bus, e, stop: false, q: 0, dep: 0 };
+    const sAt = tt => -90 + VMAX * (tt - e);
+    if (ns) { if (sAt(T_GO) > -80) { car.stop = true; car.q = -1.5 - q * GAP - (car.len - 4.3); car.dep = T_GO + q * .22; q++; } else { car.e = T_GO + 2.4 + (i - q) * 1.15 + h * .4; } }
+    else { if (sAt(T_EW_Y + .25) < -6) { car.stop = true; car.q = -1.5 - q * GAP - (car.len - 4.3); q++; } }
+    if (!ns && car.stop && sAt(15) < car.q - 60) continue;
+    CARS.push(car);
+  }
+});
+const carS = (c, t) => {
+  const free = -90 + VMAX * (t - c.e);
+  if (!c.stop) return free;
+  const s0 = softmin(free, c.q);
+  if (!(c.L.d === 'N' || c.L.d === 'S') || t < c.dep) return s0;
+  const u = t - c.dep, tv = VMAX / ACC, go = u < tv ? .5 * ACC * u * u : .5 * ACC * tv * tv + VMAX * (u - tv);
+  return Math.max(s0, c.q + go);
+};
+/* ---------- 城市：建筑、树、行人（初始化时生成） ---------- */
+const BLD = [], TREES = [], PEDS = [];
+[[1, 1], [-1, 1], [1, -1]].forEach(([sx, sy], qi) => {
+  for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) {
+    const h = hsh(qi * 50 + a * 7 + b * 3), x0 = 13 + a * 15, y0 = 13 + b * 15, w = 10 + hsh(qi + a * 3 + b) * 3, d = 10 + hsh(qi * 2 + a + b * 5) * 3;
+    const far = sx > 0 && sy > 0, near = a + b < 2, ht = (far ? 14 : 7) + h * (far ? 26 : near ? 9 : 16);   // 靠近路口的楼矮一点，不抢主体
+    const pal = ['#F28482', '#84A59D', '#F6BD60', '#F7EDE2', '#90BE6D', '#43AA8B', '#F9844A', '#9CADCE', '#E5989B', '#FFCAD4'];
+    BLD.push({ x0: sx > 0 ? x0 : -x0 - w, y0: sy > 0 ? y0 : -y0 - d, w, d, h: ht, col: pal[(qi * 7 + a * 3 + b * 5) % pal.length], win: hsh(a + b * 9 + qi) > .4 });
+  }
+});
+// 西南角是公园（离镜头最近，不能挡住路口）
+for (let i = 0; i < 22; i++) { const x = -15 - hsh(i * 3.3) * 45, y = -15 - hsh(i * 5.7) * 45; TREES.push({ x, y, r: 2 + hsh(i) * 1.4, h: 4 + hsh(i * 2) * 3, col: ['#52B788', '#40916C', '#74C69D', '#2D6A4F'][i % 4] }); }
+for (let k = 0; k < 8; k++) { const s = 18 + k * 9; TREES.push({ x: 9.6, y: s, r: 1.7, h: 5, col: '#40916C' }, { x: -9.6, y: s + 4, r: 1.7, h: 5, col: '#52B788' }, { x: s, y: 9.6, r: 1.7, h: 5, col: '#52B788' }, { x: s + 4, y: -9.6, r: 1.7, h: 5, col: '#40916C' }); }
+// 等绿灯过马路的人（东西两条斑马线，南北方向走）
+const SHIRT = ['#E63946', '#1D7FE0', '#FFD000', '#FFFFFF', '#2A9D8F', '#FF7F11', '#6A4C93', '#111111', '#FF6B9A'];
+for (let g = 0; g < 4; g++) for (let i = 0; i < 7; i++) {
+  const cx = g < 2 ? -10 : 10, from = g % 2 ? 1 : -1, h = hsh(g * 17 + i * 2.3);
+  PEDS.push({ x: cx + (h - .5) * 3.4 + (i % 2) * .6, y0: from * (8.2 + (i % 3) * .7 + h * .4), dir: -from, delay: hsh(g + i * 5.1) * .5, v: 4.6 + hsh(i * g + 3) * 1.4, col: SHIRT[(g * 3 + i) % SHIRT.length], cross: true });
+}
+// 人行道上来回走的人
+for (let i = 0; i < 18; i++) { const h = hsh(i * 9.1); PEDS.push({ side: i % 4, off: 8.6 + (i % 2) * 1.6, s0: -70 + h * 140, dir: i % 3 ? 1 : -1, v: 3.6 + hsh(i * 4.4) * 1.5, col: SHIRT[i % SHIRT.length], cross: false }); }
+const off = (w, h) => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; return cv; };
+let SC, SH, B1, B2;
+Film({
+  title: '移轴微缩 · 早高峰的十字路口', DUR: 15, BPM, poster: 9.3,
+  fonts: [['900 44px "Noto Sans SC"', '早高峰'], ['500 30px "Noto Sans SC"', '0123456789:']],
+  draw(c, t, F) {
+    const { W, H, prog, lerp, clamp, ease } = F;
+    const cw = c.canvas.width, ch = c.canvas.height, k = cw / W;
+    if (!SC || SC.width !== cw) { SC = off(cw, ch); SH = off(cw, ch); B1 = off(cw / 2, ch / 2); B2 = off(cw / 4, ch / 4); }
+    const s = SC.getContext('2d'), sh = SH.getContext('2d');
+    s.setTransform(k, 0, 0, k, 0, 0); sh.setTransform(k, 0, 0, k, 0, 0); sh.clearRect(0, 0, W, H);
+    const tq = Math.floor(t * 15) / 15;                                // 移动的车和人按 15fps 走，像延时摄影
+    /* ---------- 相机：高处斜俯视，缓慢横移 ---------- */
+    const u = t / 15, eye = [-34 + 9 * u, -60 + 4 * u, 80 - 4 * u], tgt = [1 + 2 * u, 3, 0], FO = 1380 + 60 * u;
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const nrm = a => { const l = Math.hypot(...a); return a.map(x => x / l); }, cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const fw = nrm(sub(tgt, eye)), rt = nrm(cross(fw, [0, 0, 1])), up = cross(rt, fw);
+    const P = p => { const d = sub(p, eye), z = dot(d, fw); return [W / 2 + FO * dot(d, rt) / z, H / 2 + 30 - FO * dot(d, up) / z, z]; };
+    const SUN = nrm([.75, -.45, .5]);                                   // 早上的低角度太阳（东南）
+    const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+    const shade = (col, n, extra = 0) => { const r = hex(col), l = Math.max(0, dot(n, SUN)), kk = .58 + .52 * l + extra, warm = l > .2; return `rgb(${Math.min(255, r[0] * kk * (warm ? 1.06 : .9)) | 0},${Math.min(255, r[1] * kk * (warm ? 1 : .95)) | 0},${Math.min(255, r[2] * kk * (warm ? .9 : 1.08)) | 0})`; };
+    const poly = (g, pts, fill) => { g.beginPath(); pts.forEach((p, i) => { const q = P(p); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.closePath(); if (fill) { g.fillStyle = fill; g.fill(); } };
+    const rect = (g, x0, y0, x1, y1, fill, z = 0) => poly(g, [[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z]], fill);
+    /* ---------- 地面：街区、人行道、马路、标线、斑马线 ---------- */
+    s.fillStyle = '#CFC6B4'; s.fillRect(0, 0, W, H);                          // 地面底色直接铺满画面（大多边形会有顶点跑到相机背后）
+    rect(s, -80, -80, -11, -11, '#7CC46A');                                 // 公园草地
+    for (let i = 0; i < 3; i++) rect(s, -78 + i * 22, -52, -70 + i * 22, -14, '#E9DCC3');
+    rect(s, -80, -30, -11, -26, '#E9DCC3');
+    rect(s, -120, -11, 120, 11, '#D9D0C0'); rect(s, -11, -120, 11, 120, '#D9D0C0');   // 人行道
+    rect(s, -120, -7, 120, 7, '#4B505B'); rect(s, -7, -120, 7, 120, '#4B505B');       // 马路
+    s.lineWidth = 1;
+    for (const [a, b] of [[-120, -12], [12, 120]]) {
+      rect(s, a, -.25, b, -.05, '#F2C12E'); rect(s, a, .05, b, .25, '#F2C12E');           // 东西向双黄线
+      rect(s, -.25, a, -.05, b, '#F2C12E'); rect(s, .05, a, .25, b, '#F2C12E');
+      for (let x = a; x < b; x += 6) { rect(s, x, 3.4, x + 3, 3.6, '#EDEDE8'); rect(s, x, -3.6, x + 3, -3.4, '#EDEDE8'); rect(s, 3.4, x, 3.6, x + 3, '#EDEDE8'); rect(s, -3.6, x, -3.4, x + 3, '#EDEDE8'); }
+    }
+    // 斑马线 + 停止线
+    for (let i = -6.5; i < 6.5; i += 1.2) { rect(s, 8, i, 12, i + .6, '#F4F4EF'); rect(s, -12, i, -8, i + .6, '#F4F4EF'); rect(s, i, 8, i + .6, 12, '#F4F4EF'); rect(s, i, -12, i + .6, -8, '#F4F4EF'); }
+    rect(s, -13.8, -7, -13.3, 0, '#F4F4EF'); rect(s, 13.3, 0, 13.8, 7, '#F4F4EF'); rect(s, 0, -13.8, 7, -13.3, '#F4F4EF'); rect(s, -7, 13.3, 0, 13.8, '#F4F4EF');
+    /* ---------- 物体：统一收集，按深度排序 ---------- */
+    const objs = [];
+    // 盒子（建筑 / 车身 / 车顶）：可见面平涂光照 + 地面影子
+    const hull = pts => { pts = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]); const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); const lo = [], hi = []; for (const p of pts) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); } for (const p of pts.slice().reverse()) { while (hi.length >= 2 && cr(hi[hi.length - 2], hi[hi.length - 1], p) <= 0) hi.pop(); hi.push(p); } return lo.slice(0, -1).concat(hi.slice(0, -1)); };
+    const boxShadow = (x0, y0, z0, x1, y1, z1) => { const pts = []; for (const x of [x0, x1]) for (const y of [y0, y1]) for (const z of [z0, z1]) { const k2 = z / SUN[2]; pts.push([x - SUN[0] * k2, y - SUN[1] * k2]); } poly(sh, hull(pts).map(p => [p[0], p[1], 0]), '#000'); };
+    const box = (g, x0, y0, z0, x1, y1, z1, col, deco) => {
+      const F6 = [[[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1], [1, 0, 0]], [[x0, y1, z0], [x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [-1, 0, 0]], [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0]], [[x1, y1, z0], [x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [0, 1, 0]], [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1]]];
+      F6.forEach(f => { const n = f[4], ctr = [(f[0][0] + f[2][0]) / 2, (f[0][1] + f[2][1]) / 2, (f[0][2] + f[2][2]) / 2]; if (dot(n, sub(eye, ctr)) <= 0) return; poly(g, f.slice(0, 4), shade(col, n, n[2] ? .1 : 0)); if (deco) deco(f, n); });
+    };
+    BLD.forEach(b => {
+      const x1 = b.x0 + b.w, y1 = b.y0 + b.d;
+      boxShadow(b.x0, b.y0, 0, x1, y1, b.h);
+      objs.push({ z: P([b.x0 + b.w / 2, b.y0 + b.d / 2, b.h * .3])[2], d: () => {
+        box(s, b.x0, b.y0, 0, x1, y1, b.h, b.col, (f, n) => {
+          if (n[2]) { const cx = b.x0 + b.w * .3, cy = b.y0 + b.d * .3; box(s, cx, cy, b.h, cx + 3, cy + 2, b.h + 1.4, '#D9D9D9'); return; }   // 屋顶空调箱
+          const [p0, p1, , p3] = f, lit = dot(n, SUN) > .1;
+          for (let z = 2.2; z < b.h - 1; z += 3.2) {                          // 每层一条窗带
+            const L = (a, zz) => [p0[0] + (p1[0] - p0[0]) * a, p0[1] + (p1[1] - p0[1]) * a, zz];
+            if (b.win) for (let a = .08; a < .92; a += .16) poly(s, [L(a, z), L(a + .1, z), L(a + .1, z + 1.5), L(a, z + 1.5)], lit ? 'rgba(170,215,240,.75)' : 'rgba(35,55,85,.55)');
+            else poly(s, [L(.06, z), L(.94, z), L(.94, z + 1.3), L(.06, z + 1.3)], lit ? 'rgba(170,215,240,.7)' : 'rgba(35,55,85,.5)');
+          }
+        });
+      } });
+    });
+    // 树：一团圆冠 + 高光，地上椭圆影子
+    TREES.forEach(tr => {
+      const k2 = tr.h / SUN[2]; const sp = P([tr.x - SUN[0] * k2, tr.y - SUN[1] * k2, 0]), r0 = FO * tr.r / sp[2];
+      sh.beginPath(); sh.ellipse(sp[0], sp[1], r0 * 1.1, r0 * .75, -.5, 0, 7); sh.fillStyle = '#000'; sh.fill();
+      objs.push({ z: P([tr.x, tr.y, tr.h * .5])[2], d: () => {
+        const b = P([tr.x, tr.y, 0]), top = P([tr.x, tr.y, tr.h]), r = FO * tr.r / top[2];
+        s.strokeStyle = '#6B4F3A'; s.lineWidth = r * .25; s.beginPath(); s.moveTo(b[0], b[1]); s.lineTo(top[0], top[1] + r * .4); s.stroke();
+        const g = s.createRadialGradient(top[0] + r * .35, top[1] - r * .35, r * .1, top[0], top[1], r); g.addColorStop(0, '#B7E4A0'); g.addColorStop(.35, tr.col); g.addColorStop(1, '#1E4D3A');
+        s.fillStyle = g; s.beginPath(); s.arc(top[0], top[1], r, 0, 7); s.fill();
+      } });
+    });
+    // 车：车身 + 车顶（深色玻璃）；按车道方向摆放
+    CARS.forEach(cr => {
+      const sv = carS(cr, tq); if (sv < -95 || sv > 110) return;
+      const { d, o } = cr.L, hl = cr.len / 2, hw = .95;
+      let cx, cy, ax;                                                   // ax：车头方向
+      if (d === 'N') { cx = o; cy = -13.5 + sv - hl; ax = [0, 1]; } else if (d === 'S') { cx = o; cy = 13.5 - sv + hl; ax = [0, -1]; }
+      else if (d === 'E') { cx = -13.5 + sv - hl; cy = o; ax = [1, 0]; } else { cx = 13.5 - sv + hl; cy = o; ax = [-1, 0]; }
+      const ex = ax[0] ? hl : hw, ey = ax[0] ? hw : hl, hgt = cr.bus ? 3 : 1.05;
+      boxShadow(cx - ex, cy - ey, 0, cx + ex, cy + ey, hgt + (cr.bus ? 0 : .55));
+      objs.push({ z: P([cx, cy, .8])[2], d: () => {
+        box(s, cx - ex, cy - ey, .25, cx + ex, cy + ey, hgt, cr.col);
+        if (cr.bus) { const L = (a, b, z) => [cx + ax[0] * a + ax[1] * b, cy + ax[1] * a - ax[0] * b, z]; [1, -1].forEach(sd => poly(s, [L(-hl + .6, sd * (hw + .01), 1.6), L(hl - .5, sd * (hw + .01), 1.6), L(hl - .5, sd * (hw + .01), 2.5), L(-hl + .6, sd * (hw + .01), 2.5)], 'rgba(30,45,70,.7)')); return; }
+        const kx = cx - ax[0] * .35, ky = cy - ax[1] * .35, rx = ax[0] ? 1.15 : .82, ry = ax[0] ? .82 : 1.15;
+        box(s, kx - rx, ky - ry, hgt, kx + rx, ky + ry, hgt + .55, '#2B3A4A');
+        const tp = [[kx - rx * .8, ky - ry * .8], [kx + rx * .8, ky - ry * .8], [kx + rx * .8, ky + ry * .8], [kx - rx * .8, ky + ry * .8]].map(([x, y]) => [x, y, hgt + .56]);
+        poly(s, tp, cr.col);                                              // 车顶涂色
+      } });
+    });
+    // 行人：小小的身子 + 头；过马路的人在绿灯后出发，走路一颠一颠
+    PEDS.forEach((p, i) => {
+      let x, y, walk = false;
+      if (p.cross) { const st = T_GO + .25 + p.delay; if (tq < st) { x = p.x; y = p.y0; } else { walk = true; x = p.x; y = p.y0 + p.dir * p.v * (tq - st); if (Math.abs(y) > 10) { const extra = Math.abs(y) - 10; y = Math.sign(y) * (10 + extra * .6); x = p.x + Math.sign(p.x) * extra * .5; } } }
+      else { walk = true; const sv = ((p.s0 + p.dir * p.v * tq) % 160 + 240) % 160 - 80; const side = p.side; x = side < 2 ? (side ? p.off : -p.off) : sv; y = side < 2 ? sv : (side === 2 ? p.off : -p.off); if (Math.abs(x) < 11 && Math.abs(y) < 11) return; }
+      const bob = walk ? Math.abs(Math.sin(tq * 14 + i)) * .12 : 0;
+      const k2 = 1.7 / SUN[2], a = P([x, y, 0]), b = P([x - SUN[0] * k2, y - SUN[1] * k2, 0]);
+      sh.strokeStyle = '#000'; sh.lineWidth = FO * .45 / a[2]; sh.lineCap = 'round'; sh.beginPath(); sh.moveTo(a[0], a[1]); sh.lineTo(b[0], b[1]); sh.stroke();
+      objs.push({ z: a[2], d: () => {
+        const f0 = P([x, y, bob]), f1 = P([x, y, 1.35 + bob]), hd = P([x, y, 1.62 + bob]), r = FO * .5 / f0[2];
+        s.lineCap = 'round'; s.strokeStyle = '#2B2D42'; s.lineWidth = r * .8; s.beginPath(); s.moveTo(f0[0], f0[1]); s.lineTo(f0[0] + (f1[0] - f0[0]) * .45, f0[1] + (f1[1] - f0[1]) * .45); s.stroke();
+        s.strokeStyle = p.col; s.lineWidth = r * 1.05; s.beginPath(); s.moveTo(f0[0] + (f1[0] - f0[0]) * .4, f0[1] + (f1[1] - f0[1]) * .4); s.lineTo(f1[0], f1[1]); s.stroke();
+        s.fillStyle = '#F1C9A5'; s.beginPath(); s.arc(hd[0], hd[1], r * .5, 0, 7); s.fill(); s.fillStyle = '#2B1D14'; s.beginPath(); s.arc(hd[0], hd[1] - r * .12, r * .44, Math.PI, 0); s.fill();
+      } });
+    });
+    // 红绿灯：四个路口角，灯头朝向各自的车道；亮灯带光晕
+    const ewCol = t < T_EW_Y ? 'g' : t < T_EW_R ? 'y' : 'r', nsCol = t < T_GO ? 'r' : 'g';
+    [[9, 9, 'ns'], [-9, -9, 'ns'], [-9, 9, 'ew'], [9, -9, 'ew']].forEach(([x, y, dir]) => {
+      objs.push({ z: P([x, y, 3])[2], d: () => {
+        const b = P([x, y, 0]), tp = P([x, y, 5.2]);
+        s.strokeStyle = '#3A3F47'; s.lineWidth = 3; s.beginPath(); s.moveTo(b[0], b[1]); s.lineTo(tp[0], tp[1]); s.stroke();
+        s.fillStyle = '#23262B'; F.rrect(s, tp[0] - 5, tp[1] - 20, 10, 24, 3); s.fill();
+        const st = dir === 'ns' ? nsCol : ewCol;
+        [['r', '#FF3B30', -15], ['y', '#FFCC00', -8], ['g', '#34E36B', -1]].forEach(([k3, col, dy]) => {
+          const on = k3 === st && !(st === 'y' && Math.floor(t * 6) % 2);
+          s.fillStyle = on ? col : '#4A4D52'; s.beginPath(); s.arc(tp[0], tp[1] + dy, 2.8, 0, 7); s.fill();
+          if (on) { const g = s.createRadialGradient(tp[0], tp[1] + dy, 0, tp[0], tp[1] + dy, 16); g.addColorStop(0, col + 'AA'); g.addColorStop(1, col + '00'); s.fillStyle = g; s.fillRect(tp[0] - 16, tp[1] + dy - 16, 32, 32); }
+        });
+      } });
+    });
+    // 影子层：统一用冷色半透明叠一次，重叠处不会越叠越黑
+    s.save(); s.setTransform(1, 0, 0, 1, 0, 0); s.globalAlpha = .34; s.globalCompositeOperation = 'multiply';
+    sh.save(); sh.setTransform(1, 0, 0, 1, 0, 0); sh.globalCompositeOperation = 'source-in'; sh.fillStyle = '#2A3A6A'; sh.fillRect(0, 0, cw, ch); sh.restore(); sh.globalCompositeOperation = 'source-over';
+    s.drawImage(SH, 0, 0); s.restore();
+    objs.sort((a, b) => b.z - a.z).forEach(o => o.d());
+    // 早晨的暖光雾
+    const hz = s.createLinearGradient(0, 0, 0, H); hz.addColorStop(0, 'rgba(255,214,160,.22)'); hz.addColorStop(.5, 'rgba(255,214,160,0)'); s.fillStyle = hz; s.fillRect(0, 0, W, H);
+    /* ---------- 移轴：上下两层模糊，按渐变遮罩叠回 ---------- */
+    c.drawImage(SC, 0, 0, W, H);
+    const blurLayer = (B, px, stops) => {
+      const g = B.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'copy'; g.filter = `blur(${px}px)`; g.drawImage(SC, 0, 0, B.width, B.height); g.filter = 'none';
+      g.globalCompositeOperation = 'destination-in'; const m = g.createLinearGradient(0, 0, 0, B.height); stops.forEach(([p, a]) => m.addColorStop(p, `rgba(0,0,0,${a})`)); g.fillStyle = m; g.fillRect(0, 0, B.width, B.height); g.globalCompositeOperation = 'source-over';
+      c.drawImage(B, 0, 0, W, H);
+    };
+    blurLayer(B1, 2.2 * k, [[0, 1], [.36, 0], [.64, 0], [1, 1]]);
+    blurLayer(B2, 2.6 * k, [[0, 1], [.24, 0], [.8, 0], [1, 1]]);
+    c.fillStyle = 'rgba(255,255,255,.04)'; c.fillRect(0, 0, W, H);
+    F.vignette(c, .28, '30,20,40');
+    /* ---------- 字幕：早高峰 + 时钟（延时：1 秒 = 1 分钟） ---------- */
+    const a = clamp(prog(t, .3, .8), 0, 1) * (1 - prog(t, 13.8, 14.4));
+    if (a > 0) {
+      c.globalAlpha = a; c.textBaseline = 'alphabetic'; c.textAlign = 'left';
+      c.fillStyle = 'rgba(20,24,34,.55)'; F.rrect(c, 48, 44, 250, 110, 16); c.fill();
+      c.font = '900 44px "Noto Sans SC", sans-serif'; c.fillStyle = '#FFFFFF'; c.fillText('早高峰', 72, 104);
+      const m = 52 + Math.floor(t), hh = m >= 60 ? '08' : '07', mm = String(m % 60).padStart(2, '0');
+      c.font = '500 30px "Noto Sans SC", sans-serif'; c.fillStyle = '#FFD166'; c.fillText(`${hh}:${mm}`, 72, 140);
+      c.globalAlpha = 1;
+    }
+    const fo = prog(t, 14.45, 15); if (fo > 0) { c.fillStyle = `rgba(245,236,220,${fo})`; c.fillRect(0, 0, W, H); }
+  },
+  score(S) {
+    const { I, beat, bar } = S;
+    // 轻快城市律动：D – A – Bm – G；绿灯之前没有底鼓（滤波般的铺垫），绿灯一亮全鼓进来
+    const PR = [[62, 66, 69], [61, 64, 69], [59, 62, 66], [59, 62, 67]], RT = [38, 33, 35, 31];
+    const GOB = Math.round(T_GO / bar);
+    for (let b = 0; b < 8; b++) {
+      const ch = PR[b % 4], t0 = b * bar;
+      [0, 1.5, 2.5, 3].forEach((r, i) => S.at(t0 + r * beat, (w, B) => ch.forEach(m => I.keys(w, B, m + 12, i ? .55 : .8, .4))));
+      [0, .75, 1.5, 2, 2.75, 3.5].forEach((r, i) => S.at(t0 + r * beat, I.marimba, ch[i % 3] + 24, .3));
+      if (b >= GOB) { S.drums(b, b + 1, 'four', .7); S.bassLine([RT[b % 4]], b, b + 1, .8); }
+      else { for (let e = 0; e < 8; e++) S.at(t0 + e * beat / 2, I.shaker, .8); S.at(t0, I.bass, RT[b % 4], 1.6, .6); S.at(t0 + 2 * beat, I.rim, .6); }
+    }
+    // 黄灯 / 红灯提示、绿灯的一记重拍
+    S.at(T_EW_Y, I.tick, 1.5); S.at(T_EW_R, I.tick, 1.5); S.at(T_GO - bar / 2, I.riser, bar / 2);
+    S.at(T_GO, I.impact); S.at(T_GO, I.clap, 1.2);
+    // 车喇叭“哔哔”：两个方波叠成的小喇叭
+    const horn = (w, B, f = 420, v = 1) => { [0, .16].forEach(d => { [f, f * 1.26].forEach(fq => { const ctx = B.sfx.context, o = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter(); o.type = 'square'; o.frequency.value = fq; lp.type = 'lowpass'; lp.frequency.value = 2200; g.gain.setValueAtTime(.0001, w + d); g.gain.exponentialRampToValueAtTime(.05 * v, w + d + .01); g.gain.setValueAtTime(.05 * v, w + d + .1); g.gain.exponentialRampToValueAtTime(.0001, w + d + .13); o.connect(lp); lp.connect(g); g.connect(B.sfx); o.start(w + d); o.stop(w + d + .15); }); }); };
+    S.at(2.1, horn, 380, .7); S.at(T_GO + .45, horn, 460, 1); S.at(T_GO + 1.1, horn, 350, .8); S.at(12.4, horn, 410, .8);
+    // 行人过街提示音：绿灯期间“嘀嘀嘀”
+    for (let x = T_GO + .1; x < T_PED_END; x += beat / 2) S.at(x, (w, B) => { const ctx = B.sfx.context, o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sine'; o.frequency.value = 2350; g.gain.setValueAtTime(.0001, w); g.gain.exponentialRampToValueAtTime(.035, w + .005); g.gain.exponentialRampToValueAtTime(.0001, w + .06); o.connect(g); g.connect(B.sfx); o.start(w); o.stop(w + .08); });
+    // 车一齐起步：一阵引擎 whoosh
+    for (let i = 0; i < 4; i++) S.at(T_GO + .1 + i * .18, I.whoosh, .35);
+    S.at(14.2, I.bell, 86, .6);
+  }
+});
+</script></body></html>
